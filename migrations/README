@@ -1,0 +1,3 @@
+Alembic migration environment.
+
+The initial skeleton sets up migrations only. Business schema migrations are added with the first persistence implementation.

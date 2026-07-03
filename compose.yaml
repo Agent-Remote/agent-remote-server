@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agent_remote
+      POSTGRES_PASSWORD: agent_remote
+      POSTGRES_DB: agent_remote
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_remote -d agent_remote"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build: .
+    command: uvicorn agent_remote_server.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      AGENT_REMOTE_ENV: development
+      AGENT_REMOTE_SECRET_KEY: change-me-in-production
+      PUBLIC_BASE_URL: http://localhost:8000
+      DATABASE_URL: postgresql+asyncpg://agent_remote:agent_remote@postgres:5432/agent_remote
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
