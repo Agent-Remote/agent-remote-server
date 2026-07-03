@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import agent_remote_server.models  # noqa: F401
 from agent_remote_server.config import get_settings
 from agent_remote_server.db import Base
 
