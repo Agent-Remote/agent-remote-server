@@ -1,6 +1,8 @@
 import runpy
 from pathlib import Path
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from agent_remote_server.db import Base
@@ -104,11 +106,64 @@ async def test_repository_crud_round_trip() -> None:
             assert found.username == "rem"
             assert [user.username for user in await users.list()] == ["rem"]
 
+            found.display_name = "Rem Updated"
+            await session.commit()
+
+        async with session_factory() as session:
+            service = PersistenceService(session)
+            users = service.repository(User)
+            updated = await users.get(user_id)
+
+            assert updated is not None
+            assert updated.display_name == "Rem Updated"
+
+        async with session_factory() as session:
+            service = PersistenceService(session)
+            users = service.repository(User)
+            found = await users.get(user_id)
+
+            assert found is not None
             await users.delete(found)
             await session.commit()
 
         async with session_factory() as session:
             service = PersistenceService(session)
             assert await service.repository(User).get(user_id) is None
+    finally:
+        await engine.dispose()
+
+
+async def test_repository_surfaces_unique_constraint_conflict() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with session_factory() as session:
+            users = PersistenceService(session).repository(User)
+            await users.add(
+                User(
+                    username="duplicate",
+                    display_name="First",
+                    role="user",
+                    status="active",
+                    password_hash="hashed",
+                    totp_enabled=False,
+                )
+            )
+
+            with pytest.raises(IntegrityError):
+                await users.add(
+                    User(
+                        username="duplicate",
+                        display_name="Second",
+                        role="user",
+                        status="active",
+                        password_hash="hashed",
+                        totp_enabled=False,
+                    )
+                )
     finally:
         await engine.dispose()
