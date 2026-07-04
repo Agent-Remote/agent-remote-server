@@ -3,6 +3,10 @@ name = "agent-remote-server"
 version = "0.1.0"
 description = "Control-plane API for agent-remote."
 readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "alembic>=1.14,<2",

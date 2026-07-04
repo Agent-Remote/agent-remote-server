@@ -68,4 +68,10 @@ See `.env.example`.
 
 ## Current Boundary
 
-This repository skeleton does not yet implement business tables, auth, node task behavior, or user APIs. Those features must be added through explicit protocol and architecture updates.
+This repository contains the control-plane API foundation, persistence model, identity and device APIs, node control APIs, and node task polling APIs. Runtime features that require local device networking, workspace synchronization, tool account binding, and interactive tool sessions are implemented through the CLI and node repositories.
+
+## License
+
+agent-remote-server is licensed under GPL-3.0-only. See `LICENSE`.
+
+Third-party dependency notices are listed in `THIRD_PARTY_NOTICES.md`.
