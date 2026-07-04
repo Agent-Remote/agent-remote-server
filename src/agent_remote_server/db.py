@@ -4,6 +4,7 @@ import time
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import StaticPool
 
 from agent_remote_server.config import Settings
 from agent_remote_server.schemas.health import HealthComponent
@@ -26,23 +27,32 @@ def create_engine(settings: Settings) -> AsyncEngine:
     :return AsyncEngine: SQLAlchemy 异步引擎
     """
 
-    return create_async_engine(
-        settings.database_url,
-        pool_pre_ping=True,
-    )
+    if settings.database_url == "sqlite+aiosqlite:///:memory:":
+        return create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            poolclass=StaticPool,
+        )
+
+    return create_async_engine(settings.database_url, pool_pre_ping=True)
 
 
-def create_session_factory(settings: Settings) -> async_sessionmaker:
+def create_session_factory(
+    settings: Settings,
+    engine: AsyncEngine | None = None,
+) -> async_sessionmaker:
     """
     创建异步数据库会话工厂
 
     :param settings (Settings): 应用配置
 
+    :param engine (AsyncEngine): 可选数据库引擎
+
     :return async_sessionmaker: 异步会话工厂
     """
 
     return async_sessionmaker(
-        bind=create_engine(settings),
+        bind=engine or create_engine(settings),
         expire_on_commit=False,
     )
 

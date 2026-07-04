@@ -9,6 +9,7 @@ src/agent_remote_server/
   models/       SQLAlchemy ORM models split by business domain
   repositories/ Database access helpers
   schemas/      Pydantic response and request models
+  security/     Password, token, encryption, and TOTP helpers
   services/     Application service helpers
   config.py     Environment-driven settings
   context.py    Request-local context
@@ -23,7 +24,9 @@ src/agent_remote_server/
 - `main.py` wires application components.
 - `api/` may depend on `schemas/`, `config`, `db`, and `redis_client`.
 - `services/` may depend on `repositories/`, `models/`, and `schemas/`.
+- `services/` may depend on `security/` helpers for explicit security operations.
 - `repositories/` may depend on `models/` and `db`.
+- `security/` must not depend on API, database, repositories, services, Redis, or middleware modules.
 - `models/` may depend on `db` for the declarative base.
 - `schemas/` must not import API, database, Redis, or middleware modules.
 - `middleware/` may depend on `context` and standard logging only.

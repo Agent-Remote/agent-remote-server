@@ -17,6 +17,7 @@ Before making changes, identify the task domain and read the matching rule docum
 | Quality and security gates | `docs/rules/07-quality-security.md` |
 | Git, commits, hooks, pull requests | `docs/rules/08-collaboration.md` |
 | Data, persistence, migrations | `docs/rules/09-data-persistence.md` |
+| Identity, authentication, devices, tokens | `docs/rules/10-identity-auth.md` |
 
 ## Mandatory Gates
 

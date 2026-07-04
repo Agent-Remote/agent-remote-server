@@ -7,6 +7,8 @@
 - Pydantic v2 and `pydantic-settings` for schemas and settings.
 - SQLAlchemy 2 async engine.
 - Alembic for migrations.
+- Argon2id through `argon2-cffi` for password hashing.
+- `cryptography` for reversible encryption of server-side authentication secrets.
 - `redis.asyncio` for Redis.
 - Uvicorn for ASGI serving.
 
@@ -28,4 +30,3 @@
 ## Python Version Policy
 
 `pyproject.toml`, Dockerfile, and CI must all target Python 3.13.
-

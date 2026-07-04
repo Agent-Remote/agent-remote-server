@@ -11,7 +11,9 @@ from agent_remote_server.services import PersistenceService
 
 EXPECTED_TABLES = {
     "audit_logs",
+    "auth_tokens",
     "browser_sessions",
+    "cli_login_codes",
     "node_heartbeats",
     "node_task_results",
     "node_tasks",
@@ -30,8 +32,14 @@ EXPECTED_TABLES = {
 
 EXPECTED_INDEXES = {
     "audit_logs_actor_idx",
+    "auth_tokens_device_status_idx",
+    "auth_tokens_hash_uidx",
+    "auth_tokens_user_status_idx",
     "browser_sessions_node_status_idx",
     "browser_sessions_user_status_idx",
+    "cli_login_codes_device_hash_uidx",
+    "cli_login_codes_status_idx",
+    "cli_login_codes_user_code_uidx",
     "node_heartbeats_node_created_idx",
     "node_task_results_task_id_idx",
     "node_tasks_poll_idx",
@@ -71,6 +79,14 @@ def test_initial_migration_revision_identity() -> None:
 
     assert migration_globals["revision"] == "0001_core_schema"
     assert migration_globals["down_revision"] is None
+
+
+def test_identity_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0002_identity_auth.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0002_identity_auth"
+    assert migration_globals["down_revision"] == "0001_core_schema"
 
 
 async def test_repository_crud_round_trip() -> None:

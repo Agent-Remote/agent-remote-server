@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL", description="日志级别")
     request_id_header: str = Field(default="x-request-id", description="请求 ID 头名称")
     dependency_check_timeout_seconds: float = Field(default=2.0, description="依赖检查超时时间")
+    access_token_ttl_seconds: int = Field(default=3600, description="访问令牌有效秒数")
+    cli_login_ttl_seconds: int = Field(default=600, description="CLI 登录码有效秒数")
+    cli_login_poll_interval_seconds: int = Field(default=5, description="CLI 登录轮询间隔秒数")
 
 
 @lru_cache

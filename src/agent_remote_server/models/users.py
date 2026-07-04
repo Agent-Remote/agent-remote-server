@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -21,6 +21,7 @@ class User(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    encrypted_totp_secret: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
 
 class UserDevice(IdMixin, TimestampMixin, Base):
