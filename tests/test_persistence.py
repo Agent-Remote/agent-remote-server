@@ -41,6 +41,9 @@ EXPECTED_INDEXES = {
     "cli_login_codes_status_idx",
     "cli_login_codes_user_code_uidx",
     "node_heartbeats_node_created_idx",
+    "nodes_node_token_hash_uidx",
+    "nodes_registration_token_hash_uidx",
+    "nodes_status_heartbeat_idx",
     "node_task_results_task_id_idx",
     "node_tasks_poll_idx",
     "node_tasks_task_id_uidx",
@@ -87,6 +90,14 @@ def test_identity_migration_revision_identity() -> None:
 
     assert migration_globals["revision"] == "0002_identity_auth"
     assert migration_globals["down_revision"] == "0001_core_schema"
+
+
+def test_node_control_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0003_node_control.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0003_node_control"
+    assert migration_globals["down_revision"] == "0002_identity_auth"
 
 
 async def test_repository_crud_round_trip() -> None:

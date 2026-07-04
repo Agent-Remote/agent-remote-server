@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import JSON as JsonType
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -15,14 +15,25 @@ class Node(IdMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "nodes"
+    __table_args__ = (
+        Index("nodes_registration_token_hash_uidx", "registration_token_hash", unique=True),
+        Index("nodes_node_token_hash_uidx", "node_token_hash", unique=True),
+        Index("nodes_status_heartbeat_idx", "status", "last_heartbeat_at"),
+    )
 
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     region_code: Mapped[str] = mapped_column(String(32), nullable=False)
-    tags: Mapped[dict[str, object]] = mapped_column(JsonType, nullable=False, default=dict)
+    tags: Mapped[list[str]] = mapped_column(JsonType, nullable=False, default=list)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     wireguard_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     supported_tool_types: Mapped[list[str]] = mapped_column(JsonType, nullable=False, default=list)
+    registration_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    node_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class NodeHeartbeat(IdMixin, Base):

@@ -18,6 +18,7 @@ Before making changes, identify the task domain and read the matching rule docum
 | Git, commits, hooks, pull requests | `docs/rules/08-collaboration.md` |
 | Data, persistence, migrations | `docs/rules/09-data-persistence.md` |
 | Identity, authentication, devices, tokens | `docs/rules/10-identity-auth.md` |
+| Node control, heartbeats, task leases | `docs/rules/11-node-control.md` |
 
 ## Mandatory Gates
 

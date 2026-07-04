@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.config import Settings
 from agent_remote_server.db import create_session_factory
 from agent_remote_server.errors import ApiError
-from agent_remote_server.models import AuthToken, User
+from agent_remote_server.models import AuthToken, Node, User
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import hash_token
+from agent_remote_server.services.nodes import NodeService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -147,3 +148,27 @@ async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> Use
             status_code=403,
         )
     return user
+
+
+async def get_current_node(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> Node:
+    """
+    读取当前节点
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param credentials (HTTPAuthorizationCredentials): Bearer 凭证
+
+    :return Node: 当前节点
+    """
+
+    if credentials is None:
+        raise ApiError(
+            code="COMMON_UNAUTHORIZED",
+            message="Node credential is required.",
+            status_code=401,
+        )
+    return await NodeService(session, settings).authenticate_node_token(credentials.credentials)

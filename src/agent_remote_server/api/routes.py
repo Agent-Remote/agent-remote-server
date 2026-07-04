@@ -1,12 +1,14 @@
 from fastapi import APIRouter
 
 from agent_remote_server import __version__
-from agent_remote_server.api import auth, devices, users
+from agent_remote_server.api import auth, devices, node_api, nodes, users
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(devices.router)
+api_router.include_router(nodes.router)
+api_router.include_router(node_api.router)
 
 
 @api_router.get("/version", tags=["system"])

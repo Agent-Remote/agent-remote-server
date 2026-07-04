@@ -14,5 +14,6 @@ This directory is the local source of truth for repository standards.
 | `08-collaboration.md` | Git hooks, commits, branches, PR expectations |
 | `09-data-persistence.md` | Database, Redis, Alembic, secrets |
 | `10-identity-auth.md` | Identity, authentication, devices, tokens |
+| `11-node-control.md` | Node control, heartbeats, task leases |
 
 Agents and contributors must read the relevant rule files before changing code.
