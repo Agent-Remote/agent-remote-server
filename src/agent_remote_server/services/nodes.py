@@ -2,11 +2,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
 from agent_remote_server.errors import ApiError
-from agent_remote_server.models import AuditLog, Node, NodeHeartbeat, NodeTask, NodeTaskResult, User
+from agent_remote_server.models import (
+    AuditLog,
+    Node,
+    NodeHeartbeat,
+    NodeTask,
+    NodeTaskResult,
+    ToolAccount,
+    ToolAccountProfile,
+    User,
+)
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import create_opaque_token, hash_token
@@ -489,6 +499,7 @@ class NodeService:
                 )
             )
         task.status = "succeeded"
+        await self._apply_tool_account_task_result(task, result)
         await self._session.commit()
 
     async def fail_task(self, *, node: Node, task_id: str, error: dict[str, object]) -> None:
@@ -514,6 +525,7 @@ class NodeService:
                 )
             )
         task.status = "failed"
+        await self._apply_tool_account_task_failure(task, error)
         await self._session.commit()
 
     async def reconcile(
@@ -554,6 +566,101 @@ class NodeService:
         if task is None or task.node_id != node.id:
             raise ApiError(code="COMMON_NOT_FOUND", message="Task was not found.", status_code=404)
         return task
+
+    async def _apply_tool_account_task_result(
+        self, task: NodeTask, result: dict[str, object]
+    ) -> None:
+        account_id = self._task_tool_account_id(task, result)
+        if account_id is None:
+            return
+        account = await self._session.get(ToolAccount, account_id)
+        if account is None:
+            return
+        profile = await self._tool_account_profile(account)
+        if task.task_type == "create_binding_session":
+            status = result.get("status")
+            if status in {"waiting_user_login", "ready"}:
+                account.status = "binding_waiting_user_login"
+                profile.profile_json = {
+                    **profile.profile_json,
+                    "binding_session_id": self._text_result(result, "binding_session_id"),
+                    "tmux_session_name": self._text_result(result, "tmux_session_name"),
+                    "account_remote_path": self._text_result(result, "account_remote_path"),
+                    "last_binding_result": result,
+                }
+                return
+            account.status = "failed"
+            profile.profile_json = {
+                **profile.profile_json,
+                "last_error": self._text_result(result, "error") or "Binding session failed.",
+            }
+            return
+        if task.task_type == "verify_tool_account":
+            if result.get("verified") is True:
+                account.status = "active"
+                profile.profile_json = {
+                    **profile.profile_json,
+                    "account_remote_path": self._text_result(result, "account_remote_path"),
+                    "verified_at": self._now().isoformat(),
+                    "verifier_metadata": result.get("metadata")
+                    if isinstance(result.get("metadata"), dict)
+                    else {},
+                    "last_error": None,
+                }
+                return
+            account.status = "failed"
+            profile.profile_json = {
+                **profile.profile_json,
+                "last_error": self._text_result(result, "error")
+                or "Tool account verification failed.",
+            }
+
+    async def _apply_tool_account_task_failure(
+        self, task: NodeTask, error: dict[str, object]
+    ) -> None:
+        account_id = self._task_tool_account_id(task, error)
+        if account_id is None:
+            return
+        account = await self._session.get(ToolAccount, account_id)
+        if account is None:
+            return
+        profile = await self._tool_account_profile(account)
+        account.status = "failed"
+        profile.profile_json = {
+            **profile.profile_json,
+            "last_error": self._text_result(error, "message") or self._text_result(error, "error"),
+        }
+
+    async def _tool_account_profile(self, account: ToolAccount) -> ToolAccountProfile:
+        profile = await self._session.scalar(
+            select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account.id)
+        )
+        if profile is not None:
+            return profile
+        profile = ToolAccountProfile(
+            tool_account_id=account.id,
+            tool_type=account.tool_type,
+            profile_json={},
+            encrypted_secrets=None,
+        )
+        self._session.add(profile)
+        await self._session.flush()
+        return profile
+
+    def _task_tool_account_id(self, task: NodeTask, fallback: dict[str, object]) -> UUID | None:
+        value = task.payload.get("tool_account_id") or fallback.get("tool_account_id")
+        if not isinstance(value, str):
+            return None
+        try:
+            return UUID(value)
+        except ValueError:
+            return None
+
+    def _text_result(self, result: dict[str, object], key: str) -> str | None:
+        value = result.get(key)
+        if isinstance(value, str) and value:
+            return value
+        return None
 
     async def _audit(
         self,

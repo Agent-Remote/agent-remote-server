@@ -9,6 +9,7 @@ from agent_remote_server.api import (
     nodes,
     sessions,
     sync_sessions,
+    tool_accounts,
     users,
     workspaces,
 )
@@ -21,6 +22,7 @@ api_router.include_router(network.router)
 api_router.include_router(nodes.router)
 api_router.include_router(workspaces.router)
 api_router.include_router(sync_sessions.router)
+api_router.include_router(tool_accounts.router)
 api_router.include_router(sessions.router)
 api_router.include_router(node_api.router)
 
