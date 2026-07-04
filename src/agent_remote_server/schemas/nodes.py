@@ -16,6 +16,11 @@ class NodeData(BaseModel):
     tags: list[str] = Field(default_factory=list, description="节点标签")
     weight: int = Field(..., description="调度权重")
     wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
+    wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
+    wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
+    ssh_host: str | None = Field(default=None, description="SSH 主机")
+    ssh_port: int | None = Field(default=None, description="SSH 端口")
+    ssh_user: str | None = Field(default=None, description="SSH 用户")
     supported_tool_types: list[str] = Field(default_factory=list, description="支持工具类型")
     last_heartbeat_at: datetime | None = Field(default=None, description="最后心跳时间")
     version: str | None = Field(default=None, description="节点版本")
@@ -33,6 +38,12 @@ class CreateNodeRequest(BaseModel):
     tags: list[str] = Field(default_factory=list, description="节点标签")
     weight: int = Field(default=100, description="调度权重")
     supported_tool_types: list[str] = Field(default_factory=list, description="支持工具类型")
+    wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
+    wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
+    wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
+    ssh_host: str | None = Field(default=None, description="SSH 主机")
+    ssh_port: int | None = Field(default=None, description="SSH 端口")
+    ssh_user: str | None = Field(default=None, description="SSH 用户")
 
 
 class UpdateNodeRequest(BaseModel):
@@ -45,6 +56,12 @@ class UpdateNodeRequest(BaseModel):
     tags: list[str] | None = Field(default=None, description="节点标签")
     weight: int | None = Field(default=None, description="调度权重")
     supported_tool_types: list[str] | None = Field(default=None, description="支持工具类型")
+    wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
+    wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
+    wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
+    ssh_host: str | None = Field(default=None, description="SSH 主机")
+    ssh_port: int | None = Field(default=None, description="SSH 端口")
+    ssh_user: str | None = Field(default=None, description="SSH 用户")
 
 
 class NodeRegistrationTokenData(BaseModel):

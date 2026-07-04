@@ -52,6 +52,12 @@ class NodeService:
         tags: list[str],
         weight: int,
         supported_tool_types: list[str],
+        wireguard_ip: str | None = None,
+        wireguard_public_key: str | None = None,
+        wireguard_endpoint: str | None = None,
+        ssh_host: str | None = None,
+        ssh_port: int | None = None,
+        ssh_user: str | None = None,
     ) -> NodeRegistrationToken:
         """
         创建节点并签发注册 token
@@ -62,6 +68,12 @@ class NodeService:
         :param tags (list): 节点标签
         :param weight (int): 调度权重
         :param supported_tool_types (list): 支持工具类型
+        :param wireguard_ip (str): WireGuard 地址
+        :param wireguard_public_key (str): WireGuard 公钥
+        :param wireguard_endpoint (str): WireGuard endpoint
+        :param ssh_host (str): SSH 主机
+        :param ssh_port (int): SSH 端口
+        :param ssh_user (str): SSH 用户
 
         :return NodeRegistrationToken: 注册 token
         """
@@ -75,6 +87,12 @@ class NodeService:
                 tags=tags,
                 weight=weight,
                 supported_tool_types=supported_tool_types,
+                wireguard_ip=wireguard_ip,
+                wireguard_public_key=wireguard_public_key,
+                wireguard_endpoint=wireguard_endpoint,
+                ssh_host=ssh_host,
+                ssh_port=ssh_port,
+                ssh_user=ssh_user,
                 registration_token_hash=hash_token(self._settings.secret_key, raw_token),
             )
         )
@@ -258,6 +276,12 @@ class NodeService:
         tags: list[str] | None,
         weight: int | None,
         supported_tool_types: list[str] | None,
+        wireguard_ip: str | None,
+        wireguard_public_key: str | None,
+        wireguard_endpoint: str | None,
+        ssh_host: str | None,
+        ssh_port: int | None,
+        ssh_user: str | None,
     ) -> Node:
         """
         更新节点
@@ -269,6 +293,12 @@ class NodeService:
         :param tags (list): 节点标签
         :param weight (int): 权重
         :param supported_tool_types (list): 支持工具类型
+        :param wireguard_ip (str): WireGuard 地址
+        :param wireguard_public_key (str): WireGuard 公钥
+        :param wireguard_endpoint (str): WireGuard endpoint
+        :param ssh_host (str): SSH 主机
+        :param ssh_port (int): SSH 端口
+        :param ssh_user (str): SSH 用户
 
         :return Node: 节点实体
         """
@@ -284,6 +314,18 @@ class NodeService:
             node.weight = weight
         if supported_tool_types is not None:
             node.supported_tool_types = supported_tool_types
+        if wireguard_ip is not None:
+            node.wireguard_ip = wireguard_ip
+        if wireguard_public_key is not None:
+            node.wireguard_public_key = wireguard_public_key
+        if wireguard_endpoint is not None:
+            node.wireguard_endpoint = wireguard_endpoint
+        if ssh_host is not None:
+            node.ssh_host = ssh_host
+        if ssh_port is not None:
+            node.ssh_port = ssh_port
+        if ssh_user is not None:
+            node.ssh_user = ssh_user
         await self._audit(
             actor_user_id=actor.id,
             action="nodes.update",
@@ -312,6 +354,12 @@ class NodeService:
             tags=None,
             weight=None,
             supported_tool_types=None,
+            wireguard_ip=None,
+            wireguard_public_key=None,
+            wireguard_endpoint=None,
+            ssh_host=None,
+            ssh_port=None,
+            ssh_user=None,
         )
 
     async def disable_node(self, *, actor: User, node_id: UUID) -> Node:
@@ -332,6 +380,12 @@ class NodeService:
             tags=None,
             weight=None,
             supported_tool_types=None,
+            wireguard_ip=None,
+            wireguard_public_key=None,
+            wireguard_endpoint=None,
+            ssh_host=None,
+            ssh_port=None,
+            ssh_user=None,
         )
         node.node_token_hash = None
         node.registration_token_hash = None

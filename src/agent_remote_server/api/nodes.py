@@ -40,6 +40,11 @@ def node_data(node: Node) -> NodeData:
         tags=node.tags,
         weight=node.weight,
         wireguard_ip=node.wireguard_ip,
+        wireguard_public_key=node.wireguard_public_key,
+        wireguard_endpoint=node.wireguard_endpoint,
+        ssh_host=node.ssh_host,
+        ssh_port=node.ssh_port,
+        ssh_user=node.ssh_user,
         supported_tool_types=node.supported_tool_types,
         last_heartbeat_at=node.last_heartbeat_at,
         version=node.version,
@@ -97,6 +102,12 @@ async def create_node(
         tags=payload.tags,
         weight=payload.weight,
         supported_tool_types=payload.supported_tool_types,
+        wireguard_ip=payload.wireguard_ip,
+        wireguard_public_key=payload.wireguard_public_key,
+        wireguard_endpoint=payload.wireguard_endpoint,
+        ssh_host=payload.ssh_host,
+        ssh_port=payload.ssh_port,
+        ssh_user=payload.ssh_user,
     )
     return NodeRegistrationTokenResponse(
         data=NodeRegistrationTokenData(
@@ -157,6 +168,12 @@ async def update_node(
         tags=payload.tags,
         weight=payload.weight,
         supported_tool_types=payload.supported_tool_types,
+        wireguard_ip=payload.wireguard_ip,
+        wireguard_public_key=payload.wireguard_public_key,
+        wireguard_endpoint=payload.wireguard_endpoint,
+        ssh_host=payload.ssh_host,
+        ssh_port=payload.ssh_port,
+        ssh_user=payload.ssh_user,
     )
     return NodeResponse(data=node_data(node), request_id=get_request_id())
 

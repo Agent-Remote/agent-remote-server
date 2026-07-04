@@ -100,6 +100,14 @@ def test_node_control_migration_revision_identity() -> None:
     assert migration_globals["down_revision"] == "0002_identity_auth"
 
 
+def test_connection_fields_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0004_connection_fields.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0004_connection_fields"
+    assert migration_globals["down_revision"] == "0003_node_control"
+
+
 async def test_repository_crud_round_trip() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:

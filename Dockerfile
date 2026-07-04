@@ -6,7 +6,7 @@ ENV PYTHONPATH=/app/src
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
@@ -15,4 +15,3 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 EXPOSE 8000
 
 CMD ["uvicorn", "agent_remote_server.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
