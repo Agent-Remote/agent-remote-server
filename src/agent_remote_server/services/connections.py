@@ -94,6 +94,7 @@ class ConnectionService:
 
         device = await self._require_token_device(user=user, token=token)
         tool_session = await self._require_attachable_session(user=user, session_id=session_id)
+        await self._ensure_workspace_sync_ready(tool_session.workspace_id)
         node = await self._require_attachable_node(tool_session.node_id)
         ssh_keys = list(await self._repository.list_active_ssh_keys_for_device(device.id))
         if not ssh_keys:
@@ -231,6 +232,15 @@ class ConnectionService:
             )
         self._ensure_attachable_status(tool_session)
         return tool_session
+
+    async def _ensure_workspace_sync_ready(self, workspace_id: UUID) -> None:
+        blocking_sync = await self._repository.get_blocking_sync_session(workspace_id)
+        if blocking_sync is not None:
+            raise ApiError(
+                code="SYNC_CONFLICT",
+                message="Workspace sync has unresolved conflicts or failed state.",
+                status_code=409,
+            )
 
     async def _require_attachable_node(self, node_id: UUID) -> Node:
         node = await self._repository.get_node(node_id)

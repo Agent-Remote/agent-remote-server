@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, Session, SshKey, UserDevice, WireGuardPeer
+from agent_remote_server.models import Node, Session, SshKey, SyncSession, UserDevice, WireGuardPeer
 
 
 class ConnectionRepository:
@@ -103,3 +103,23 @@ class ConnectionRepository:
         """
 
         return await self._session.get(Node, node_id)
+
+    async def get_blocking_sync_session(self, workspace_id: UUID) -> SyncSession | None:
+        """
+        读取阻止进入 session 的同步 session
+
+        :param workspace_id (UUID): workspace ID
+
+        :return SyncSession: 同步 session 实体
+        """
+
+        return await self._session.scalar(
+            select(SyncSession)
+            .where(SyncSession.workspace_id == workspace_id)
+            .where(SyncSession.status != "stopped")
+            .where(
+                (SyncSession.conflict_status != "none")
+                | SyncSession.status.in_(["conflicted", "failed"])
+            )
+            .order_by(SyncSession.created_at.desc())
+        )
