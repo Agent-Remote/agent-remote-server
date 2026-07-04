@@ -215,7 +215,7 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     assert sync["node_id"] == node_id
     assert sync["status"] == "starting"
     assert sync["conflict_status"] == "none"
-    assert sync["remote_endpoint"].startswith("ssh://agent-remote@10.42.0.10:22/")
+    assert sync["remote_endpoint"].startswith("agent-remote@10.42.0.10:22:/")
     assert sync["prepare_task_id"].startswith("prepare_workspace:")
 
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))

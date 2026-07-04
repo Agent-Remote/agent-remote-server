@@ -57,7 +57,7 @@ def _remote_endpoint(node: Node | None, sync_session: SyncSession) -> str | None
         return None
     user = node.ssh_user or "agent-remote"
     port = node.ssh_port or 22
-    return f"ssh://{user}@{host}:{port}{sync_session.remote_path}"
+    return f"{user}@{host}:{port}:{sync_session.remote_path}"
 
 
 @router.get("", response_model=SyncSessionListResponse)
