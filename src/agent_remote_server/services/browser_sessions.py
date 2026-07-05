@@ -228,42 +228,25 @@ class BrowserSessionService:
         :return str: HTML 内容
         """
 
-        key = f"browser_embed:{hash_token(self._settings.secret_key, token)}"
-        client: Redis = Redis.from_url(self._settings.redis_url, decode_responses=True)
-        try:
-            raw_value = await client.get(key)
-        except Exception as exc:
-            raise ApiError(
-                code="BROWSER_SESSION_CONNECT_DENIED",
-                message="Browser stream token validation is unavailable.",
-                status_code=503,
-            ) from exc
-        finally:
-            await client.aclose()
-        if raw_value is None:
-            raise ApiError(
-                code="BROWSER_SESSION_CONNECT_DENIED",
-                message="Browser stream token is invalid or expired.",
-                status_code=403,
-            )
-        try:
-            value = json.loads(raw_value)
-        except json.JSONDecodeError as exc:
-            raise ApiError(
-                code="BROWSER_SESSION_CONNECT_DENIED",
-                message="Browser stream token is invalid.",
-                status_code=403,
-            ) from exc
-        if value.get("browser_session_id") != str(browser_session_id):
-            raise ApiError(
-                code="BROWSER_SESSION_CONNECT_DENIED",
-                message="Browser stream token does not match this session.",
-                status_code=403,
-            )
-        endpoint = value.get("stream_endpoint")
-        if not isinstance(endpoint, str) or not endpoint.startswith(("http://", "https://")):
+        endpoint = await self.stream_endpoint(browser_session_id=browser_session_id, token=token)
+        if endpoint is None:
             return self._stream_unavailable_html()
         return self._stream_redirect_html(endpoint)
+
+    async def stream_endpoint(self, *, browser_session_id: UUID, token: str) -> str | None:
+        """
+        校验短期 token 并返回节点浏览器代理 endpoint
+
+        :param browser_session_id (UUID): 浏览器 session ID
+        :param token (str): 短期连接 token
+        :return str | None: 节点浏览器 endpoint
+        """
+
+        value = await self._load_embed_token(browser_session_id=browser_session_id, token=token)
+        endpoint = value.get("stream_endpoint")
+        if not isinstance(endpoint, str) or not endpoint.startswith(("http://", "https://")):
+            return None
+        return endpoint
 
     async def stop_browser_session(
         self, *, user: User, browser_session_id: UUID, reason: str = "user_requested"
@@ -405,6 +388,41 @@ class BrowserSessionService:
             return
         finally:
             await client.aclose()
+
+    async def _load_embed_token(self, *, browser_session_id: UUID, token: str) -> dict[str, object]:
+        key = f"browser_embed:{hash_token(self._settings.secret_key, token)}"
+        client: Redis = Redis.from_url(self._settings.redis_url, decode_responses=True)
+        try:
+            raw_value = await client.get(key)
+        except Exception as exc:
+            raise ApiError(
+                code="BROWSER_SESSION_CONNECT_DENIED",
+                message="Browser stream token validation is unavailable.",
+                status_code=503,
+            ) from exc
+        finally:
+            await client.aclose()
+        if raw_value is None:
+            raise ApiError(
+                code="BROWSER_SESSION_CONNECT_DENIED",
+                message="Browser stream token is invalid or expired.",
+                status_code=403,
+            )
+        try:
+            value: dict[str, object] = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise ApiError(
+                code="BROWSER_SESSION_CONNECT_DENIED",
+                message="Browser stream token is invalid.",
+                status_code=403,
+            ) from exc
+        if value.get("browser_session_id") != str(browser_session_id):
+            raise ApiError(
+                code="BROWSER_SESSION_CONNECT_DENIED",
+                message="Browser stream token does not match this session.",
+                status_code=403,
+            )
+        return value
 
     def _container_name(self, browser_session: BrowserSession) -> str:
         return f"agent-remote-browser-{str(browser_session.id).replace('-', '')[:24]}"
