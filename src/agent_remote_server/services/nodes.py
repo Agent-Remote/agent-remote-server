@@ -13,6 +13,7 @@ from agent_remote_server.models import (
     NodeHeartbeat,
     NodeTask,
     NodeTaskResult,
+    Session,
     ToolAccount,
     ToolAccountProfile,
     User,
@@ -500,6 +501,7 @@ class NodeService:
             )
         task.status = "succeeded"
         await self._apply_tool_account_task_result(task, result)
+        await self._apply_tool_session_task_result(task, result)
         await self._session.commit()
 
     async def fail_task(self, *, node: Node, task_id: str, error: dict[str, object]) -> None:
@@ -526,6 +528,7 @@ class NodeService:
             )
         task.status = "failed"
         await self._apply_tool_account_task_failure(task, error)
+        await self._apply_tool_session_task_failure(task, error)
         await self._session.commit()
 
     async def reconcile(
@@ -631,6 +634,48 @@ class NodeService:
             "last_error": self._text_result(error, "message") or self._text_result(error, "error"),
         }
 
+    async def _apply_tool_session_task_result(
+        self, task: NodeTask, result: dict[str, object]
+    ) -> None:
+        session_id = self._task_session_id(task, result)
+        if session_id is None:
+            return
+        tool_session = await self._session.get(Session, session_id)
+        if tool_session is None:
+            return
+        if task.task_type == "create_tool_session":
+            status = result.get("status")
+            if status in {"running", "active", "ready"}:
+                tool_session.status = "running" if status == "running" else "active"
+                tmux_session_name = self._text_result(result, "tmux_session_name")
+                container_id = self._text_result(result, "container_id") or self._text_result(
+                    result, "sandbox_name"
+                )
+                if tmux_session_name is not None:
+                    tool_session.tmux_session_name = tmux_session_name
+                if container_id is not None:
+                    tool_session.container_id = container_id
+                return
+            tool_session.status = "failed"
+            return
+        if task.task_type == "stop_tool_session":
+            tool_session.status = "stopped"
+
+    async def _apply_tool_session_task_failure(
+        self, task: NodeTask, error: dict[str, object]
+    ) -> None:
+        session_id = self._task_session_id(task, error)
+        if session_id is None:
+            return
+        tool_session = await self._session.get(Session, session_id)
+        if tool_session is None:
+            return
+        if task.task_type == "stop_tool_session":
+            tool_session.status = "failed"
+            return
+        if task.task_type == "create_tool_session":
+            tool_session.status = "failed"
+
     async def _tool_account_profile(self, account: ToolAccount) -> ToolAccountProfile:
         profile = await self._session.scalar(
             select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account.id)
@@ -649,6 +694,15 @@ class NodeService:
 
     def _task_tool_account_id(self, task: NodeTask, fallback: dict[str, object]) -> UUID | None:
         value = task.payload.get("tool_account_id") or fallback.get("tool_account_id")
+        if not isinstance(value, str):
+            return None
+        try:
+            return UUID(value)
+        except ValueError:
+            return None
+
+    def _task_session_id(self, task: NodeTask, fallback: dict[str, object]) -> UUID | None:
+        value = task.payload.get("session_id") or fallback.get("session_id")
         if not isinstance(value, str):
             return None
         try:
