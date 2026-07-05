@@ -27,6 +27,14 @@ class Settings(BaseSettings):
         validation_alias="PUBLIC_BASE_URL",
         description="公开访问基础地址",
     )
+    cors_allowed_origins: list[str] = Field(
+        default=[
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
+        validation_alias="CORS_ALLOWED_ORIGINS",
+        description="允许跨域访问的前端来源",
+    )
     database_url: str = Field(
         default="postgresql+asyncpg://agent_remote:agent_remote@localhost:5432/agent_remote",
         validation_alias="DATABASE_URL",

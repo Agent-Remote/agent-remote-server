@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
 from agent_remote_server import __version__
 from agent_remote_server.api.health import router as health_router
@@ -45,6 +46,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database_engine = create_engine(app_settings)
     app.state.session_factory = create_session_factory(app_settings, app.state.database_engine)
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=app_settings.cors_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(
         RequestIdMiddleware,
         header_name=app_settings.request_id_header,
