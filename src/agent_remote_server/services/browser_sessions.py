@@ -263,7 +263,7 @@ class BrowserSessionService:
         endpoint = value.get("stream_endpoint")
         if not isinstance(endpoint, str) or not endpoint.startswith(("http://", "https://")):
             return self._stream_unavailable_html()
-        return self._stream_iframe_html(endpoint)
+        return self._stream_redirect_html(endpoint)
 
     async def stop_browser_session(
         self, *, user: User, browser_session_id: UUID, reason: str = "user_requested"
@@ -436,31 +436,30 @@ class BrowserSessionService:
             return value
         return value.replace(tzinfo=UTC)
 
-    def _stream_iframe_html(self, endpoint: str) -> str:
+    def _stream_redirect_html(self, endpoint: str) -> str:
         safe_endpoint = escape(endpoint, quote=True)
         return f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="0; url={safe_endpoint}" />
     <style>
-      html, body, iframe {{
+      html, body {{
         width: 100%;
         height: 100%;
         margin: 0;
-        border: 0;
         overflow: hidden;
         background: #0f1419;
+        color: #dce3ea;
+        font: 14px system-ui, sans-serif;
       }}
     </style>
+    <script>
+      window.location.replace("{safe_endpoint}");
+    </script>
   </head>
-  <body>
-    <iframe
-      title="Remote browser stream"
-      src="{safe_endpoint}"
-      allow="clipboard-read; clipboard-write"
-    ></iframe>
-  </body>
+  <body>Opening remote browser...</body>
 </html>
 """
 
