@@ -9,6 +9,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
+    BrowserSession,
     Node,
     NodeHeartbeat,
     NodeTask,
@@ -502,6 +503,7 @@ class NodeService:
         task.status = "succeeded"
         await self._apply_tool_account_task_result(task, result)
         await self._apply_tool_session_task_result(task, result)
+        await self._apply_browser_session_task_result(task, result)
         await self._session.commit()
 
     async def fail_task(self, *, node: Node, task_id: str, error: dict[str, object]) -> None:
@@ -529,6 +531,7 @@ class NodeService:
         task.status = "failed"
         await self._apply_tool_account_task_failure(task, error)
         await self._apply_tool_session_task_failure(task, error)
+        await self._apply_browser_session_task_failure(task, error)
         await self._session.commit()
 
     async def reconcile(
@@ -676,6 +679,47 @@ class NodeService:
         if task.task_type == "create_tool_session":
             tool_session.status = "failed"
 
+    async def _apply_browser_session_task_result(
+        self, task: NodeTask, result: dict[str, object]
+    ) -> None:
+        browser_session_id = self._task_browser_session_id(task, result)
+        if browser_session_id is None:
+            return
+        browser_session = await self._session.get(BrowserSession, browser_session_id)
+        if browser_session is None:
+            return
+        if task.task_type == "create_browser_session":
+            status = result.get("status")
+            if status == "ready":
+                browser_session.status = "ready"
+                container_id = self._text_result(result, "container_id") or self._text_result(
+                    result, "container_name"
+                )
+                stream_endpoint = self._text_result(result, "stream_endpoint")
+                if container_id is not None:
+                    browser_session.container_id = container_id
+                if stream_endpoint is not None:
+                    browser_session.stream_endpoint = stream_endpoint
+                return
+            browser_session.status = "failed"
+            return
+        if task.task_type == "stop_browser_session":
+            browser_session.status = "stopped"
+            browser_session.stopped_at = self._now()
+
+    async def _apply_browser_session_task_failure(
+        self, task: NodeTask, error: dict[str, object]
+    ) -> None:
+        browser_session_id = self._task_browser_session_id(task, error)
+        if browser_session_id is None:
+            return
+        browser_session = await self._session.get(BrowserSession, browser_session_id)
+        if browser_session is None:
+            return
+        if task.task_type in {"create_browser_session", "stop_browser_session"}:
+            browser_session.status = "failed"
+            browser_session.stopped_at = self._now()
+
     async def _tool_account_profile(self, account: ToolAccount) -> ToolAccountProfile:
         profile = await self._session.scalar(
             select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account.id)
@@ -703,6 +747,15 @@ class NodeService:
 
     def _task_session_id(self, task: NodeTask, fallback: dict[str, object]) -> UUID | None:
         value = task.payload.get("session_id") or fallback.get("session_id")
+        if not isinstance(value, str):
+            return None
+        try:
+            return UUID(value)
+        except ValueError:
+            return None
+
+    def _task_browser_session_id(self, task: NodeTask, fallback: dict[str, object]) -> UUID | None:
+        value = task.payload.get("browser_session_id") or fallback.get("browser_session_id")
         if not isinstance(value, str):
             return None
         try:

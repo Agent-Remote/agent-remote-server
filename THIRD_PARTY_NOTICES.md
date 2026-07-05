@@ -10,6 +10,7 @@ agent-remote is designed to manage or bundle selected external programs in relea
 | --- | --- | --- |
 | WireGuard tools/helpers | Local-to-node tunnel setup and checks | `wireguard-tools` is distributed under GPL-2.0-only. Platform-specific WireGuard implementations can have different licenses; packaged artifacts must carry their exact upstream notice. Source: https://git.zx2c4.com/wireguard-tools/tree/COPYING |
 | Mutagen | Workspace file synchronization | The Mutagen repository states that code is MIT unless otherwise specified, and also notes that official release builds from v0.17 onward include SSPL-licensed code by default. Packaged artifacts must identify whether they are official builds or custom MIT-only builds and include the matching upstream notices. Source: https://github.com/mutagen-io/mutagen/blob/master/LICENSE |
+| Kasm Chrome container image | Optional default remote browser runtime image (`kasmweb/chrome:1.18.0`) | The image is referenced as an external, configurable runtime component for browser session tasks. Release artifacts that redistribute the image or derived images must include the exact upstream image digest and its applicable notices. Source: https://hub.docker.com/r/kasmweb/chrome |
 
 ## Packaging Rule
 

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from agent_remote_server import __version__
 from agent_remote_server.api import (
     auth,
+    browser_sessions,
     devices,
     network,
     node_api,
@@ -24,6 +25,7 @@ api_router.include_router(workspaces.router)
 api_router.include_router(sync_sessions.router)
 api_router.include_router(tool_accounts.router)
 api_router.include_router(sessions.router)
+api_router.include_router(browser_sessions.router)
 api_router.include_router(node_api.router)
 
 
