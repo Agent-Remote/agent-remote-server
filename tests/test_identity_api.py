@@ -114,6 +114,17 @@ def test_bootstrap_login_and_user_management(client: TestClient) -> None:
     assert forbidden_response.status_code == 403
     assert forbidden_response.json()["error"]["code"] == "COMMON_FORBIDDEN"
 
+    admin_audit_response = client.get("/api/v1/audit-logs", headers=auth_header(admin_token))
+    assert admin_audit_response.status_code == 200
+    assert any(
+        item["action"] == "users.create" for item in admin_audit_response.json()["data"]["items"]
+    )
+
+    user_audit_response = client.get("/api/v1/audit-logs", headers=auth_header(user_token))
+    assert user_audit_response.status_code == 200
+    user_audit_items = user_audit_response.json()["data"]["items"]
+    assert [item["action"] for item in user_audit_items] == ["auth.login"]
+
 
 def test_cli_device_code_login_flow(client: TestClient) -> None:
     admin_token = bootstrap(client)

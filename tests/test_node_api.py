@@ -233,6 +233,49 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
     asyncio.run(count_results())
 
 
+def test_admin_can_list_failed_node_tasks(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    node_id, node_token = create_and_register_node(client, admin_token)
+
+    async def create_task() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            await NodeService(session, app.state.settings).create_task(
+                node_id=UUID(node_id),
+                task_id="task_failed",
+                task_type="create_tool_session",
+                payload={"session_id": "session-test"},
+            )
+
+    asyncio.run(create_task())
+
+    poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert poll_response.status_code == 200
+
+    fail_response = client.post(
+        "/api/v1/node-api/tasks/task_failed/fail",
+        headers=auth_header(node_token),
+        json={"error": {"code": "docker_create_failed", "message": "failed to create container"}},
+    )
+    assert fail_response.status_code == 200
+
+    list_response = client.get(
+        "/api/v1/nodes/tasks?status=failed",
+        headers=auth_header(admin_token),
+    )
+    assert list_response.status_code == 200
+    tasks = list_response.json()["data"]["items"]
+    assert [task["task_id"] for task in tasks] == ["task_failed"]
+    assert tasks[0]["result"]["error"]["code"] == "docker_create_failed"
+
+    get_response = client.get(
+        "/api/v1/nodes/tasks/task_failed",
+        headers=auth_header(admin_token),
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["status"] == "failed"
+
+
 def test_node_reconcile_and_disable(client: TestClient) -> None:
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)

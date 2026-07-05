@@ -188,6 +188,64 @@ class NodeTaskEnvelope(BaseModel):
     expires_at: datetime = Field(..., description="过期时间")
 
 
+class NodeTaskResultData(BaseModel):
+    """
+    节点任务结果响应数据
+    """
+
+    status: str = Field(..., description="结果状态")
+    result: dict[str, object] | None = Field(default=None, description="结果数据")
+    error: dict[str, object] | None = Field(default=None, description="错误信息")
+    started_at: datetime | None = Field(default=None, description="开始时间")
+    finished_at: datetime | None = Field(default=None, description="完成时间")
+    created_at: datetime = Field(..., description="创建时间")
+
+
+class NodeTaskData(BaseModel):
+    """
+    节点任务响应数据
+    """
+
+    id: UUID = Field(..., description="节点任务 ID")
+    task_id: str = Field(..., description="任务 ID")
+    node_id: UUID = Field(..., description="节点 ID")
+    task_type: str = Field(..., description="任务类型")
+    status: str = Field(..., description="任务状态")
+    payload: dict[str, object] = Field(default_factory=dict, description="任务载荷")
+    lease_until: datetime | None = Field(default=None, description="租约过期时间")
+    retry_count: int = Field(..., description="重试次数")
+    result: NodeTaskResultData | None = Field(default=None, description="任务结果")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: datetime = Field(..., description="更新时间")
+
+
+class NodeTaskResponse(BaseModel):
+    """
+    节点任务响应
+    """
+
+    data: NodeTaskData = Field(..., description="节点任务数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class NodeTaskListData(BaseModel):
+    """
+    节点任务列表数据
+    """
+
+    items: list[NodeTaskData] = Field(default_factory=list, description="节点任务列表")
+    next_cursor: str | None = Field(default=None, description="下一页游标")
+
+
+class NodeTaskListResponse(BaseModel):
+    """
+    节点任务列表响应
+    """
+
+    data: NodeTaskListData = Field(..., description="节点任务列表数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
 class NodeTaskPollData(BaseModel):
     """
     节点任务轮询数据

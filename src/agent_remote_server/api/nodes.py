@@ -1,13 +1,15 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.api.deps import get_session, get_settings, require_admin
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.models import Node, User
+from agent_remote_server.errors import ApiError
+from agent_remote_server.models import Node, NodeTask, NodeTaskResult, User
+from agent_remote_server.repositories.nodes import NodeRepository
 from agent_remote_server.schemas.nodes import (
     CreateNodeRequest,
     NodeData,
@@ -16,6 +18,11 @@ from agent_remote_server.schemas.nodes import (
     NodeRegistrationTokenData,
     NodeRegistrationTokenResponse,
     NodeResponse,
+    NodeTaskData,
+    NodeTaskListData,
+    NodeTaskListResponse,
+    NodeTaskResponse,
+    NodeTaskResultData,
     UpdateNodeRequest,
 )
 from agent_remote_server.services.nodes import NodeService
@@ -50,6 +57,51 @@ def node_data(node: Node) -> NodeData:
         version=node.version,
         created_at=node.created_at,
         updated_at=node.updated_at,
+    )
+
+
+def node_task_result_data(result: NodeTaskResult) -> NodeTaskResultData:
+    """
+    转换节点任务结果响应数据
+
+    :param result (NodeTaskResult): 节点任务结果实体
+
+    :return NodeTaskResultData: 节点任务结果响应数据
+    """
+
+    return NodeTaskResultData(
+        status=result.status,
+        result=result.result,
+        error=result.error,
+        started_at=result.started_at,
+        finished_at=result.finished_at,
+        created_at=result.created_at,
+    )
+
+
+async def node_task_data(repository: NodeRepository, task: NodeTask) -> NodeTaskData:
+    """
+    转换节点任务响应数据
+
+    :param repository (NodeRepository): 节点仓储
+    :param task (NodeTask): 节点任务实体
+
+    :return NodeTaskData: 节点任务响应数据
+    """
+
+    result = await repository.get_task_result(task.task_id)
+    return NodeTaskData(
+        id=task.id,
+        task_id=task.task_id,
+        node_id=task.node_id,
+        task_type=task.task_type,
+        status=task.status,
+        payload=task.payload,
+        lease_until=task.lease_until,
+        retry_count=task.retry_count,
+        result=node_task_result_data(result) if result is not None else None,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
     )
 
 
@@ -113,6 +165,60 @@ async def create_node(
         data=NodeRegistrationTokenData(
             node=node_data(result.node), registration_token=result.raw_token
         ),
+        request_id=get_request_id(),
+    )
+
+
+@router.get("/tasks", response_model=NodeTaskListResponse)
+async def list_node_tasks(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+    status: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> NodeTaskListResponse:
+    """
+    列出节点任务
+
+    :param session (AsyncSession): 数据库会话
+    :param admin (User): 当前管理员
+    :param status (str | None): 状态过滤
+    :param limit (int): 最大返回数量
+
+    :return NodeTaskListResponse: 节点任务列表响应
+    """
+
+    _ = admin
+    repository = NodeRepository(session)
+    tasks = await repository.list_tasks(status=status, limit=limit)
+    return NodeTaskListResponse(
+        data=NodeTaskListData(items=[await node_task_data(repository, item) for item in tasks]),
+        request_id=get_request_id(),
+    )
+
+
+@router.get("/tasks/{task_id}", response_model=NodeTaskResponse)
+async def get_node_task(
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> NodeTaskResponse:
+    """
+    读取节点任务
+
+    :param task_id (str): 任务 ID
+    :param session (AsyncSession): 数据库会话
+    :param admin (User): 当前管理员
+
+    :return NodeTaskResponse: 节点任务响应
+    """
+
+    _ = admin
+    repository = NodeRepository(session)
+    task = await repository.get_task_by_task_id(task_id)
+    if task is None:
+        raise ApiError(code="COMMON_NOT_FOUND", message="Task was not found.", status_code=404)
+    return NodeTaskResponse(
+        data=await node_task_data(repository, task),
         request_id=get_request_id(),
     )
 

@@ -98,6 +98,27 @@ class NodeRepository:
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))
 
+    async def list_tasks(
+        self,
+        *,
+        status: str | None,
+        limit: int,
+    ) -> Sequence[NodeTask]:
+        """
+        列出节点任务
+
+        :param status (str | None): 状态过滤
+        :param limit (int): 最大返回数量
+
+        :return Sequence: 节点任务列表
+        """
+
+        statement = select(NodeTask).order_by(NodeTask.created_at.desc()).limit(limit)
+        if status is not None:
+            statement = statement.where(NodeTask.status == status)
+        result = await self._session.scalars(statement)
+        return result.all()
+
     async def list_pollable_tasks(
         self,
         *,

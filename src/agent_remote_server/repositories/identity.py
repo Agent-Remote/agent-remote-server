@@ -258,6 +258,38 @@ class IdentityRepository:
         )
         return result.all()
 
+    async def list_audit_logs(
+        self,
+        *,
+        actor_user_id: UUID | None,
+        limit: int,
+    ) -> Sequence[AuditLog]:
+        """
+        列出审计日志
+
+        :param actor_user_id (UUID | None): 操作者用户 ID，None 表示不过滤
+        :param limit (int): 最大返回数量
+
+        :return Sequence: 审计日志列表
+        """
+
+        statement = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+        if actor_user_id is not None:
+            statement = statement.where(AuditLog.actor_user_id == actor_user_id)
+        result = await self._session.scalars(statement)
+        return result.all()
+
+    async def get_audit_log(self, audit_log_id: UUID) -> AuditLog | None:
+        """
+        按 ID 读取审计日志
+
+        :param audit_log_id (UUID): 审计日志 ID
+
+        :return AuditLog | None: 审计日志实体
+        """
+
+        return await self._session.get(AuditLog, audit_log_id)
+
     async def add_audit_log(self, audit_log: AuditLog) -> AuditLog:
         """
         新增审计日志

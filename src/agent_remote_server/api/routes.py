@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from agent_remote_server import __version__
 from agent_remote_server.api import (
+    audit_logs,
     auth,
     browser_sessions,
     devices,
@@ -16,6 +17,7 @@ from agent_remote_server.api import (
 )
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(audit_logs.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(devices.router)
