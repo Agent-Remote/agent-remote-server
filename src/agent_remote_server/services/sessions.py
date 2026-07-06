@@ -4,7 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
 from agent_remote_server.errors import ApiError
-from agent_remote_server.models import AuditLog, Node, NodeTask, Session, ToolAccount, User
+from agent_remote_server.models import (
+    AuditLog,
+    DeveloperCredentialProfile,
+    Node,
+    NodeTask,
+    Session,
+    ToolAccount,
+    User,
+)
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.sessions import SessionRepository
 from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTIVE_NODE_STATUSES
@@ -113,10 +121,18 @@ class ToolSessionService:
             )
         node = await self._choose_session_node(account)
         profile = await self._repository.get_account_profile(account.id)
+        developer_profile = await self._repository.get_developer_credential_profile_for_account(
+            account.id
+        )
         account_remote_path = self._profile_text(
             profile.profile_json if profile is not None else {},
             "account_remote_path",
-            self._account_remote_path(user.id, account.id),
+            self._account_remote_path(user.id, account.tool_type, account.id),
+        )
+        developer_credential_profile_path = (
+            self._developer_credential_profile_path(user.id, developer_profile.id)
+            if developer_profile is not None
+            else None
         )
         tool_session = await self._repository.add_session(
             Session(
@@ -152,6 +168,10 @@ class ToolSessionService:
                     "project_key": project_key,
                     "workspace_remote_path": workspace.remote_path,
                     "account_remote_path": account_remote_path,
+                    "developer_credential_profile_path": developer_credential_profile_path,
+                    "developer_credentials": self._developer_credentials_payload(developer_profile),
+                    "sync_git": workspace.sync_git,
+                    "git_sync_policy": workspace.git_sync_policy,
                     "tmux_session_name": tmux_session_name,
                     "sandbox_name": sandbox_name,
                     "timezone": account.timezone,
@@ -291,8 +311,23 @@ class ToolSessionService:
     def _sandbox_name(self, tool_session: Session) -> str:
         return f"agent-remote-{tool_session.tool_type}-{str(tool_session.id).replace('-', '')[:24]}"
 
-    def _account_remote_path(self, user_id: UUID, account_id: UUID) -> str:
-        return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/accounts/{account_id}"
+    def _account_remote_path(self, user_id: UUID, tool_type: str, account_id: UUID) -> str:
+        return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/tool-accounts/{tool_type}/{account_id}"
+
+    def _developer_credential_profile_path(self, user_id: UUID, profile_id: UUID) -> str:
+        return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/developer-credential-profiles/{profile_id}"
+
+    def _developer_credentials_payload(
+        self, profile: DeveloperCredentialProfile | None
+    ) -> dict[str, object] | None:
+        if profile is None:
+            return None
+        return {
+            "profile_id": str(profile.id),
+            "git_identity": profile.git_identity,
+            "gh_mode": profile.github_cli_mode,
+            "ssh_mode": profile.ssh_mode,
+        }
 
     def _profile_text(self, profile_json: dict[str, object], key: str, default: str) -> str:
         value = profile_json.get(key)

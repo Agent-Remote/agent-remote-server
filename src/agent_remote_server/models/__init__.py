@@ -3,7 +3,12 @@ from agent_remote_server.models.auth import AuthToken, CliLoginCode
 from agent_remote_server.models.network import WireGuardPeer
 from agent_remote_server.models.nodes import Node, NodeHeartbeat, NodeTask, NodeTaskResult
 from agent_remote_server.models.sessions import BrowserSession, Session, SessionEvent
-from agent_remote_server.models.tools import ToolAccount, ToolAccountProfile
+from agent_remote_server.models.tools import (
+    DeveloperCredentialProfile,
+    ToolAccount,
+    ToolAccountDeveloperCredentialProfile,
+    ToolAccountProfile,
+)
 from agent_remote_server.models.users import SshKey, User, UserDevice
 from agent_remote_server.models.workspaces import SyncSession, Workspace
 
@@ -12,6 +17,7 @@ __all__ = [
     "AuthToken",
     "BrowserSession",
     "CliLoginCode",
+    "DeveloperCredentialProfile",
     "Node",
     "NodeHeartbeat",
     "NodeTask",
@@ -21,6 +27,7 @@ __all__ = [
     "SshKey",
     "SyncSession",
     "ToolAccount",
+    "ToolAccountDeveloperCredentialProfile",
     "ToolAccountProfile",
     "User",
     "UserDevice",

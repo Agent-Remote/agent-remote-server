@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from collections.abc import Iterator
 
 import pytest
@@ -187,7 +188,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert binding["status"] == "binding_session_starting"
     assert binding["node_id"] == node_id
     assert binding["task_id"] == f"create_binding_session:{account['id']}"
-    assert binding["account_remote_path"].endswith(f"/accounts/{account['id']}")
+    assert binding["account_remote_path"].endswith(f"/tool-accounts/claude/{account['id']}")
 
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
     assert poll_response.status_code == 200
@@ -285,3 +286,47 @@ def test_tool_account_verifier_success_makes_account_active(client: TestClient) 
     )
     assert get_response.status_code == 200
     assert get_response.json()["data"]["status"] == "active"
+
+
+def test_tool_account_config_import_creates_node_task(client: TestClient) -> None:
+    token = bootstrap(client)
+    node_id, node_token = create_and_register_node(client, token)
+    account = create_tool_account(client, token)
+
+    content = base64.b64encode(b'{"theme":"dark"}\n').decode("ascii")
+    response = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "source": "local_cli",
+            "include": ["~/.claude/settings.json"],
+            "exclude": [],
+            "files": [
+                {
+                    "path": "~/.claude/settings.json",
+                    "content_base64": content,
+                    "mode": 384,
+                }
+            ],
+            "include_resume_history": False,
+            "dry_run": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["accepted"] == ["~/.claude/settings.json"]
+    assert payload["rejected"] == []
+    assert payload["task_id"].startswith(f"import_tool_account_config:{account['id']}:")
+    assert payload["account_remote_path"].endswith(f"/tool-accounts/claude/{account['id']}")
+    assert payload["imported_file_count"] == 1
+
+    poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert poll_response.status_code == 200
+    tasks = poll_response.json()["data"]["tasks"]
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task["node_id"] == node_id
+    assert task["task_type"] == "import_tool_account_config"
+    assert task["payload"]["tool_account_id"] == account["id"]
+    assert task["payload"]["files"][0]["path"] == "~/.claude/settings.json"

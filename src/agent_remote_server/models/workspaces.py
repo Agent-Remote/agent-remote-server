@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -25,6 +25,12 @@ class Workspace(IdMixin, TimestampMixin, Base):
     local_start_path: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     remote_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_git: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    git_sync_policy: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
 
 
 class SyncSession(IdMixin, TimestampMixin, Base):
@@ -50,4 +56,6 @@ class SyncSession(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     conflict_status: Mapped[str] = mapped_column(String(32), nullable=False)
     sync_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    sync_git: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    exclude_patterns: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     mutagen_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

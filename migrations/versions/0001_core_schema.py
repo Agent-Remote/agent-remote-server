@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.Column("region_code", sa.String(length=32), nullable=False),
         sa.Column("tags", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
         sa.Column("weight", sa.Integer(), nullable=False, server_default="100"),
-        sa.Column("wireguard_ip", postgresql.INET(), nullable=True),
+        sa.Column("wireguard_ip", sa.String(length=64), nullable=True),
         sa.Column(
             "supported_tool_types", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
         ),
@@ -208,7 +208,7 @@ def upgrade() -> None:
         sa.Column("node_id", UUID, sa.ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True),
         sa.Column("public_key", sa.Text(), nullable=False),
         sa.Column("encrypted_private_key", sa.LargeBinary(), nullable=True),
-        sa.Column("ip_address", postgresql.INET(), nullable=False),
+        sa.Column("ip_address", sa.String(length=64), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("revoked_at", TIMESTAMPTZ, nullable=True),
         created_at_column(),

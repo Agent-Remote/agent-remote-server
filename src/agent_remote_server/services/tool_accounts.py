@@ -1,5 +1,7 @@
+import base64
+import binascii
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +17,46 @@ from agent_remote_server.models import (
 )
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.tool_accounts import ToolAccountRepository
-from agent_remote_server.schemas.tool_accounts import BindingStatusData
+from agent_remote_server.schemas.tool_accounts import (
+    BindingStatusData,
+    ToolAccountConfigImportData,
+    ToolAccountConfigImportFile,
+)
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
 ACTIVE_NODE_STATUSES = {"healthy", "degraded"}
 ACCOUNT_CONFIG_ROOT = "/var/lib/agent-remote/users"
+DEFAULT_CONFIG_IMPORT_PATHS = {
+    "~/.claude/settings.json",
+    "~/.claude/CLAUDE.md",
+    "~/.claude/agents",
+    "~/.claude/skills",
+}
+ASK_CONFIG_IMPORT_PREFIXES = (
+    "~/.claude/plugins",
+    "~/.claude/hooks",
+    "~/.claude/rules",
+)
+RESUME_HISTORY_PATHS = {
+    "~/.claude/projects",
+    "~/.claude/sessions",
+    "~/.claude/history.jsonl",
+    "~/.claude/file-history",
+    "~/.claude/plans",
+    "~/.claude/tasks",
+    "~/.claude/session-env",
+}
+DENIED_CONFIG_IMPORT_PATHS = {
+    "~/.claude.json",
+    "~/.claude/cache",
+    "~/.claude/logs",
+    "~/.claude/transcripts",
+    "~/.claude/paste-cache",
+    "~/.claude/stats-cache.json",
+    "~/.claude/mcp-needs-auth-cache.json",
+}
+CONFIG_IMPORT_MAX_FILE_BYTES = 1024 * 1024
+CONFIG_IMPORT_MAX_TOTAL_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -88,7 +125,9 @@ class ToolAccountService:
                 tool_type=account.tool_type,
                 profile_json={
                     "tool_type": account.tool_type,
-                    "account_remote_path": self._account_remote_path(user.id, account.id),
+                    "account_remote_path": self._account_remote_path(
+                        user.id, account.tool_type, account.id
+                    ),
                     "config_subdir": template.account_config_subdir,
                     "local_cli_secrets": False,
                 },
@@ -202,6 +241,220 @@ class ToolAccountService:
         await self._session.commit()
         return account
 
+    async def plan_config_import(
+        self,
+        *,
+        user: User,
+        account_id: UUID,
+        tool_type: str,
+        include: list[str],
+        exclude: list[str],
+        files: list[ToolAccountConfigImportFile],
+        include_resume_history: bool,
+        dry_run: bool,
+    ) -> ToolAccountConfigImportData:
+        """
+        生成工具账户配置导入计划
+        """
+
+        account = await self.get_account(user=user, account_id=account_id)
+        if account.tool_type != tool_type:
+            raise ApiError(
+                code="COMMON_VALIDATION_ERROR",
+                message="Tool type does not match tool account.",
+                status_code=422,
+            )
+        excluded = set(exclude)
+        accepted, rejected, warnings = self._classify_config_import_paths(
+            include=include,
+            exclude=excluded,
+            include_resume_history=include_resume_history,
+        )
+        task_id: str | None = None
+        account_remote_path: str | None = None
+        imported_file_count: int | None = None
+        if not dry_run:
+            if not files:
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message="Config import files are required when dry_run=false.",
+                    status_code=422,
+                )
+            profile = await self._ensure_profile(
+                account=account,
+                template=self._require_template(account.tool_type),
+            )
+            node = await self._choose_binding_node(account)
+            account.affinity_node_id = node.id
+            account_remote_path = self._profile_text(
+                profile.profile_json,
+                "account_remote_path",
+                self._account_remote_path(user.id, account.tool_type, account.id),
+            )
+            accepted_files = self._validate_config_import_files(
+                files=files,
+                accepted_roots=accepted,
+                include_resume_history=include_resume_history,
+            )
+            imported_file_count = len(accepted_files)
+            task_id = f"import_tool_account_config:{account.id}:{uuid4()}"
+            await self._repository.add_task(
+                NodeTask(
+                    node_id=node.id,
+                    task_id=task_id,
+                    task_type="import_tool_account_config",
+                    status="pending",
+                    payload={
+                        "tool_account_id": str(account.id),
+                        "tool_type": account.tool_type,
+                        "user_id": str(user.id),
+                        "account_remote_path": account_remote_path,
+                        "files": accepted_files,
+                    },
+                    retry_count=0,
+                )
+            )
+            profile.profile_json = {
+                **profile.profile_json,
+                "account_remote_path": account_remote_path,
+                "last_config_import_task_id": task_id,
+            }
+        await self._audit(
+            actor_user_id=user.id,
+            action=(
+                "tool_accounts.config_import_plan"
+                if dry_run
+                else "tool_accounts.config_import_start"
+            ),
+            target_type="tool_account",
+            target_id=str(account.id),
+            details={
+                "accepted_count": len(accepted),
+                "rejected_count": len(rejected),
+                "file_count": imported_file_count or 0,
+                "include_resume_history": include_resume_history,
+                "dry_run": dry_run,
+                "task_id": task_id,
+            },
+        )
+        await self._session.commit()
+        return ToolAccountConfigImportData(
+            tool_account_id=account.id,
+            accepted=accepted,
+            rejected=rejected,
+            warnings=warnings,
+            task_id=task_id,
+            account_remote_path=account_remote_path,
+            imported_file_count=imported_file_count,
+            dry_run=dry_run,
+        )
+
+    def _classify_config_import_paths(
+        self,
+        *,
+        include: list[str],
+        exclude: set[str],
+        include_resume_history: bool,
+    ) -> tuple[list[str], list[str], list[str]]:
+        accepted: list[str] = []
+        rejected: list[str] = []
+        warnings: list[str] = []
+        for path in include:
+            normalized = self._normalize_config_path(path)
+            if normalized in exclude:
+                rejected.append(path)
+                continue
+            if normalized in DENIED_CONFIG_IMPORT_PATHS:
+                rejected.append(path)
+                continue
+            if normalized in RESUME_HISTORY_PATHS and not include_resume_history:
+                rejected.append(path)
+                warnings.append("Resume history requires explicit include_resume_history=true.")
+                continue
+            if normalized in DEFAULT_CONFIG_IMPORT_PATHS or normalized in RESUME_HISTORY_PATHS:
+                accepted.append(path)
+                continue
+            if any(normalized.startswith(prefix) for prefix in ASK_CONFIG_IMPORT_PREFIXES):
+                accepted.append(path)
+                warnings.append(f"{path} may contain executable code and requires user review.")
+                continue
+            if normalized.endswith(".md") and normalized.startswith("~/.claude/"):
+                accepted.append(path)
+                warnings.append(f"{path} is a custom Markdown file and requires user review.")
+                continue
+            rejected.append(path)
+        return accepted, rejected, warnings
+
+    def _validate_config_import_files(
+        self,
+        *,
+        files: list[ToolAccountConfigImportFile],
+        accepted_roots: list[str],
+        include_resume_history: bool,
+    ) -> list[dict[str, object]]:
+        accepted_files: list[dict[str, object]] = []
+        total_size = 0
+        for file in files:
+            path = self._normalize_config_path(file.path)
+            if not self._config_file_allowed(path, accepted_roots):
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message=f"Config file path is not allowed: {file.path}",
+                    status_code=422,
+                )
+            if not include_resume_history and any(
+                path == root or path.startswith(f"{root}/") for root in RESUME_HISTORY_PATHS
+            ):
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message="Resume history requires explicit include_resume_history=true.",
+                    status_code=422,
+                )
+            try:
+                content = base64.b64decode(file.content_base64, validate=True)
+            except binascii.Error as error:
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message=f"Config file content is not valid base64: {file.path}",
+                    status_code=422,
+                ) from error
+            if len(content) > CONFIG_IMPORT_MAX_FILE_BYTES:
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message=f"Config file is too large: {file.path}",
+                    status_code=422,
+                )
+            total_size += len(content)
+            if total_size > CONFIG_IMPORT_MAX_TOTAL_BYTES:
+                raise ApiError(
+                    code="COMMON_VALIDATION_ERROR",
+                    message="Config import payload is too large.",
+                    status_code=422,
+                )
+            accepted_files.append(
+                {
+                    "path": path,
+                    "content_base64": file.content_base64,
+                    "mode": file.mode,
+                }
+            )
+        return accepted_files
+
+    def _config_file_allowed(self, path: str, accepted_roots: list[str]) -> bool:
+        if not self._is_safe_config_file_path(path):
+            return False
+        if path in DENIED_CONFIG_IMPORT_PATHS:
+            return False
+        return any(path == root or path.startswith(f"{root}/") for root in accepted_roots)
+
+    def _is_safe_config_file_path(self, path: str) -> bool:
+        if not path.startswith("~/.claude/"):
+            return False
+        if "\\" in path or "\x00" in path:
+            return False
+        parts = path.removeprefix("~/.claude/").split("/")
+        return all(part not in {"", ".", ".."} for part in parts)
+
     async def start_binding(self, *, user: User, account_id: UUID) -> BindingSession:
         """
         创建工具账户绑定任务
@@ -220,7 +473,7 @@ class ToolAccountService:
         account_remote_path = self._profile_text(
             profile.profile_json,
             "account_remote_path",
-            self._account_remote_path(user.id, account.id),
+            self._account_remote_path(user.id, account.tool_type, account.id),
         )
         binding_session_id = self._profile_text(
             profile.profile_json,
@@ -321,7 +574,7 @@ class ToolAccountService:
         account_remote_path = self._profile_text(
             profile.profile_json,
             "account_remote_path",
-            self._account_remote_path(user.id, account.id),
+            self._account_remote_path(user.id, account.tool_type, account.id),
         )
         task = await self._repository.get_task_by_task_id(task_id)
         if task is None:
@@ -388,7 +641,9 @@ class ToolAccountService:
                 tool_type=account.tool_type,
                 profile_json={
                     "tool_type": account.tool_type,
-                    "account_remote_path": self._account_remote_path(account.user_id, account.id),
+                    "account_remote_path": self._account_remote_path(
+                        account.user_id, account.tool_type, account.id
+                    ),
                     "config_subdir": template.account_config_subdir,
                     "local_cli_secrets": False,
                 },
@@ -470,14 +725,17 @@ class ToolAccountService:
     def _tmux_session_name(self, account: ToolAccount) -> str:
         return f"ar-bind-{str(account.id).replace('-', '')[:24]}"
 
-    def _account_remote_path(self, user_id: UUID, account_id: UUID) -> str:
-        return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/accounts/{account_id}"
+    def _account_remote_path(self, user_id: UUID, tool_type: str, account_id: UUID) -> str:
+        return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/tool-accounts/{tool_type}/{account_id}"
 
     def _profile_text(self, profile_json: dict[str, object], key: str, default: str) -> str:
         value = profile_json.get(key)
         if isinstance(value, str) and value:
             return value
         return default
+
+    def _normalize_config_path(self, path: str) -> str:
+        return path.rstrip("/")
 
     def _optional_text(self, profile_json: dict[str, object], key: str) -> str | None:
         value = profile_json.get(key)

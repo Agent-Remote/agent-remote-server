@@ -5,10 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.models import (
+    DeveloperCredentialProfile,
     Node,
     NodeTask,
     Session,
     ToolAccount,
+    ToolAccountDeveloperCredentialProfile,
     ToolAccountProfile,
     Workspace,
 )
@@ -122,6 +124,23 @@ class SessionRepository:
 
         return await self._session.scalar(
             select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account_id)
+        )
+
+    async def get_developer_credential_profile_for_account(
+        self, account_id: UUID
+    ) -> DeveloperCredentialProfile | None:
+        """
+        读取工具账户绑定的开发凭据 profile
+        """
+
+        return await self._session.scalar(
+            select(DeveloperCredentialProfile)
+            .join(
+                ToolAccountDeveloperCredentialProfile,
+                ToolAccountDeveloperCredentialProfile.developer_credential_profile_id
+                == DeveloperCredentialProfile.id,
+            )
+            .where(ToolAccountDeveloperCredentialProfile.tool_account_id == account_id)
         )
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:

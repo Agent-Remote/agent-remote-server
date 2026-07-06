@@ -61,6 +61,8 @@ class WorkspaceService:
         project_key: str,
         local_start_path: str,
         display_name: str,
+        sync_git: bool,
+        git_sync_policy: dict[str, object],
     ) -> Workspace:
         """
         创建或复用 workspace
@@ -71,6 +73,8 @@ class WorkspaceService:
         :param project_key (str): 项目 key
         :param local_start_path (str): 本地启动路径
         :param display_name (str): 显示名称
+        :param sync_git (bool): 是否同步 .git 目录
+        :param git_sync_policy (dict): Git 同步策略
 
         :return Workspace: workspace 实体
         """
@@ -94,6 +98,8 @@ class WorkspaceService:
                 local_start_path=local_start_path,
                 display_name=display_name,
                 remote_path=None,
+                sync_git=sync_git,
+                git_sync_policy=git_sync_policy,
             )
         )
         workspace.remote_path = self._remote_workspace_path(
@@ -128,6 +134,8 @@ class WorkspaceService:
         workspace_id: UUID,
         local_start_path: str | None,
         display_name: str | None,
+        sync_git: bool | None,
+        git_sync_policy: dict[str, object] | None,
     ) -> Workspace:
         """
         更新 workspace 元数据
@@ -136,6 +144,8 @@ class WorkspaceService:
         :param workspace_id (UUID): workspace ID
         :param local_start_path (str): 本地启动路径
         :param display_name (str): 显示名称
+        :param sync_git (bool): 是否同步 .git 目录
+        :param git_sync_policy (dict): Git 同步策略
 
         :return Workspace: workspace 实体
         """
@@ -145,6 +155,10 @@ class WorkspaceService:
             workspace.local_start_path = local_start_path
         if display_name is not None:
             workspace.display_name = display_name
+        if sync_git is not None:
+            workspace.sync_git = sync_git
+        if git_sync_policy is not None:
+            workspace.git_sync_policy = git_sync_policy
         await self._audit(
             actor_user_id=user.id,
             action="workspaces.update",
@@ -179,6 +193,8 @@ class WorkspaceService:
         node_id: UUID | None,
         local_path: str | None,
         sync_mode: str,
+        sync_git: bool,
+        exclude: list[str],
     ) -> SyncSessionResult:
         """
         创建或复用同步 session
@@ -188,6 +204,8 @@ class WorkspaceService:
         :param node_id (UUID): 节点 ID
         :param local_path (str): 本地路径
         :param sync_mode (str): 同步模式
+        :param sync_git (bool): 是否同步 .git 目录
+        :param exclude (list): 排除规则
 
         :return SyncSessionResult: 同步 session 结果
         """
@@ -221,6 +239,8 @@ class WorkspaceService:
                 status="starting",
                 conflict_status="none",
                 sync_mode="two_way",
+                sync_git=sync_git,
+                exclude_patterns=exclude,
                 mutagen_session_id=None,
             )
         )
@@ -453,6 +473,9 @@ class WorkspaceService:
             "workspace_id": str(workspace.id),
             "sync_session_id": str(sync_session.id),
             "remote_path": sync_session.remote_path,
+            "sync_git": sync_session.sync_git,
+            "exclude": sync_session.exclude_patterns,
+            "git_sync_policy": workspace.git_sync_policy,
         }
         if existing is not None:
             if existing.status in {"failed", "cancelled", "expired"}:

@@ -5,18 +5,26 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.api.deps import get_current_user, get_session, get_settings
+from agent_remote_server.api.developer_credentials import profile_data
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import ToolAccount, User
+from agent_remote_server.schemas.developer_credentials import (
+    BindDeveloperCredentialProfileRequest,
+    DeveloperCredentialProfileResponse,
+)
 from agent_remote_server.schemas.tool_accounts import (
     BindingStatusResponse,
     CreateToolAccountRequest,
+    ToolAccountConfigImportRequest,
+    ToolAccountConfigImportResponse,
     ToolAccountData,
     ToolAccountListData,
     ToolAccountListResponse,
     ToolAccountResponse,
     UpdateToolAccountRequest,
 )
+from agent_remote_server.services.developer_credentials import DeveloperCredentialService
 from agent_remote_server.services.tool_accounts import ToolAccountService
 
 router = APIRouter(prefix="/tool-accounts", tags=["tool-accounts"])
@@ -256,3 +264,70 @@ async def disable_tool_account(
         account_id=tool_account_id,
     )
     return ToolAccountResponse(data=tool_account_data(account), request_id=get_request_id())
+
+
+@router.post("/{tool_account_id}/config-imports", response_model=ToolAccountConfigImportResponse)
+async def create_tool_account_config_import(
+    tool_account_id: UUID,
+    payload: ToolAccountConfigImportRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> ToolAccountConfigImportResponse:
+    """
+    创建工具账户配置导入计划
+    """
+
+    result = await ToolAccountService(session, settings).plan_config_import(
+        user=user,
+        account_id=tool_account_id,
+        tool_type=payload.tool_type,
+        include=payload.include,
+        exclude=payload.exclude,
+        files=payload.files,
+        include_resume_history=payload.include_resume_history,
+        dry_run=payload.dry_run,
+    )
+    return ToolAccountConfigImportResponse(data=result, request_id=get_request_id())
+
+
+@router.post(
+    "/{tool_account_id}/developer-credential-profile",
+    response_model=DeveloperCredentialProfileResponse,
+)
+async def bind_developer_credential_profile(
+    tool_account_id: UUID,
+    payload: BindDeveloperCredentialProfileRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> DeveloperCredentialProfileResponse:
+    """
+    绑定开发凭据 profile
+    """
+
+    profile = await DeveloperCredentialService(session, settings).bind_to_tool_account(
+        user=user,
+        account_id=tool_account_id,
+        profile_id=payload.profile_id,
+    )
+    return DeveloperCredentialProfileResponse(
+        data=profile_data(profile), request_id=get_request_id()
+    )
+
+
+@router.delete("/{tool_account_id}/developer-credential-profile", status_code=204)
+async def unbind_developer_credential_profile(
+    tool_account_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """
+    解除开发凭据 profile 绑定
+    """
+
+    await DeveloperCredentialService(session, settings).unbind_from_tool_account(
+        user=user,
+        account_id=tool_account_id,
+    )

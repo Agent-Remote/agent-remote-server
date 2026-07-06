@@ -100,3 +100,53 @@ class BindingStatusResponse(BaseModel):
 
     data: BindingStatusData = Field(..., description="绑定状态数据")
     request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class ToolAccountConfigImportRequest(BaseModel):
+    """
+    工具账户配置导入请求
+    """
+
+    tool_type: str = Field(..., description="工具类型")
+    source: str = Field(default="local_cli", description="导入来源")
+    include: list[str] = Field(default_factory=list, description="导入路径")
+    exclude: list[str] = Field(default_factory=list, description="排除路径")
+    files: list["ToolAccountConfigImportFile"] = Field(
+        default_factory=list, description="待写入文件"
+    )
+    include_resume_history: bool = Field(default=False, description="是否导入 resume 历史")
+    dry_run: bool = Field(default=True, description="是否只预览")
+
+
+class ToolAccountConfigImportFile(BaseModel):
+    """
+    工具账户配置导入文件
+    """
+
+    path: str = Field(..., description="Claude 配置相对导入路径")
+    content_base64: str = Field(..., description="base64 文件内容")
+    mode: int = Field(default=0o600, description="文件权限")
+
+
+class ToolAccountConfigImportData(BaseModel):
+    """
+    工具账户配置导入响应数据
+    """
+
+    tool_account_id: UUID = Field(..., description="工具账户 ID")
+    accepted: list[str] = Field(default_factory=list, description="允许导入路径")
+    rejected: list[str] = Field(default_factory=list, description="拒绝导入路径")
+    warnings: list[str] = Field(default_factory=list, description="警告信息")
+    task_id: str | None = Field(default=None, description="节点导入任务 ID")
+    account_remote_path: str | None = Field(default=None, description="账户远端路径")
+    imported_file_count: int | None = Field(default=None, description="已派发文件数量")
+    dry_run: bool = Field(..., description="是否只预览")
+
+
+class ToolAccountConfigImportResponse(BaseModel):
+    """
+    工具账户配置导入响应
+    """
+
+    data: ToolAccountConfigImportData = Field(..., description="配置导入数据")
+    request_id: str | None = Field(default=None, description="请求 ID")

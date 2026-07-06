@@ -15,6 +15,7 @@ from agent_remote_server.context import get_request_id
 from agent_remote_server.models import AuthToken, User, Workspace
 from agent_remote_server.schemas.workspaces import (
     CreateWorkspaceRequest,
+    GitSyncPolicy,
     UpdateWorkspaceRequest,
     WorkspaceData,
     WorkspaceListData,
@@ -43,6 +44,8 @@ def workspace_data(workspace: Workspace) -> WorkspaceData:
         local_start_path=workspace.local_start_path,
         display_name=workspace.display_name,
         remote_path=workspace.remote_path,
+        sync_git=workspace.sync_git,
+        git_sync_policy=GitSyncPolicy.model_validate(workspace.git_sync_policy),
         created_at=workspace.created_at,
         updated_at=workspace.updated_at,
     )
@@ -98,6 +101,8 @@ async def create_workspace(
         project_key=payload.project_key,
         local_start_path=payload.local_start_path,
         display_name=payload.display_name,
+        sync_git=payload.sync_git,
+        git_sync_policy=payload.git_sync_policy.model_dump(),
     )
     return WorkspaceResponse(data=workspace_data(workspace), request_id=get_request_id())
 
@@ -151,5 +156,9 @@ async def update_workspace(
         workspace_id=workspace_id,
         local_start_path=payload.local_start_path,
         display_name=payload.display_name,
+        sync_git=payload.sync_git,
+        git_sync_policy=payload.git_sync_policy.model_dump()
+        if payload.git_sync_policy is not None
+        else None,
     )
     return WorkspaceResponse(data=workspace_data(workspace), request_id=get_request_id())

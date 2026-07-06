@@ -41,6 +41,8 @@ def sync_session_data(result: SyncSessionResult) -> SyncSessionData:
         status=sync_session.status,
         conflict_status=sync_session.conflict_status,
         sync_mode=sync_session.sync_mode,
+        sync_git=sync_session.sync_git,
+        exclude=sync_session.exclude_patterns,
         mutagen_session_id=sync_session.mutagen_session_id,
         remote_endpoint=_remote_endpoint(result.node, sync_session),
         prepare_task_id=result.prepare_task_id,
@@ -107,6 +109,8 @@ async def create_sync_session(
         node_id=payload.node_id,
         local_path=payload.local_path,
         sync_mode=payload.sync_mode,
+        sync_git=payload.sync_git,
+        exclude=payload.exclude,
     )
     return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
 
