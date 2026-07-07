@@ -1,8 +1,13 @@
+import os
 from importlib.metadata import PackageNotFoundError, version
 
-try:
-    __version__ = version("agent-remote-server")
-except PackageNotFoundError:
-    __version__ = "0.1.0"
+_version = os.getenv("AGENT_REMOTE_VERSION")
+if not _version:
+    try:
+        _version = version("agent-remote-server")
+    except PackageNotFoundError:
+        _version = "0.1.0"
+
+__version__: str = _version
 
 __all__ = ["__version__"]
