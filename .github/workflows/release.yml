@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,7 +22,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Resolve release version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+          version="${version#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Resolve image name
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
@@ -32,8 +44,8 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
+            type=raw,value=v${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
