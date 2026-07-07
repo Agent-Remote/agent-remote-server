@@ -54,7 +54,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add pyproject.toml uv.lock Dockerfile CHANGELOG.md
+            git add pyproject.toml uv.lock Dockerfile src/agent_remote_server/__init__.py tests/test_*.py CHANGELOG.md
             git commit -m "chore: release v${version}"
           fi
           git tag "v${version}"
