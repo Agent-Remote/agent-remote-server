@@ -1,5 +1,7 @@
 # agent-remote-server
 
+English | [中文](README.zh-CN.md)
+
 Python control-plane API for agent-remote.
 
 The repository currently provides the control-plane server foundation:
@@ -81,7 +83,7 @@ docker run --rm -p 8000:8000 \
 
 Set `AGENT_REMOTE_RUN_MIGRATIONS=0` to skip migrations for one-off commands.
 
-GitHub Actions builds and pushes the production image to GHCR for `v*` tags.
+GitHub Actions builds and pushes the production image to GHCR for `v*` tags and creates a GitHub Release record with generated release notes.
 
 ## Current Boundary
 

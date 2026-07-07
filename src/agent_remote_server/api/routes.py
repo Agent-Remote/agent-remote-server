@@ -45,6 +45,6 @@ async def version_info() -> dict[str, object]:
         "data": {
             "service": "agent-remote-server",
             "version": __version__,
-            "protocol_version": "0.1.0",
+            "protocol_version": "0.0.2",
         }
     }
