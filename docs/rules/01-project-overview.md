@@ -20,7 +20,7 @@ The current repository foundation provides:
 
 ## Current Non-Goals
 
-Do not implement these without first updating the protocol and architecture documents:
+Do not implement these without first updating the architecture documents and relevant tests:
 
 - Business tables.
 - User authentication.
@@ -31,6 +31,6 @@ Do not implement these without first updating the protocol and architecture docu
 - Browser sessions.
 - Authorization policy.
 
-## Protocol Relationship
+## Contract Relationship
 
-API and payload contract changes must start in `agent-remote-protocol`. This repository implements the server side only after the contract is updated.
+API and payload contract changes are owned by this repository and must be reflected in schemas, tests, and any affected CLI or node callers.

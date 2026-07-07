@@ -32,8 +32,8 @@ Before making changes, identify the task domain and read the matching rule docum
 ## Implementation Rules
 
 - Keep persistence changes tied to approved schema documents and Alembic migrations.
-- Do not add authentication behavior, node task execution, tool sessions, or browser sessions without updating the protocol and rule documents first.
-- Update protocol definitions first when API contracts change.
+- Do not add authentication behavior, node task execution, tool sessions, or browser sessions without updating architecture notes, rule documents, and relevant tests first.
+- Update server schemas, tests, and affected callers when API contracts change.
 - Prefer explicit, boring code over speculative abstractions.
 - Use async database and Redis clients in server runtime code.
 - Preserve structured JSON logging and request ID propagation.

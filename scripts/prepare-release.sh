@@ -46,24 +46,9 @@ text = runtime.read_text()
 text = re.sub(r'_version = "[0-9A-Za-z.+-]+"', f'_version = "{version}"', text, count=1)
 runtime.write_text(text)
 
-routes = Path("src/agent_remote_server/api/routes.py")
-text = routes.read_text()
-text = re.sub(
-    r'"protocol_version": "[0-9A-Za-z.+-]+"',
-    f'"protocol_version": "{version}"',
-    text,
-    count=1,
-)
-routes.write_text(text)
-
 for path in sorted(Path("tests").glob("test_*.py")):
     text = path.read_text()
     text = re.sub(r'"version": "[0-9A-Za-z.+-]+"', f'"version": "{version}"', text)
-    text = re.sub(
-        r'\["protocol_version"\] == "[0-9A-Za-z.+-]+"',
-        f'["protocol_version"] == "{version}"',
-        text,
-    )
     path.write_text(text)
 PY
 

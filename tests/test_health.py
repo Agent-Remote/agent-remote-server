@@ -36,4 +36,3 @@ def test_version_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["data"]["service"] == "agent-remote-server"
-    assert response.json()["data"]["protocol_version"] == "0.0.2"

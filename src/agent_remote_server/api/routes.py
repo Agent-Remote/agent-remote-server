@@ -36,7 +36,7 @@ api_router.include_router(node_api.router)
 @api_router.get("/version", tags=["system"])
 async def version_info() -> dict[str, object]:
     """
-    返回服务和协议版本信息
+    返回服务版本信息
 
     :return dict: 版本信息响应
     """
@@ -45,6 +45,5 @@ async def version_info() -> dict[str, object]:
         "data": {
             "service": "agent-remote-server",
             "version": __version__,
-            "protocol_version": "0.0.2",
         }
     }
