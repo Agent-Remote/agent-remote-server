@@ -66,6 +66,23 @@ Environment variables:
 
 See `.env.example`.
 
+## Container
+
+The Docker image runs Alembic migrations by default and then starts Uvicorn:
+
+```sh
+docker build -t agent-remote-server .
+docker run --rm -p 8000:8000 \
+  -e AGENT_REMOTE_SECRET_KEY=change-me \
+  -e DATABASE_URL=postgresql+asyncpg://agent_remote:agent_remote@postgres:5432/agent_remote \
+  -e REDIS_URL=redis://redis:6379/0 \
+  agent-remote-server
+```
+
+Set `AGENT_REMOTE_RUN_MIGRATIONS=0` to skip migrations for one-off commands.
+
+GitHub Actions builds and pushes the production image to GHCR for `v*` tags.
+
 ## Current Boundary
 
 This repository contains the control-plane API foundation, persistence model, identity and device APIs, node control APIs, and node task polling APIs. Runtime features that require local device networking, workspace synchronization, tool account binding, and interactive tool sessions are implemented through the CLI and node repositories.
