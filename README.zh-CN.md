@@ -2,37 +2,47 @@
 
 [English](README.md) | 中文
 
-agent-remote-server 是 agent-remote 的 Python 3.13 控制平面 API。它负责身份、设备、节点、workspace、同步会话、tool account、tool session、临时浏览器会话和审计数据。
+agent-remote 的 Python 控制平面 API。
 
-## 能力范围
+该仓库当前提供控制平面服务基础：
 
-- FastAPI 应用和结构化 JSON 日志。
-- 请求 ID 中间件。
+- FastAPI application factory。
+- 从环境变量和 `.env` 加载设置。
+- 结构化 JSON 日志。
+- Request ID middleware。
 - `/healthz` 进程健康检查。
-- `/readyz` PostgreSQL 和 Redis 就绪检查。
-- SQLAlchemy async 持久化模型。
-- Alembic 数据库迁移。
-- 用户、设备、节点、任务轮询、session、workspace 和 browser session API。
+- `/readyz` PostgreSQL 和 Redis readiness 检查。
+- SQLAlchemy async engine helpers。
+- Alembic 初始化。
 - Dockerfile 和本地 Compose 开发栈。
+- 基础测试。
 
-## 环境要求
+## 要求
 
 - Python 3.13
 - uv
-- Docker 和 Docker Compose
-- PostgreSQL
-- Redis
+- 用于本地依赖服务的 Docker 和 Docker Compose
 
-## 本地开发
+## 本地设置
 
 ```sh
 uv sync
 cp .env.example .env
+```
+
+运行测试：
+
+```sh
 uv run pytest
+```
+
+本地运行 API：
+
+```sh
 uv run uvicorn agent_remote_server.main:app --reload
 ```
 
-本地依赖栈：
+运行本地 Compose 栈：
 
 ```sh
 docker compose up --build
@@ -47,7 +57,7 @@ curl http://localhost:8000/readyz
 
 ## 配置
 
-主要环境变量：
+环境变量：
 
 - `AGENT_REMOTE_ENV`
 - `AGENT_REMOTE_SECRET_KEY`
@@ -56,13 +66,28 @@ curl http://localhost:8000/readyz
 - `REDIS_URL`
 - `LOG_LEVEL`
 
-详见 `.env.example`。
+见 `.env.example`。
 
 ## 容器
 
-镜像默认运行 Alembic migration 后启动 Uvicorn。设置 `AGENT_REMOTE_RUN_MIGRATIONS=0` 可跳过迁移。
+Docker 镜像默认会运行 Alembic migrations，然后启动 Uvicorn：
 
-GitHub Actions 会为 release tag 构建并推送 GHCR 镜像，同时创建 GitHub Release 记录和 release notes。
+```sh
+docker build -t agent-remote-server .
+docker run --rm -p 8000:8000 \
+  -e AGENT_REMOTE_SECRET_KEY=change-me \
+  -e DATABASE_URL=postgresql+asyncpg://agent_remote:agent_remote@postgres:5432/agent_remote \
+  -e REDIS_URL=redis://redis:6379/0 \
+  agent-remote-server
+```
+
+设置 `AGENT_REMOTE_RUN_MIGRATIONS=0` 可在一次性命令中跳过 migrations。
+
+GitHub Actions 会在 `v*` tag 上构建生产镜像并推送到 GHCR，同时创建带生成 release notes 的 GitHub Release 记录。
+
+## 当前边界
+
+该仓库包含控制平面 API 基础、持久化模型、身份和设备 API、节点控制 API，以及节点任务轮询 API。需要本地设备网络、workspace 同步、工具账户绑定和交互式工具 session 的运行时功能由 CLI 和 node 仓库实现。
 
 ## 许可证
 
