@@ -101,7 +101,7 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
         json={
             "node_id": node_id,
             "registration_token": registration_token,
-            "version": "0.0.2",
+            "version": "0.0.3",
         },
     )
     assert register_response.status_code == 200
