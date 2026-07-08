@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 <version>" >&2
-  echo "Example: $0 0.0.2" >&2
+  echo "Example: $0 0.0.3" >&2
 }
 
 if [[ $# -ne 1 ]]; then
@@ -25,6 +25,11 @@ import sys
 from pathlib import Path
 
 version = sys.argv[1]
+
+script = Path("scripts/prepare-release.sh")
+text = script.read_text()
+text = re.sub(r"Example: \$0 [0-9A-Za-z.+-]+", f"Example: $0 {version}", text)
+script.write_text(text)
 
 pyproject = Path("pyproject.toml")
 text = pyproject.read_text()
