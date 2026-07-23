@@ -259,6 +259,35 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert len(retry_tasks) == 1
     assert retry_tasks[0]["task_id"] == retry["task_id"]
 
+    stale_failure = client.post(
+        f"/api/v1/node-api/tasks/{task['task_id']}/fail",
+        headers=auth_header(node_token),
+        json={"error": {"code": "RUNTIME_FAILED", "message": "stale failure"}},
+    )
+    assert stale_failure.status_code == 200
+
+    retry_complete = client.post(
+        f"/api/v1/node-api/tasks/{retry_tasks[0]['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "status": "waiting_user_login",
+                "binding_session_id": retry["binding_session_id"],
+                "tmux_session_name": retry["tmux_session_name"],
+                "account_remote_path": retry["account_remote_path"],
+            }
+        },
+    )
+    assert retry_complete.status_code == 200
+
+    retry_status = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/bind/status",
+        headers=auth_header(token),
+    )
+    assert retry_status.status_code == 200
+    assert retry_status.json()["data"]["status"] == "binding_waiting_user_login"
+    assert retry_status.json()["data"]["error"] is None
+
 
 def test_native_binding_requires_device_and_syncs_forced_command_key(
     client: TestClient,

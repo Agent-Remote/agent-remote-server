@@ -765,6 +765,7 @@ class NodeService:
                     "tmux_session_name": self._text_result(result, "tmux_session_name"),
                     "account_remote_path": self._text_result(result, "account_remote_path"),
                     "last_binding_result": result,
+                    "last_error": None,
                 }
                 return
             account.status = "failed"
@@ -803,6 +804,11 @@ class NodeService:
         if account is None:
             return
         profile = await self._tool_account_profile(account)
+        if (
+            task.task_type == "create_binding_session"
+            and profile.profile_json.get("binding_task_id") != task.task_id
+        ):
+            return
         if task.task_type == "migrate_tool_account_runtime":
             migration = profile.profile_json.get("runtime_migration")
             previous_status = (

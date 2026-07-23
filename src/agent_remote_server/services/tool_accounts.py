@@ -612,6 +612,7 @@ class ToolAccountService:
             "template": self._template_payload(template),
             "verifier": template.verifier,
             "local_cli_secrets": False,
+            "last_error": None,
         }
         task = await self._repository.add_task(
             NodeTask(
