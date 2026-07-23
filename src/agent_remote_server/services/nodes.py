@@ -751,6 +751,8 @@ class NodeService:
             account.status = previous_status if isinstance(previous_status, str) else "failed"
             return
         if task.task_type == "create_binding_session":
+            if profile.profile_json.get("binding_task_id") != task.task_id:
+                return
             runtime_backend = self._text_result(result, "runtime_backend")
             if runtime_backend is not None:
                 account.runtime_backend = runtime_backend

@@ -596,55 +596,47 @@ class ToolAccountService:
             "account_remote_path",
             self._account_remote_path(user.id, account.tool_type, account.id),
         )
-        binding_session_id = self._profile_text(
-            profile.profile_json,
-            "binding_session_id",
-            f"bind-{account.id}",
-        )
-        tmux_session_name = self._profile_text(
-            profile.profile_json,
-            "tmux_session_name",
-            self._tmux_session_name(account),
-        )
-        task_id = f"create_binding_session:{account.id}"
+        attempt_id = uuid4().hex[:12]
+        binding_session_id = f"bind-{account.id}-{attempt_id}"
+        tmux_session_name = f"{self._tmux_session_name(account)}-{attempt_id}"
+        task_id = f"create_binding_session:{account.id}:{attempt_id}"
 
         account.affinity_node_id = node.id
         account.status = "binding_session_starting"
         profile.profile_json = {
             **profile.profile_json,
             "binding_session_id": binding_session_id,
+            "binding_task_id": task_id,
             "tmux_session_name": tmux_session_name,
             "account_remote_path": account_remote_path,
             "template": self._template_payload(template),
             "verifier": template.verifier,
             "local_cli_secrets": False,
         }
-        task = await self._repository.get_task_by_task_id(task_id)
-        if task is None:
-            task = await self._repository.add_task(
-                NodeTask(
-                    node_id=node.id,
-                    task_id=task_id,
-                    task_type="create_binding_session",
-                    status="pending",
-                    payload={
-                        "binding_id": binding_session_id,
-                        "tool_account_id": str(account.id),
-                        "tool_type": account.tool_type,
-                        "user_id": str(user.id),
-                        "region_code": account.region_code,
-                        "timezone": account.timezone,
-                        "locale": account.locale,
-                        "account_remote_path": account_remote_path,
-                        "runtime_backend": account.runtime_backend,
-                        "runtime_policy": node.runtime_policy,
-                        "tmux_session_name": tmux_session_name,
-                        "template": self._template_payload(template),
-                        "verifier": template.verifier,
-                    },
-                    retry_count=0,
-                )
+        task = await self._repository.add_task(
+            NodeTask(
+                node_id=node.id,
+                task_id=task_id,
+                task_type="create_binding_session",
+                status="pending",
+                payload={
+                    "binding_id": binding_session_id,
+                    "tool_account_id": str(account.id),
+                    "tool_type": account.tool_type,
+                    "user_id": str(user.id),
+                    "region_code": account.region_code,
+                    "timezone": account.timezone,
+                    "locale": account.locale,
+                    "account_remote_path": account_remote_path,
+                    "runtime_backend": account.runtime_backend,
+                    "runtime_policy": node.runtime_policy,
+                    "tmux_session_name": tmux_session_name,
+                    "template": self._template_payload(template),
+                    "verifier": template.verifier,
+                },
+                retry_count=0,
             )
+        )
         if account.runtime_backend == "native":
             assert token.user_device_id is not None
             device = await self._identity_repository.get_device(token.user_device_id)
@@ -710,7 +702,12 @@ class ToolAccountService:
         account = await self._require_account(user=user, account_id=account_id)
         profile = await self._repository.get_profile(account.id)
         node = await self._load_affinity_node(account)
-        task = await self._repository.get_task_by_task_id(f"create_binding_session:{account.id}")
+        task_id = (
+            self._profile_text(profile.profile_json, "binding_task_id", "")
+            if profile is not None
+            else ""
+        )
+        task = await self._repository.get_task_by_task_id(task_id) if task_id else None
         return self._binding_status(account, profile, node, task)
 
     async def verify_binding(self, *, user: User, account_id: UUID) -> BindingSession:

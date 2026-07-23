@@ -201,7 +201,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     binding = start_response.json()["data"]
     assert binding["status"] == "binding_session_starting"
     assert binding["node_id"] == node_id
-    assert binding["task_id"] == f"create_binding_session:{account['id']}"
+    assert binding["task_id"].startswith(f"create_binding_session:{account['id']}:")
     assert binding["account_remote_path"].endswith(f"/tool-accounts/claude/{account['id']}")
 
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
@@ -212,7 +212,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert task["task_type"] == "create_binding_session"
     assert task["payload"]["tool_account_id"] == account["id"]
     assert task["payload"]["template"]["sandbox_agent"] == "claude"
-    assert task["payload"]["template"]["command"] == ["claude", "login"]
+    assert task["payload"]["template"]["command"] == ["claude", "auth", "login"]
     assert task["payload"]["timezone"] == "America/Los_Angeles"
     assert task["payload"]["locale"] == "en_US.UTF-8"
     assert task["payload"]["runtime_policy"] == policy
@@ -240,6 +240,23 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert status["status"] == "binding_waiting_user_login"
     assert status["binding_session_id"] == "bind-test"
     assert "tmux attach-session -t bind-claude" in status["connect_command"]
+
+    retry_response = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/bind/start",
+        headers=auth_header(token),
+    )
+    assert retry_response.status_code == 200
+    retry = retry_response.json()["data"]
+    assert retry["status"] == "binding_session_starting"
+    assert retry["task_id"] != task["task_id"]
+    assert retry["binding_session_id"] != task["payload"]["binding_id"]
+    assert retry["tmux_session_name"] != task["payload"]["tmux_session_name"]
+
+    retry_poll = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert retry_poll.status_code == 200
+    retry_tasks = retry_poll.json()["data"]["tasks"]
+    assert len(retry_tasks) == 1
+    assert retry_tasks[0]["task_id"] == retry["task_id"]
 
 
 def test_native_binding_requires_device_and_syncs_forced_command_key(

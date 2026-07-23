@@ -25,7 +25,7 @@ class ToolRegistry:
         "claude": ToolRuntimeTemplate(
             tool_type="claude",
             sandbox_agent="claude",
-            command=["claude", "login"],
+            command=["claude", "auth", "login"],
             verifier="claude",
             account_config_subdir="claude",
         )
