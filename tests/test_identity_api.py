@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import AuditLog, AuthToken, SshKey, UserDevice, WireGuardPeer
+from agent_remote_server.security import hash_token
 from agent_remote_server.security.totp import generate_totp_code
 
 
@@ -75,6 +77,33 @@ def auth_header(token: str) -> dict[str, str]:
     """
 
     return {"Authorization": f"Bearer {token}"}
+
+
+async def expire_auth_token(client: TestClient, raw_token: str) -> None:
+    """
+    将指定测试令牌标记为过期
+
+    :param client (TestClient): 测试客户端
+    :param raw_token (str): 原始令牌
+    """
+
+    app = cast(FastAPI, client.app)
+    async with app.state.session_factory() as session:
+        token = await session.scalar(
+            select(AuthToken).where(AuthToken.token_hash == hash_token("test-secret", raw_token))
+        )
+        assert token is not None
+        token.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await session.commit()
+
+
+def test_expired_user_token_cannot_refresh(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    asyncio.run(expire_auth_token(client, admin_token))
+
+    response = client.post("/api/v1/auth/refresh", headers=auth_header(admin_token))
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTH_TOKEN_EXPIRED"
 
 
 def test_bootstrap_login_and_user_management(client: TestClient) -> None:
@@ -227,6 +256,13 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     )
     assert refreshed_device_me.status_code == 200
 
+    asyncio.run(expire_auth_token(client, refreshed_device_token))
+    expired_refresh = client.post(
+        "/api/v1/auth/refresh", headers=auth_header(refreshed_device_token)
+    )
+    assert expired_refresh.status_code == 200
+    refreshed_device_token = expired_refresh.json()["data"]["access_token"]
+
     revoke_response = client.post(
         f"/api/v1/devices/{device_id}/disable",
         headers=auth_header(admin_token),
@@ -264,7 +300,8 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
                     select(AuthToken).where(AuthToken.user_device_id == device.id)
                 )
             )
-            assert [token.status for token in tokens] == ["revoked", "revoked"]
+            assert len(tokens) == 3
+            assert all(token.status == "revoked" for token in tokens)
 
             logs = list(await session.scalars(select(AuditLog)))
             details_text = json.dumps([log.details for log in logs], sort_keys=True)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.api.deps import (
     get_current_token,
     get_current_user,
+    get_refreshable_token,
     get_session,
     get_settings,
 )
@@ -111,7 +112,7 @@ async def logout(
 async def refresh(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    token: Annotated[AuthToken, Depends(get_current_token)],
+    token: Annotated[AuthToken, Depends(get_refreshable_token)],
 ) -> AuthTokenResponse:
     """
     刷新当前令牌

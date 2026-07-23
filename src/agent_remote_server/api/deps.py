@@ -66,6 +66,44 @@ async def get_current_token(
     :return AuthToken: 当前令牌记录
     """
 
+    return await _resolve_token(
+        settings=settings,
+        session=session,
+        credentials=credentials,
+        allow_expired_device=False,
+    )
+
+
+async def get_refreshable_token(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> AuthToken:
+    """
+    读取允许轮换的认证令牌，过期设备令牌仍可刷新
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param credentials (HTTPAuthorizationCredentials): Bearer 凭证
+
+    :return AuthToken: 可刷新令牌记录
+    """
+
+    return await _resolve_token(
+        settings=settings,
+        session=session,
+        credentials=credentials,
+        allow_expired_device=True,
+    )
+
+
+async def _resolve_token(
+    *,
+    settings: Settings,
+    session: AsyncSession,
+    credentials: HTTPAuthorizationCredentials | None,
+    allow_expired_device: bool,
+) -> AuthToken:
     if credentials is None:
         raise ApiError(
             code="COMMON_UNAUTHORIZED",
@@ -93,7 +131,7 @@ async def get_current_token(
             message="Token has been revoked.",
             status_code=401,
         )
-    if expires_at <= now:
+    if expires_at <= now and not (allow_expired_device and token.token_type == "device"):
         raise ApiError(
             code="AUTH_TOKEN_EXPIRED",
             message="Token has expired.",
