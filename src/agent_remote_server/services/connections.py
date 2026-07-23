@@ -1,3 +1,5 @@
+import base64
+import binascii
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -13,6 +15,7 @@ from agent_remote_server.models import (
     Session,
     User,
     UserDevice,
+    WireGuardPeer,
 )
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.connections import ConnectionRepository
@@ -32,6 +35,16 @@ class AttachAuthorization:
     ssh_command: str
     command_args: list[str]
     task_id: str
+
+
+@dataclass(frozen=True)
+class WireGuardPeerEnrollment:
+    """
+    设备 WireGuard peer 登记结果
+    """
+
+    device: UserDevice
+    peer: WireGuardPeer
 
 
 class ConnectionService:
@@ -78,6 +91,48 @@ class ConnectionService:
             "peer": peer,
             "nodes": list(nodes),
         }
+
+    async def enroll_wireguard_peer(
+        self, *, user: User, token: AuthToken, public_key: str
+    ) -> WireGuardPeerEnrollment:
+        """
+        为当前设备登记或更新 WireGuard 公钥
+
+        :param user (User): 当前用户
+        :param token (AuthToken): 当前设备令牌
+        :param public_key (str): WireGuard 公钥
+
+        :return WireGuardPeerEnrollment: peer 登记结果
+        """
+
+        self._validate_wireguard_public_key(public_key)
+        device = await self._require_token_device(user=user, token=token)
+        peer = await self._repository.get_active_device_wireguard_peer(device.id)
+        created = peer is None
+        if peer is None:
+            count = await self._identity_repository.count_wireguard_peers()
+            peer = await self._identity_repository.add_wireguard_peer(
+                WireGuardPeer(
+                    peer_type="device",
+                    user_device_id=device.id,
+                    node_id=None,
+                    public_key=public_key,
+                    encrypted_private_key=None,
+                    ip_address=f"10.77.0.{2 + (count % 200)}",
+                    status="active",
+                )
+            )
+        else:
+            peer.public_key = public_key
+        await self._audit(
+            actor_user_id=user.id,
+            action="network.wireguard_peer_enroll",
+            target_type="user_device",
+            target_id=str(device.id),
+            details={"peer_id": str(peer.id), "created": created},
+        )
+        await self._session.commit()
+        return WireGuardPeerEnrollment(device=device, peer=peer)
 
     async def authorize_attach(
         self, *, user: User, token: AuthToken, session_id: UUID
@@ -314,6 +369,18 @@ class ConnectionService:
         if device is None:
             raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
         return device
+
+    def _validate_wireguard_public_key(self, public_key: str) -> None:
+        try:
+            decoded = base64.b64decode(public_key, validate=True)
+        except (binascii.Error, ValueError):
+            decoded = b""
+        if len(decoded) != 32 or base64.b64encode(decoded).decode("ascii") != public_key:
+            raise ApiError(
+                code="WIREGUARD_PUBLIC_KEY_INVALID",
+                message="WireGuard public key must be canonical base64 for exactly 32 bytes.",
+                status_code=400,
+            )
 
     async def _require_attachable_session(self, *, user: User, session_id: UUID) -> Session:
         tool_session = await self._repository.get_session(session_id)

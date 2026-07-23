@@ -51,3 +51,10 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
 - Missing native resources reported during reconciliation move active sessions to `interrupted`; the control plane never replays their commands.
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
+
+## Device WireGuard Enrollment
+
+- A device-scoped token may create or update only its own active WireGuard peer.
+- The control plane accepts and stores only the device public key; private key generation and storage remain local to the CLI.
+- Re-enrollment keeps the existing peer ID and interface address so local repair does not change routing unexpectedly.
+- WireGuard public key bodies must not be written to audit details or logs.

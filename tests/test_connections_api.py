@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 from collections.abc import Iterator
 from typing import cast
 from uuid import UUID
@@ -12,11 +14,13 @@ from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import (
+    AuditLog,
     Session,
     SyncSession,
     ToolAccount,
     ToolAccountProfile,
     UserDevice,
+    WireGuardPeer,
     Workspace,
 )
 
@@ -143,6 +147,103 @@ def register_device(client: TestClient, user_token: str) -> tuple[str, str]:
     assert response.status_code == 200
     payload = response.json()["data"]
     return str(payload["device"]["id"]), str(payload["device_token"]["access_token"])
+
+
+def register_device_without_wireguard(client: TestClient, user_token: str) -> tuple[str, str]:
+    """
+    注册没有 WireGuard peer 的本地设备
+
+    :param client (TestClient): 测试客户端
+    :param user_token (str): 用户令牌
+
+    :return tuple: 设备 ID 和设备令牌
+    """
+
+    response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(user_token),
+        json={
+            "name": "repair-macbook",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAAREPAIRKEY rem@test",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["wireguard_peer_id"] is None
+    return str(payload["device"]["id"]), str(payload["device_token"]["access_token"])
+
+
+def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    device_id, device_token = register_device_without_wireguard(client, admin_token)
+    first_public_key = base64.b64encode(bytes(range(32))).decode("ascii")
+    second_public_key = base64.b64encode(bytes(reversed(range(32)))).decode("ascii")
+
+    missing = client.get("/api/v1/network/wireguard/config", headers=auth_header(device_token))
+    assert missing.status_code == 409
+    assert missing.json()["error"]["code"] == "WIREGUARD_PEER_MISSING"
+
+    forbidden = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(admin_token),
+        json={"public_key": first_public_key},
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["code"] == "DEVICE_REQUIRED"
+
+    invalid = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(device_token),
+        json={"public_key": "x" * 44},
+    )
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "WIREGUARD_PUBLIC_KEY_INVALID"
+
+    enrolled = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(device_token),
+        json={"public_key": first_public_key},
+    )
+    assert enrolled.status_code == 200
+    enrollment = enrolled.json()["data"]
+    assert enrollment["device_id"] == device_id
+    assert enrollment["interface_address"].startswith("10.77.0.")
+
+    rotated = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(device_token),
+        json={"public_key": second_public_key},
+    )
+    assert rotated.status_code == 200
+    assert rotated.json()["data"] == enrollment
+
+    config_response = client.get(
+        "/api/v1/network/wireguard/config", headers=auth_header(device_token)
+    )
+    assert config_response.status_code == 200
+
+    async def inspect_state() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            peers = list(
+                await session.scalars(
+                    select(WireGuardPeer).where(WireGuardPeer.user_device_id == UUID(device_id))
+                )
+            )
+            assert len(peers) == 1
+            assert peers[0].public_key == second_public_key
+            logs = list(
+                await session.scalars(
+                    select(AuditLog).where(AuditLog.action == "network.wireguard_peer_enroll")
+                )
+            )
+            assert len(logs) == 2
+            details = json.dumps([log.details for log in logs], sort_keys=True)
+            assert first_public_key not in details
+            assert second_public_key not in details
+
+    asyncio.run(inspect_state())
 
 
 def test_wireguard_config_requires_device_token(client: TestClient) -> None:

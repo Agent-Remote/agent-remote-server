@@ -38,6 +38,33 @@ class WireGuardConfigResponse(BaseModel):
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
+class EnrollWireGuardPeerRequest(BaseModel):
+    """
+    当前设备 WireGuard peer 登记请求
+    """
+
+    public_key: str = Field(..., min_length=44, max_length=44, description="WireGuard 公钥")
+
+
+class EnrollWireGuardPeerData(BaseModel):
+    """
+    当前设备 WireGuard peer 登记数据
+    """
+
+    device_id: UUID = Field(..., description="设备 ID")
+    peer_id: UUID = Field(..., description="WireGuard 对等端 ID")
+    interface_address: str = Field(..., description="设备 WireGuard 地址")
+
+
+class EnrollWireGuardPeerResponse(BaseModel):
+    """
+    当前设备 WireGuard peer 登记响应
+    """
+
+    data: EnrollWireGuardPeerData = Field(..., description="WireGuard peer 登记数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
 class AttachSessionData(BaseModel):
     """
     SSH attach 授权数据

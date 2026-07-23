@@ -28,6 +28,8 @@
 - Device tokens must be device-scoped.
 - Revoking a device must make device tokens, SSH keys, and WireGuard peers unusable.
 - SSH private keys and WireGuard private keys must never be accepted by user-facing APIs.
+- An active device token may idempotently enroll or rotate that device's WireGuard public key.
+- WireGuard enrollment audit records may contain peer IDs and allocation state, but not public key bodies.
 
 ## TOTP
 
