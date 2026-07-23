@@ -202,6 +202,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert binding["status"] == "binding_session_starting"
     assert binding["node_id"] == node_id
     assert binding["task_id"].startswith(f"create_binding_session:{account['id']}:")
+    assert len(binding["binding_session_id"]) <= 32
     assert binding["account_remote_path"].endswith(f"/tool-accounts/claude/{account['id']}")
 
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))

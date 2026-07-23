@@ -597,7 +597,7 @@ class ToolAccountService:
             self._account_remote_path(user.id, account.tool_type, account.id),
         )
         attempt_id = uuid4().hex[:12]
-        binding_session_id = f"bind-{account.id}-{attempt_id}"
+        binding_session_id = f"bind-{account.id.hex[:12]}-{attempt_id}"
         tmux_session_name = f"{self._tmux_session_name(account)}-{attempt_id}"
         task_id = f"create_binding_session:{account.id}:{attempt_id}"
 
