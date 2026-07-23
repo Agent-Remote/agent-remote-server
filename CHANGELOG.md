@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.4 - 2026-07-23
+
+- fix: make tool account binding retries unique (9c53952)
+
 ## v0.0.4-fix.3 - 2026-07-23
 
 - fix: allow expired device token refresh (d0023d4)
