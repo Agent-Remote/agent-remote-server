@@ -1,16 +1,18 @@
 import asyncio
 from collections.abc import Iterator
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from agent_remote_server.api import browser_sessions as browser_sessions_api
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import ToolAccount
+from agent_remote_server.services.browser_sessions import BrowserSessionService
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -206,3 +208,54 @@ def test_browser_session_lifecycle(client: TestClient) -> None:
         f"/api/v1/browser-sessions/{browser_session['id']}", headers=auth_header(token)
     )
     assert deleted.status_code == 200
+
+
+def test_browser_stream_disables_upstream_ping(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connect_options: dict[str, Any] = {}
+
+    async def fake_stream_endpoint(
+        service: BrowserSessionService, *, browser_session_id: UUID, token: str
+    ) -> str:
+        del service, browser_session_id, token
+        return "https://kasm_user:secret@browser:6901/"
+
+    class FakeUpstreamSocket:
+        subprotocol = None
+
+        def __aiter__(self) -> Any:
+            async def messages() -> Any:
+                if False:
+                    yield b""
+
+            return messages()
+
+        async def close(self) -> None:
+            return None
+
+        async def send(self, message: bytes | str) -> None:
+            del message
+
+    class FakeConnection:
+        async def __aenter__(self) -> FakeUpstreamSocket:
+            return FakeUpstreamSocket()
+
+        async def __aexit__(self, *args: object) -> None:
+            del args
+
+    def fake_connect(url: str, **kwargs: Any) -> FakeConnection:
+        connect_options.update(kwargs)
+        assert url == "wss://browser:6901/websockify"
+        return FakeConnection()
+
+    monkeypatch.setattr(BrowserSessionService, "stream_endpoint", fake_stream_endpoint)
+    monkeypatch.setattr(browser_sessions_api.websockets, "connect", fake_connect)
+
+    browser_session_id = "d06d6e90-8486-4ffb-abdc-9117e6aaf651"
+    with client.websocket_connect(
+        f"/api/v1/browser-sessions/{browser_session_id}/stream/websockify?token=test-token"
+    ):
+        pass
+
+    assert connect_options["ping_interval"] is None

@@ -293,6 +293,9 @@ async def browser_stream_websocket(
             subprotocols=_websocket_subprotocols(websocket),
             ssl=ssl_context,
             max_size=None,
+            # KasmVNC 1.18 ignores WebSocket Ping frames, so the library default
+            # closes an otherwise healthy VNC stream after its Pong timeout.
+            ping_interval=None,
         ) as upstream_socket:
             await websocket.accept(subprotocol=upstream_socket.subprotocol)
             await _proxy_websocket(websocket, upstream_socket)
