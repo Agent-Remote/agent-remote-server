@@ -202,7 +202,7 @@ class ConnectionService:
             existing.payload = payload
             existing.lease_until = None
         ssh_command = (
-            f"ssh -p {ssh_port} {ssh_user}@{ssh_host} "
+            f"ssh -t -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --session {tool_session.id}"
         )
         await self._audit(

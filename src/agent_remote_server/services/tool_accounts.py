@@ -864,10 +864,12 @@ class ToolAccountService:
         ssh_port = node.ssh_port or 22
         if account.runtime_backend == "native":
             return (
-                f"ssh -p {ssh_port} {ssh_user}@{ssh_host} "
+                f"ssh -t -p {ssh_port} {ssh_user}@{ssh_host} "
                 f"agent-remote-attach --binding {account.id}"
             )
-        return f"ssh -p {ssh_port} {ssh_user}@{ssh_host} tmux attach-session -t {tmux_session_name}"
+        return (
+            f"ssh -t -p {ssh_port} {ssh_user}@{ssh_host} tmux attach-session -t {tmux_session_name}"
+        )
 
     def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
         if node is None:
