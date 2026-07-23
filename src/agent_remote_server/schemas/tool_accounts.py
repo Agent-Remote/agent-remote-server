@@ -19,6 +19,7 @@ class ToolAccountData(BaseModel):
     locale: str = Field(..., description="区域设置")
     preferred_node_tags: list[str] = Field(default_factory=list, description="偏好节点标签")
     affinity_node_id: UUID | None = Field(default=None, description="亲和节点标识")
+    runtime_backend: str | None = Field(default=None, description="账户固定运行时")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
@@ -58,6 +59,35 @@ class ToolAccountResponse(BaseModel):
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
+class RuntimeMigrationRequest(BaseModel):
+    """
+    工具账户运行时迁移请求
+    """
+
+    target_runtime_backend: str = Field(..., description="目标运行时")
+
+
+class RuntimeMigrationData(BaseModel):
+    """
+    工具账户运行时迁移数据
+    """
+
+    tool_account_id: UUID = Field(..., description="工具账户 ID")
+    source_runtime_backend: str = Field(..., description="原运行时")
+    target_runtime_backend: str = Field(..., description="目标运行时")
+    status: str = Field(..., description="迁移状态")
+    task_id: str = Field(..., description="节点任务 ID")
+
+
+class RuntimeMigrationResponse(BaseModel):
+    """
+    工具账户运行时迁移响应
+    """
+
+    data: RuntimeMigrationData = Field(..., description="运行时迁移数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
 class ToolAccountListData(BaseModel):
     """
     工具账户列表数据
@@ -91,6 +121,7 @@ class BindingStatusData(BaseModel):
     task_id: str | None = Field(default=None, description="任务标识")
     verifier: str | None = Field(default=None, description="校验器名称")
     error: str | None = Field(default=None, description="错误摘要")
+    runtime_backend: str | None = Field(default=None, description="账户固定运行时")
 
 
 class BindingStatusResponse(BaseModel):

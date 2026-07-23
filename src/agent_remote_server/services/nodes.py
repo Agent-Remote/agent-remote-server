@@ -15,6 +15,7 @@ from agent_remote_server.models import (
     NodeTask,
     NodeTaskResult,
     Session,
+    SyncSession,
     ToolAccount,
     ToolAccountProfile,
     User,
@@ -22,6 +23,8 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import create_opaque_token, hash_token
+
+RUNTIME_BACKENDS = {"docker_sandbox", "native"}
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,9 @@ class NodeService:
         tags: list[str],
         weight: int,
         supported_tool_types: list[str],
+        allowed_runtime_backends: list[str],
+        default_runtime_backend: str,
+        runtime_policy: dict[str, object],
         wireguard_ip: str | None = None,
         wireguard_public_key: str | None = None,
         wireguard_endpoint: str | None = None,
@@ -80,6 +86,9 @@ class NodeService:
         :param tags (list): 节点标签
         :param weight (int): 调度权重
         :param supported_tool_types (list): 支持工具类型
+        :param allowed_runtime_backends (list): 管理员允许的运行时
+        :param default_runtime_backend (str): 默认运行时
+        :param runtime_policy (dict): 运行时策略
         :param wireguard_ip (str): WireGuard 地址
         :param wireguard_public_key (str): WireGuard 公钥
         :param wireguard_endpoint (str): WireGuard endpoint
@@ -90,6 +99,7 @@ class NodeService:
         :return NodeRegistrationToken: 注册 token
         """
 
+        self._validate_runtime_settings(allowed_runtime_backends, default_runtime_backend)
         raw_token = create_opaque_token("nreg")
         node = await self._repository.add_node(
             Node(
@@ -99,6 +109,9 @@ class NodeService:
                 tags=tags,
                 weight=weight,
                 supported_tool_types=supported_tool_types,
+                allowed_runtime_backends=allowed_runtime_backends,
+                default_runtime_backend=default_runtime_backend,
+                runtime_policy=runtime_policy,
                 wireguard_ip=wireguard_ip,
                 wireguard_public_key=wireguard_public_key,
                 wireguard_endpoint=wireguard_endpoint,
@@ -237,9 +250,9 @@ class NodeService:
         node.version = version
         node.supported_tool_types = supported_tool_types
         node.last_heartbeat_at = now
-        node.status = (
-            "healthy" if runtime.get("docker_ok") and runtime.get("tmux_ok") else "degraded"
-        )
+        capabilities = runtime.get("runtime_capabilities")
+        node.runtime_capabilities = capabilities if isinstance(capabilities, dict) else {}
+        node.status = "healthy" if self._runtime_is_healthy(node, runtime) else "degraded"
         await self._repository.add_heartbeat(
             NodeHeartbeat(
                 node_id=node.id,
@@ -288,6 +301,9 @@ class NodeService:
         tags: list[str] | None,
         weight: int | None,
         supported_tool_types: list[str] | None,
+        allowed_runtime_backends: list[str] | None,
+        default_runtime_backend: str | None,
+        runtime_policy: dict[str, object] | None,
         wireguard_ip: str | None,
         wireguard_public_key: str | None,
         wireguard_endpoint: str | None,
@@ -305,6 +321,9 @@ class NodeService:
         :param tags (list): 节点标签
         :param weight (int): 权重
         :param supported_tool_types (list): 支持工具类型
+        :param allowed_runtime_backends (list): 管理员允许的运行时
+        :param default_runtime_backend (str): 默认运行时
+        :param runtime_policy (dict): 运行时策略
         :param wireguard_ip (str): WireGuard 地址
         :param wireguard_public_key (str): WireGuard 公钥
         :param wireguard_endpoint (str): WireGuard endpoint
@@ -316,6 +335,17 @@ class NodeService:
         """
 
         node = await self._require_node(node_id)
+        effective_allowed = (
+            allowed_runtime_backends
+            if allowed_runtime_backends is not None
+            else node.allowed_runtime_backends
+        )
+        effective_default = (
+            default_runtime_backend
+            if default_runtime_backend is not None
+            else node.default_runtime_backend
+        )
+        self._validate_runtime_settings(effective_allowed, effective_default)
         if name is not None:
             node.name = name
         if status is not None:
@@ -326,6 +356,12 @@ class NodeService:
             node.weight = weight
         if supported_tool_types is not None:
             node.supported_tool_types = supported_tool_types
+        if allowed_runtime_backends is not None:
+            node.allowed_runtime_backends = allowed_runtime_backends
+        if default_runtime_backend is not None:
+            node.default_runtime_backend = default_runtime_backend
+        if runtime_policy is not None:
+            node.runtime_policy = runtime_policy
         if wireguard_ip is not None:
             node.wireguard_ip = wireguard_ip
         if wireguard_public_key is not None:
@@ -366,6 +402,9 @@ class NodeService:
             tags=None,
             weight=None,
             supported_tool_types=None,
+            allowed_runtime_backends=None,
+            default_runtime_backend=None,
+            runtime_policy=None,
             wireguard_ip=None,
             wireguard_public_key=None,
             wireguard_endpoint=None,
@@ -392,6 +431,9 @@ class NodeService:
             tags=None,
             weight=None,
             supported_tool_types=None,
+            allowed_runtime_backends=None,
+            default_runtime_backend=None,
+            runtime_policy=None,
             wireguard_ip=None,
             wireguard_public_key=None,
             wireguard_endpoint=None,
@@ -438,6 +480,51 @@ class NodeService:
         )
         await self._session.commit()
         return task
+
+    def _validate_runtime_settings(
+        self, allowed_runtime_backends: list[str], default_runtime_backend: str
+    ) -> None:
+        """
+        校验管理员运行时策略
+
+        :param allowed_runtime_backends (list): 允许的运行时
+        :param default_runtime_backend (str): 默认运行时
+        """
+
+        allowed = set(allowed_runtime_backends)
+        if not allowed or not allowed.issubset(RUNTIME_BACKENDS):
+            raise ApiError(
+                code="COMMON_VALIDATION_ERROR",
+                message="Runtime backends are invalid.",
+                status_code=422,
+            )
+        if default_runtime_backend not in allowed:
+            raise ApiError(
+                code="COMMON_VALIDATION_ERROR",
+                message="Default runtime backend must be allowed.",
+                status_code=422,
+            )
+
+    def _runtime_is_healthy(self, node: Node, runtime: dict[str, object]) -> bool:
+        """
+        判断节点是否至少有一个可调度运行时
+
+        :param node (Node): 节点实体
+        :param runtime (dict): 心跳运行时快照
+
+        :return bool: 是否健康
+        """
+
+        if not runtime.get("tmux_ok"):
+            return False
+        capabilities = runtime.get("runtime_capabilities")
+        if not isinstance(capabilities, dict) or not capabilities:
+            return bool(runtime.get("docker_ok"))
+        backends = capabilities.get("backends")
+        if not isinstance(backends, list):
+            return False
+        available = {item for item in backends if isinstance(item, str)}
+        return bool(available.intersection(node.allowed_runtime_backends))
 
     async def poll_tasks(self, *, node: Node, limit: int = 1) -> list[NodeTask]:
         """
@@ -503,6 +590,7 @@ class NodeService:
         task.status = "succeeded"
         await self._apply_tool_account_task_result(task, result)
         await self._apply_tool_session_task_result(task, result)
+        await self._apply_sync_session_task_result(task, result)
         await self._apply_browser_session_task_result(task, result)
         await self._session.commit()
 
@@ -531,6 +619,7 @@ class NodeService:
         task.status = "failed"
         await self._apply_tool_account_task_failure(task, error)
         await self._apply_tool_session_task_failure(task, error)
+        await self._apply_sync_session_task_failure(task)
         await self._apply_browser_session_task_failure(task, error)
         await self._session.commit()
 
@@ -552,14 +641,53 @@ class NodeService:
                 message="Node credential does not match node.",
                 status_code=403,
             )
+        interrupted_count = 0
+        if "runtime_sessions" in sections:
+            reported = self._reported_runtime_sessions(snapshot)
+            active_sessions = await self._repository.list_active_sessions_for_node(node.id)
+            for tool_session in active_sessions:
+                if tool_session.runtime_backend != "native":
+                    continue
+                runtime = reported.get(str(tool_session.id))
+                if runtime is None or runtime.get("active") is not True:
+                    tool_session.status = "interrupted"
+                    interrupted_count += 1
         await self._audit(
             actor_user_id=None,
             action="node_api.reconcile",
             target_type="node",
             target_id=str(node.id),
-            details={"sections": sections, "snapshot_keys": sorted(snapshot)},
+            details={
+                "sections": sections,
+                "snapshot_keys": sorted(snapshot),
+                "interrupted_count": interrupted_count,
+            },
         )
         await self._session.commit()
+
+    def _reported_runtime_sessions(
+        self, snapshot: dict[str, object]
+    ) -> dict[str, dict[str, object]]:
+        """
+        解析节点上报的非敏感运行时会话摘要
+
+        :param snapshot (dict): 节点对账快照
+
+        :return dict: 以会话 ID 索引的有效摘要
+        """
+
+        items = snapshot.get("sessions")
+        if not isinstance(items, list):
+            return {}
+        reported: dict[str, dict[str, object]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            session_id = item.get("session_id")
+            backend = item.get("runtime_backend")
+            if isinstance(session_id, str) and backend == "native":
+                reported[session_id] = item
+        return reported
 
     async def _require_node(self, node_id: UUID) -> Node:
         node = await self._repository.get_node(node_id)
@@ -583,7 +711,37 @@ class NodeService:
         if account is None:
             return
         profile = await self._tool_account_profile(account)
+        if task.task_type == "migrate_tool_account_runtime":
+            source = task.payload.get("source_runtime_backend")
+            target = task.payload.get("target_runtime_backend")
+            migration = profile.profile_json.get("runtime_migration")
+            previous_status = (
+                migration.get("previous_status") if isinstance(migration, dict) else None
+            )
+            if (
+                result.get("migrated") is True
+                and isinstance(target, str)
+                and self._text_result(result, "runtime_backend") == target
+            ):
+                account.runtime_backend = target
+                account.status = previous_status if isinstance(previous_status, str) else "active"
+                profile.profile_json = {
+                    **profile.profile_json,
+                    "runtime_migration": {
+                        **(migration if isinstance(migration, dict) else {}),
+                        "status": "succeeded",
+                        "backup_path": self._text_result(result, "backup_path"),
+                    },
+                }
+                return
+            if isinstance(source, str):
+                account.runtime_backend = source
+            account.status = previous_status if isinstance(previous_status, str) else "failed"
+            return
         if task.task_type == "create_binding_session":
+            runtime_backend = self._text_result(result, "runtime_backend")
+            if runtime_backend is not None:
+                account.runtime_backend = runtime_backend
             status = result.get("status")
             if status in {"waiting_user_login", "ready"}:
                 account.status = "binding_waiting_user_login"
@@ -631,6 +789,25 @@ class NodeService:
         if account is None:
             return
         profile = await self._tool_account_profile(account)
+        if task.task_type == "migrate_tool_account_runtime":
+            migration = profile.profile_json.get("runtime_migration")
+            previous_status = (
+                migration.get("previous_status") if isinstance(migration, dict) else None
+            )
+            source = task.payload.get("source_runtime_backend")
+            if isinstance(source, str):
+                account.runtime_backend = source
+            account.status = previous_status if isinstance(previous_status, str) else "failed"
+            profile.profile_json = {
+                **profile.profile_json,
+                "runtime_migration": {
+                    **(migration if isinstance(migration, dict) else {}),
+                    "status": "failed",
+                    "error": self._text_result(error, "message")
+                    or self._text_result(error, "error"),
+                },
+            }
+            return
         account.status = "failed"
         profile.profile_json = {
             **profile.profile_json,
@@ -658,11 +835,57 @@ class NodeService:
                     tool_session.tmux_session_name = tmux_session_name
                 if container_id is not None:
                     tool_session.container_id = container_id
+                runtime_resource_id = self._text_result(result, "runtime_resource_id")
+                if runtime_resource_id is None:
+                    runtime_resource_id = container_id
+                if runtime_resource_id is not None:
+                    tool_session.runtime_resource_id = runtime_resource_id
                 return
             tool_session.status = "failed"
             return
         if task.task_type == "stop_tool_session":
             tool_session.status = "stopped"
+
+    async def _apply_sync_session_task_result(
+        self, task: NodeTask, result: dict[str, object]
+    ) -> None:
+        """
+        应用 workspace 准备任务结果
+
+        :param task (NodeTask): 节点任务
+        :param result (dict): 任务结果
+        """
+
+        if task.task_type != "prepare_workspace" or result.get("status") != "prepared":
+            return
+        value = task.payload.get("sync_session_id")
+        if not isinstance(value, str):
+            return
+        try:
+            sync_session = await self._session.get(SyncSession, UUID(value))
+        except ValueError:
+            return
+        if sync_session is not None:
+            sync_session.status = "active"
+
+    async def _apply_sync_session_task_failure(self, task: NodeTask) -> None:
+        """
+        将 workspace 准备失败同步到同步会话
+
+        :param task (NodeTask): 节点任务
+        """
+
+        if task.task_type != "prepare_workspace":
+            return
+        value = task.payload.get("sync_session_id")
+        if not isinstance(value, str):
+            return
+        try:
+            sync_session = await self._session.get(SyncSession, UUID(value))
+        except ValueError:
+            return
+        if sync_session is not None:
+            sync_session.status = "failed"
 
     async def _apply_tool_session_task_failure(
         self, task: NodeTask, error: dict[str, object]

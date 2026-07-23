@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, NodeHeartbeat, NodeTask, NodeTaskResult
+from agent_remote_server.models import Node, NodeHeartbeat, NodeTask, NodeTaskResult, Session
 
 
 class NodeRepository:
@@ -59,6 +59,23 @@ class NodeRepository:
         """
 
         result = await self._session.scalars(select(Node).order_by(Node.created_at))
+        return result.all()
+
+    async def list_active_sessions_for_node(self, node_id: UUID) -> Sequence[Session]:
+        """
+        列出节点上控制面认为仍活跃的工具会话
+
+        :param node_id (UUID): 节点 ID
+
+        :return Sequence: 活跃工具会话列表
+        """
+
+        result = await self._session.scalars(
+            select(Session)
+            .where(Session.node_id == node_id)
+            .where(Session.status.in_(["starting", "running", "active"]))
+            .order_by(Session.created_at)
+        )
         return result.all()
 
     async def add_heartbeat(self, heartbeat: NodeHeartbeat) -> NodeHeartbeat:

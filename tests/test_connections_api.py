@@ -6,11 +6,19 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import Session, ToolAccount, UserDevice, Workspace
+from agent_remote_server.models import (
+    Session,
+    SyncSession,
+    ToolAccount,
+    ToolAccountProfile,
+    UserDevice,
+    Workspace,
+)
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -183,8 +191,8 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert len(tasks) == 1
     assert tasks[0]["task_type"] == "sync_ssh_keys"
     assert tasks[0]["payload"]["device_id"] == device_id
-    assert tasks[0]["payload"]["ssh_keys"][0]["forced_command"].startswith(
-        "agent-remote-attach --session"
+    assert tasks[0]["payload"]["ssh_keys"][0]["forced_command"] == (
+        f"agent-remote-attach --device {device_id}"
     )
 
     verify_response = client.post(
@@ -207,6 +215,128 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     )
     assert denied_verify.status_code == 403
     assert denied_verify.json()["error"]["code"] == "DEVICE_REVOKED"
+
+
+def test_sync_gateway_requires_device_node_and_active_sync(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    node_id, node_token = create_node(client, admin_token)
+    device_id, _device_token = register_device(client, admin_token)
+    create_tool_session(client, node_id=node_id, device_id=device_id)
+
+    denied = client.post(
+        "/api/v1/node-api/sync/verify",
+        headers=auth_header(node_token),
+        json={"node_id": node_id, "device_id": device_id},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "SYNC_ACCESS_DENIED"
+
+    async def create_sync_session() -> str:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            workspace = await session.scalar(
+                select(Workspace).where(Workspace.device_id == UUID(device_id))
+            )
+            assert workspace is not None
+            sync = SyncSession(
+                user_id=workspace.user_id,
+                workspace_id=workspace.id,
+                node_id=UUID(node_id),
+                local_path=workspace.local_start_path,
+                status="active",
+                conflict_status="none",
+                remote_path=workspace.remote_path,
+                sync_mode="two-way-resolved",
+            )
+            session.add(sync)
+            await session.flush()
+            sync_id = str(sync.id)
+            await session.commit()
+            return sync_id
+
+    sync_id = asyncio.run(create_sync_session())
+    verified = client.post(
+        "/api/v1/node-api/sync/verify",
+        headers=auth_header(node_token),
+        json={"node_id": node_id, "device_id": device_id},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["data"]["user_id"]
+
+    async def stop_sync_session() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            sync = await session.get(SyncSession, UUID(sync_id))
+            assert sync is not None
+            sync.status = "stopped"
+            await session.commit()
+
+    asyncio.run(stop_sync_session())
+    stopped = client.post(
+        "/api/v1/node-api/sync/verify",
+        headers=auth_header(node_token),
+        json={"node_id": node_id, "device_id": device_id},
+    )
+    assert stopped.status_code == 403
+    assert stopped.json()["error"]["code"] == "SYNC_ACCESS_DENIED"
+
+
+def test_native_binding_attach_verifies_device_and_returns_private_session(
+    client: TestClient,
+) -> None:
+    admin_token = bootstrap(client)
+    node_id, node_token = create_node(client, admin_token)
+    device_id, _device_token = register_device(client, admin_token)
+
+    async def create_binding() -> str:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            device = await session.get(UserDevice, UUID(device_id))
+            assert device is not None
+            account = ToolAccount(
+                user_id=device.user_id,
+                tool_type="claude",
+                display_name="Native Binding",
+                status="binding_waiting_user_login",
+                region_code="US",
+                timezone="America/Los_Angeles",
+                locale="en-US",
+                preferred_node_tags=["us"],
+                affinity_node_id=UUID(node_id),
+                runtime_backend="native",
+            )
+            session.add(account)
+            await session.flush()
+            session.add(
+                ToolAccountProfile(
+                    tool_account_id=account.id,
+                    tool_type="claude",
+                    profile_json={
+                        "binding_session_id": f"bind-{account.id}",
+                        "tmux_session_name": "bind-native",
+                    },
+                    encrypted_secrets=None,
+                )
+            )
+            account_id = str(account.id)
+            await session.commit()
+            return account_id
+
+    account_id = asyncio.run(create_binding())
+    response = client.post(
+        "/api/v1/node-api/binding-attach/verify",
+        headers=auth_header(node_token),
+        json={
+            "node_id": node_id,
+            "tool_account_id": account_id,
+            "device_id": device_id,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["binding_session_id"] == f"bind-{account_id}"
+    assert data["tmux_session_name"] == "bind-native"
+    assert data["runtime_backend"] == "native"
 
 
 def create_tool_session(client: TestClient, *, node_id: str, device_id: str) -> str:

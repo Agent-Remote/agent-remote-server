@@ -32,3 +32,11 @@
 
 - Reconciliation snapshots are node-owned status summaries.
 - Store section names and summary keys in audit logs, not full sensitive state.
+- Runtime session summaries contain only session IDs, backend names, neutral resource IDs, and active flags.
+- A node startup reconciliation may mark missing native sessions `interrupted`; it must not request command replay.
+
+## Runtime Tasks
+
+- Account binding, session lifecycle, workspace ownership, Docker access, and native isolation are executed through the node's privileged runtime helper.
+- Runtime task payloads carry IDs, locale, timezone, bounded policy, and declared backend. They must not carry host-derived paths outside managed roots.
+- Backend migration requires no active sessions and a live target capability. Task failure preserves the original pinned backend.

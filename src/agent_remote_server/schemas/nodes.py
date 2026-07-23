@@ -22,6 +22,14 @@ class NodeData(BaseModel):
     ssh_port: int | None = Field(default=None, description="SSH 端口")
     ssh_user: str | None = Field(default=None, description="SSH 用户")
     supported_tool_types: list[str] = Field(default_factory=list, description="支持工具类型")
+    allowed_runtime_backends: list[str] = Field(
+        default_factory=lambda: ["docker_sandbox"], description="管理员允许的运行时"
+    )
+    default_runtime_backend: str = Field(default="docker_sandbox", description="默认运行时")
+    runtime_policy: dict[str, object] = Field(default_factory=dict, description="运行时策略")
+    runtime_capabilities: dict[str, object] = Field(
+        default_factory=dict, description="节点最近上报的运行时能力"
+    )
     last_heartbeat_at: datetime | None = Field(default=None, description="最后心跳时间")
     version: str | None = Field(default=None, description="节点版本")
     created_at: datetime = Field(..., description="创建时间")
@@ -38,6 +46,11 @@ class CreateNodeRequest(BaseModel):
     tags: list[str] = Field(default_factory=list, description="节点标签")
     weight: int = Field(default=100, description="调度权重")
     supported_tool_types: list[str] = Field(default_factory=list, description="支持工具类型")
+    allowed_runtime_backends: list[str] = Field(
+        default_factory=lambda: ["docker_sandbox"], description="管理员允许的运行时"
+    )
+    default_runtime_backend: str = Field(default="docker_sandbox", description="默认运行时")
+    runtime_policy: dict[str, object] = Field(default_factory=dict, description="运行时策略")
     wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
     wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
@@ -56,6 +69,9 @@ class UpdateNodeRequest(BaseModel):
     tags: list[str] | None = Field(default=None, description="节点标签")
     weight: int | None = Field(default=None, description="调度权重")
     supported_tool_types: list[str] | None = Field(default=None, description="支持工具类型")
+    allowed_runtime_backends: list[str] | None = Field(default=None, description="允许的运行时")
+    default_runtime_backend: str | None = Field(default=None, description="默认运行时")
+    runtime_policy: dict[str, object] | None = Field(default=None, description="运行时策略")
     wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
     wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
@@ -159,6 +175,9 @@ class NodeRuntimeData(BaseModel):
     active_sessions: int = Field(default=0, description="活跃会话数量")
     active_browser_sessions: int = Field(default=0, description="活跃浏览器会话数量")
     containers: int = Field(default=0, description="容器数量")
+    runtime_capabilities: dict[str, object] = Field(
+        default_factory=dict, description="运行时能力探测"
+    )
 
 
 class NodeHeartbeatRequest(BaseModel):

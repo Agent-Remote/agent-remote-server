@@ -84,7 +84,7 @@ class SessionRepository:
             .where(Session.user_id == user_id)
             .where(Session.tool_type == tool_type)
             .where(Session.project_key == project_key)
-            .where(Session.status.in_(["starting", "running", "active"]))
+            .where(Session.status.in_(["starting", "running", "active", "interrupted"]))
             .order_by(Session.updated_at.desc(), Session.created_at.desc())
         )
 

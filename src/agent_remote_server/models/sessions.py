@@ -39,6 +39,13 @@ class Session(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     tmux_session_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     container_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    runtime_backend: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="docker_sandbox"
+    )
+    runtime_resource_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    replaces_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class SessionEvent(IdMixin, Base):

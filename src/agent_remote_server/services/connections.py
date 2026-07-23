@@ -115,7 +115,7 @@ class ConnectionService:
         ssh_port = node.ssh_port or 22
         command_args = ["agent-remote-attach", "--session", str(tool_session.id)]
         task_id = f"sync_ssh_keys:{node.id}:{device.id}:{ssh_keys[0].id}"
-        forced_command = f"agent-remote-attach --session {tool_session.id} --device {device.id}"
+        forced_command = f"agent-remote-attach --device {device.id}"
         payload: dict[str, object] = {
             "device_id": str(device.id),
             "session_id": str(tool_session.id),
@@ -209,6 +209,97 @@ class ConnectionService:
         )
         await self._session.commit()
         return tool_session
+
+    async def verify_node_sync(self, *, node: Node, node_id: UUID, device_id: UUID) -> UserDevice:
+        """
+        校验设备是否可在当前节点启动受限同步传输
+
+        :param node (Node): 当前节点
+        :param node_id (UUID): 请求节点 ID
+        :param device_id (UUID): 设备 ID
+
+        :return UserDevice: 已授权设备
+        """
+
+        if node.id != node_id:
+            raise ApiError(
+                code="COMMON_FORBIDDEN",
+                message="Node credential does not match node.",
+                status_code=403,
+            )
+        device = await self._repository.get_active_device_by_id(device_id)
+        if device is None:
+            raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
+        sync_session = await self._repository.get_active_sync_session_for_device_node(
+            user_id=device.user_id, device_id=device.id, node_id=node.id
+        )
+        if sync_session is None:
+            raise ApiError(
+                code="SYNC_ACCESS_DENIED",
+                message="Device has no active sync session on this node.",
+                status_code=403,
+            )
+        await self._audit(
+            actor_user_id=None,
+            action="node_api.sync_verify",
+            target_type="sync_session",
+            target_id=str(sync_session.id),
+            details={"node_id": str(node.id), "device_id": str(device.id)},
+        )
+        await self._session.commit()
+        return device
+
+    async def verify_node_binding_attach(
+        self, *, node: Node, node_id: UUID, account_id: UUID, device_id: UUID
+    ) -> tuple[str, str, str]:
+        """校验设备对工具账户绑定会话的 attach 权限。"""
+
+        if node.id != node_id:
+            raise ApiError(
+                code="COMMON_FORBIDDEN",
+                message="Node credential does not match node.",
+                status_code=403,
+            )
+        account = await self._repository.get_tool_account(account_id)
+        if account is None or account.affinity_node_id != node.id:
+            raise ApiError(
+                code="COMMON_NOT_FOUND", message="Binding session was not found.", status_code=404
+            )
+        device = await self._repository.get_active_device(
+            user_id=account.user_id, device_id=device_id
+        )
+        if device is None:
+            raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
+        if account.status not in {"binding_session_starting", "binding_waiting_user_login"}:
+            raise ApiError(
+                code="SESSION_NOT_ATTACHABLE",
+                message="Binding session is not attachable.",
+                status_code=409,
+            )
+        profile = await self._repository.get_tool_account_profile(account.id)
+        values = profile.profile_json if profile is not None else {}
+        binding_session_id = values.get("binding_session_id")
+        tmux_session_name = values.get("tmux_session_name")
+        if not isinstance(binding_session_id, str) or not binding_session_id:
+            raise ApiError(
+                code="SESSION_NOT_READY", message="Binding session is not ready.", status_code=409
+            )
+        if not isinstance(tmux_session_name, str) or not tmux_session_name:
+            raise ApiError(
+                code="SESSION_NOT_READY",
+                message="Binding tmux session is not ready.",
+                status_code=409,
+            )
+        runtime_backend = account.runtime_backend or node.default_runtime_backend
+        await self._audit(
+            actor_user_id=None,
+            action="node_api.binding_attach_verify",
+            target_type="tool_account",
+            target_id=str(account.id),
+            details={"node_id": str(node.id), "device_id": str(device.id)},
+        )
+        await self._session.commit()
+        return binding_session_id, tmux_session_name, runtime_backend
 
     async def _require_token_device(self, *, user: User, token: AuthToken) -> UserDevice:
         if token.user_device_id is None:

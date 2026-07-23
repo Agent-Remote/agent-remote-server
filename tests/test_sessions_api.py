@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import Session, ToolAccount
+from agent_remote_server.models import Node, Session, ToolAccount
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -307,3 +307,68 @@ def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> Non
     )
     assert poll_response.status_code == 200
     assert poll_response.json()["data"]["tasks"] == []
+
+
+def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestClient) -> None:
+    token = bootstrap(client)
+    node_id, node_token = create_node(client, token, name="us-west-native", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:replacement")
+    account_id = create_account(client, token)
+    created = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:replacement",
+            "argv": [],
+        },
+    )
+    assert created.status_code == 200
+    session_id = str(created.json()["data"]["id"])
+
+    async def make_native_running() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(session_id))
+            account = await session.get(ToolAccount, UUID(account_id))
+            node = await session.get(Node, UUID(node_id))
+            assert tool_session is not None and account is not None and node is not None
+            tool_session.status = "running"
+            tool_session.runtime_backend = "native"
+            tool_session.runtime_resource_id = "agent-remote-session-test.service"
+            account.runtime_backend = "native"
+            node.allowed_runtime_backends = ["docker_sandbox", "native"]
+            node.runtime_capabilities = {"backends": ["docker_sandbox", "native"]}
+            await session.commit()
+
+    asyncio.run(make_native_running())
+    reconciled = client.post(
+        "/api/v1/node-api/reconcile",
+        headers=auth_header(node_token),
+        json={
+            "node_id": node_id,
+            "sections": ["runtime_sessions"],
+            "snapshot": {"sessions": []},
+        },
+    )
+    assert reconciled.status_code == 200
+    interrupted = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+    assert interrupted.status_code == 200
+    assert interrupted.json()["data"]["status"] == "interrupted"
+    replacement = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:replacement",
+            "argv": [],
+            "replaces_session_id": session_id,
+        },
+    )
+    assert replacement.status_code == 200
+    assert replacement.json()["data"]["replaces_session_id"] == session_id

@@ -4,7 +4,17 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, Session, SshKey, SyncSession, UserDevice, WireGuardPeer
+from agent_remote_server.models import (
+    Node,
+    Session,
+    SshKey,
+    SyncSession,
+    ToolAccount,
+    ToolAccountProfile,
+    UserDevice,
+    WireGuardPeer,
+    Workspace,
+)
 
 
 class ConnectionRepository:
@@ -30,6 +40,44 @@ class ConnectionRepository:
             .where(UserDevice.id == device_id)
             .where(UserDevice.user_id == user_id)
             .where(UserDevice.status == "active")
+        )
+
+    async def get_active_device_by_id(self, device_id: UUID) -> UserDevice | None:
+        """
+        按 ID 读取活跃设备
+
+        :param device_id (UUID): 设备 ID
+
+        :return UserDevice: 活跃设备实体
+        """
+
+        return await self._session.scalar(
+            select(UserDevice)
+            .where(UserDevice.id == device_id)
+            .where(UserDevice.status == "active")
+        )
+
+    async def get_active_sync_session_for_device_node(
+        self, *, user_id: UUID, device_id: UUID, node_id: UUID
+    ) -> SyncSession | None:
+        """
+        读取设备在指定节点上的有效同步会话
+
+        :param user_id (UUID): 用户 ID
+        :param device_id (UUID): 设备 ID
+        :param node_id (UUID): 节点 ID
+
+        :return SyncSession: 同步会话实体
+        """
+
+        return await self._session.scalar(
+            select(SyncSession)
+            .join(Workspace, Workspace.id == SyncSession.workspace_id)
+            .where(SyncSession.user_id == user_id)
+            .where(Workspace.device_id == device_id)
+            .where(SyncSession.node_id == node_id)
+            .where(SyncSession.status.in_(["starting", "active", "paused"]))
+            .order_by(SyncSession.created_at.desc())
         )
 
     async def get_active_device_wireguard_peer(self, device_id: UUID) -> WireGuardPeer | None:
@@ -92,6 +140,18 @@ class ConnectionRepository:
         """
 
         return await self._session.get(Session, session_id)
+
+    async def get_tool_account(self, account_id: UUID) -> ToolAccount | None:
+        """读取用于绑定 attach 校验的工具账户。"""
+
+        return await self._session.get(ToolAccount, account_id)
+
+    async def get_tool_account_profile(self, account_id: UUID) -> ToolAccountProfile | None:
+        """读取用于绑定 attach 校验的工具账户 profile。"""
+
+        return await self._session.scalar(
+            select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account_id)
+        )
 
     async def get_node(self, node_id: UUID) -> Node | None:
         """

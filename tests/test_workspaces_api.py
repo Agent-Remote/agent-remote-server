@@ -227,6 +227,16 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     assert tasks[0]["payload"]["sync_session_id"] == sync["id"]
     assert tasks[0]["payload"]["remote_path"] == sync["remote_path"]
 
+    complete = client.post(
+        f"/api/v1/node-api/tasks/{tasks[0]['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "prepared", "remote_path": sync["remote_path"]}},
+    )
+    assert complete.status_code == 200
+    ready = client.get(f"/api/v1/sync-sessions/{sync['id']}", headers=auth_header(device_token))
+    assert ready.status_code == 200
+    assert ready.json()["data"]["status"] == "active"
+
     duplicate = client.post(
         "/api/v1/sync-sessions",
         headers=auth_header(device_token),

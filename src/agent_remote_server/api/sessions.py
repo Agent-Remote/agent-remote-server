@@ -49,6 +49,9 @@ def session_data(tool_session: Session) -> SessionData:
         status=tool_session.status,
         tmux_session_name=tool_session.tmux_session_name,
         container_id=tool_session.container_id,
+        runtime_backend=tool_session.runtime_backend,
+        runtime_resource_id=tool_session.runtime_resource_id,
+        replaces_session_id=tool_session.replaces_session_id,
         create_task_id=create_task_id,
         stop_task_id=stop_task_id if tool_session.status == "stopping" else None,
         created_at=tool_session.created_at,
@@ -108,6 +111,7 @@ async def create_session(
         workspace_id=payload.workspace_id,
         project_key=payload.project_key,
         argv=payload.argv,
+        replaces_session_id=payload.replaces_session_id,
     )
     return SessionResponse(data=session_data(tool_session), request_id=get_request_id())
 

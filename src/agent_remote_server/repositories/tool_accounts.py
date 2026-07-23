@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, NodeTask, ToolAccount, ToolAccountProfile
+from agent_remote_server.models import Node, NodeTask, Session, ToolAccount, ToolAccountProfile
 
 
 class ToolAccountRepository:
@@ -91,6 +91,22 @@ class ToolAccountRepository:
         """
 
         return await self._session.get(Node, node_id)
+
+    async def list_active_sessions(self, account_id: UUID) -> Sequence[Session]:
+        """
+        列出工具账户仍活跃的会话
+
+        :param account_id (UUID): 工具账户 ID
+
+        :return Sequence: 活跃会话列表
+        """
+
+        result = await self._session.scalars(
+            select(Session)
+            .where(Session.tool_account_id == account_id)
+            .where(Session.status.in_(["starting", "running", "active", "stopping"]))
+        )
+        return result.all()
 
     async def list_candidate_nodes(
         self,

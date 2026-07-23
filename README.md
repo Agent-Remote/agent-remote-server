@@ -17,6 +17,13 @@ The repository currently provides the control-plane server foundation:
 - Dockerfile and local Compose development stack.
 - Basic tests.
 
+The runtime control plane also provides:
+
+- Per-node runtime backend allowlists, defaults, policy, capability reporting, and backend-aware scheduling.
+- Per-account runtime backend pinning and explicit migration between Native Runtime and Docker Sandbox.
+- Session runtime identity, interrupted-session reconciliation, and replacement-session lineage without command replay.
+- A narrow task contract between the unprivileged node worker and the privileged Native Runtime helper.
+
 ## Requirements
 
 - Python 3.13
@@ -87,7 +94,7 @@ GitHub Actions builds and pushes the production image to GHCR for `v*` tags and 
 
 ## Current Boundary
 
-This repository contains the control-plane API foundation, persistence model, identity and device APIs, node control APIs, and node task polling APIs. Runtime features that require local device networking, workspace synchronization, tool account binding, and interactive tool sessions are implemented through the CLI and node repositories.
+This repository contains the control-plane API, persistence model, identity and device APIs, node/runtime policy, tool-account binding and migration state machines, session reconciliation, and node task polling APIs. Privileged isolation and process execution run in the node repository; local device networking and workspace synchronization run in the CLI repository.
 
 ## License
 

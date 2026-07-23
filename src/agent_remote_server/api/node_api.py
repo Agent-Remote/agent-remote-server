@@ -12,6 +12,12 @@ from agent_remote_server.schemas.connections import (
     VerifyAttachData,
     VerifyAttachRequest,
     VerifyAttachResponse,
+    VerifyBindingAttachData,
+    VerifyBindingAttachRequest,
+    VerifyBindingAttachResponse,
+    VerifySyncData,
+    VerifySyncRequest,
+    VerifySyncResponse,
 )
 from agent_remote_server.schemas.nodes import (
     CompleteNodeTaskRequest,
@@ -254,6 +260,61 @@ async def verify_attach(
             session_id=tool_session.id,
             tmux_session_name=tool_session.tmux_session_name or "",
             container_id=tool_session.container_id,
+            runtime_backend=tool_session.runtime_backend,
+            runtime_resource_id=tool_session.runtime_resource_id,
+        ),
+        request_id=get_request_id(),
+    )
+
+
+@router.post("/sync/verify", response_model=VerifySyncResponse)
+async def verify_sync(
+    payload: VerifySyncRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    node: Annotated[Node, Depends(get_current_node)],
+) -> VerifySyncResponse:
+    """
+    校验节点 SSH forced command 同步请求
+
+    :param payload (VerifySyncRequest): 同步校验请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param node (Node): 当前节点
+
+    :return VerifySyncResponse: 同步运行用户
+    """
+
+    device = await ConnectionService(session, settings).verify_node_sync(
+        node=node, node_id=payload.node_id, device_id=payload.device_id
+    )
+    return VerifySyncResponse(
+        data=VerifySyncData(user_id=device.user_id), request_id=get_request_id()
+    )
+
+
+@router.post("/binding-attach/verify", response_model=VerifyBindingAttachResponse)
+async def verify_binding_attach(
+    payload: VerifyBindingAttachRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    node: Annotated[Node, Depends(get_current_node)],
+) -> VerifyBindingAttachResponse:
+    """校验节点 SSH forced command 绑定 attach 请求。"""
+
+    binding_id, tmux_name, backend = await ConnectionService(
+        session, settings
+    ).verify_node_binding_attach(
+        node=node,
+        node_id=payload.node_id,
+        account_id=payload.tool_account_id,
+        device_id=payload.device_id,
+    )
+    return VerifyBindingAttachResponse(
+        data=VerifyBindingAttachData(
+            binding_session_id=binding_id,
+            tmux_session_name=tmux_name,
+            runtime_backend=backend,
         ),
         request_id=get_request_id(),
     )

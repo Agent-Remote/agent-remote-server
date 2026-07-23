@@ -33,6 +33,7 @@ class ToolAccount(IdMixin, TimestampMixin, Base):
         ForeignKey("nodes.id", ondelete="SET NULL"),
         nullable=True,
     )
+    runtime_backend: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class ToolAccountProfile(IdMixin, TimestampMixin, Base):

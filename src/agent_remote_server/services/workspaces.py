@@ -15,6 +15,7 @@ from agent_remote_server.models import (
     User,
     Workspace,
 )
+from agent_remote_server.repositories.connections import ConnectionRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.workspaces import WorkspaceRepository
 
@@ -40,6 +41,7 @@ class WorkspaceService:
         self._settings = settings
         self._repository = WorkspaceRepository(session)
         self._identity_repository = IdentityRepository(session)
+        self._connection_repository = ConnectionRepository(session)
 
     async def list_workspaces(self, *, user: User) -> list[Workspace]:
         """
@@ -468,6 +470,15 @@ class WorkspaceService:
     ) -> str:
         task_id = f"prepare_workspace:{sync_session.id}"
         existing = await self._repository.get_task_by_task_id(task_id)
+        ssh_keys = list(
+            await self._connection_repository.list_active_ssh_keys_for_device(workspace.device_id)
+        )
+        if not ssh_keys:
+            raise ApiError(
+                code="SSH_KEY_MISSING",
+                message="Workspace device has no active SSH key.",
+                status_code=409,
+            )
         payload: dict[str, object] = {
             "user_id": str(workspace.user_id),
             "workspace_id": str(workspace.id),
@@ -476,6 +487,15 @@ class WorkspaceService:
             "sync_git": sync_session.sync_git,
             "exclude": sync_session.exclude_patterns,
             "git_sync_policy": workspace.git_sync_policy,
+            "device_id": str(workspace.device_id),
+            "ssh_keys": [
+                {
+                    "id": str(ssh_key.id),
+                    "public_key": ssh_key.public_key,
+                    "forced_command": f"agent-remote-attach --device {workspace.device_id}",
+                }
+                for ssh_key in ssh_keys
+            ],
         }
         if existing is not None:
             if existing.status in {"failed", "cancelled", "expired"}:

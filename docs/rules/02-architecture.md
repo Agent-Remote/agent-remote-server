@@ -42,3 +42,12 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - `/healthz` checks process-level health and must not depend on external services.
 - `/readyz` checks dependencies required to serve traffic.
 - Dependency failures must return a structured degraded response instead of crashing the process.
+
+## Runtime Backend Control
+
+- The control plane owns backend policy; clients cannot select a backend when creating a session.
+- A tool account pins `docker_sandbox` or `native` when it first binds. Sessions inherit that value.
+- Backend changes use an explicit node task and commit only after node-side verification succeeds.
+- Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
+- Missing native resources reported during reconciliation move active sessions to `interrupted`; the control plane never replays their commands.
+- SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.

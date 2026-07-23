@@ -4,11 +4,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.api.deps import get_current_user, get_session, get_settings
+from agent_remote_server.api.deps import (
+    get_current_token,
+    get_current_user,
+    get_session,
+    get_settings,
+    require_admin,
+)
 from agent_remote_server.api.developer_credentials import profile_data
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.models import ToolAccount, User
+from agent_remote_server.models import AuthToken, ToolAccount, User
 from agent_remote_server.schemas.developer_credentials import (
     BindDeveloperCredentialProfileRequest,
     DeveloperCredentialProfileResponse,
@@ -16,6 +22,8 @@ from agent_remote_server.schemas.developer_credentials import (
 from agent_remote_server.schemas.tool_accounts import (
     BindingStatusResponse,
     CreateToolAccountRequest,
+    RuntimeMigrationRequest,
+    RuntimeMigrationResponse,
     ToolAccountConfigImportRequest,
     ToolAccountConfigImportResponse,
     ToolAccountData,
@@ -28,6 +36,34 @@ from agent_remote_server.services.developer_credentials import DeveloperCredenti
 from agent_remote_server.services.tool_accounts import ToolAccountService
 
 router = APIRouter(prefix="/tool-accounts", tags=["tool-accounts"])
+
+
+@router.post("/{tool_account_id}/runtime-migration", response_model=RuntimeMigrationResponse)
+async def migrate_tool_account_runtime(
+    tool_account_id: UUID,
+    payload: RuntimeMigrationRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> RuntimeMigrationResponse:
+    """
+    由管理员启动工具账户运行时迁移
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param payload (RuntimeMigrationRequest): 迁移请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param admin (User): 当前管理员
+
+    :return RuntimeMigrationResponse: 迁移任务数据
+    """
+
+    result = await ToolAccountService(session, settings).migrate_runtime(
+        actor=admin,
+        account_id=tool_account_id,
+        target_backend=payload.target_runtime_backend,
+    )
+    return RuntimeMigrationResponse(data=result, request_id=get_request_id())
 
 
 def tool_account_data(account: ToolAccount) -> ToolAccountData:
@@ -50,6 +86,7 @@ def tool_account_data(account: ToolAccount) -> ToolAccountData:
         locale=account.locale,
         preferred_node_tags=account.preferred_node_tags,
         affinity_node_id=account.affinity_node_id,
+        runtime_backend=account.runtime_backend,
         created_at=account.created_at,
         updated_at=account.updated_at,
     )
@@ -172,6 +209,7 @@ async def start_tool_account_binding(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
+    token: Annotated[AuthToken, Depends(get_current_token)],
 ) -> BindingStatusResponse:
     """
     启动工具账户绑定
@@ -186,6 +224,7 @@ async def start_tool_account_binding(
 
     binding = await ToolAccountService(session, settings).start_binding(
         user=user,
+        token=token,
         account_id=tool_account_id,
     )
     return BindingStatusResponse(data=binding.status, request_id=get_request_id())

@@ -14,6 +14,13 @@ Business tables require an explicit schema design and migration plan. ORM models
 - JSON-like structured fields should use PostgreSQL JSONB in migrations.
 - Sensitive binary fields must be encrypted before they are stored.
 
+Runtime selection persistence:
+
+- `nodes` stores the administrator allowlist, default backend, runtime policy, and latest capability snapshot.
+- `tool_accounts.runtime_backend` is nullable until first binding and is then treated as pinned state.
+- `sessions` stores the effective backend, neutral runtime resource ID, and optional replacement relationship.
+- Migration task metadata and backup paths are non-secret operational metadata; account login state remains node-local.
+
 ## Repository Layer
 
 - Repositories own direct SQLAlchemy access.

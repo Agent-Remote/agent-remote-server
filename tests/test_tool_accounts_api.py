@@ -1,6 +1,8 @@
 import asyncio
 import base64
 from collections.abc import Iterator
+from typing import cast
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -9,6 +11,7 @@ from fastapi.testclient import TestClient
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
+from agent_remote_server.models import Node, ToolAccount
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -177,6 +180,17 @@ def test_tool_account_create_list_and_validation(client: TestClient) -> None:
 def test_tool_account_binding_task_and_status_update(client: TestClient) -> None:
     token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, token)
+    policy = {
+        "memory_high_bytes": 512 * 1024 * 1024,
+        "memory_max_bytes": 768 * 1024 * 1024,
+        "cpu_quota_percent": 100,
+    }
+    update_response = client.patch(
+        f"/api/v1/nodes/{node_id}",
+        headers=auth_header(token),
+        json={"runtime_policy": policy},
+    )
+    assert update_response.status_code == 200
     account = create_tool_account(client, token)
 
     start_response = client.post(
@@ -201,6 +215,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert task["payload"]["template"]["command"] == ["claude", "login"]
     assert task["payload"]["timezone"] == "America/Los_Angeles"
     assert task["payload"]["locale"] == "en_US.UTF-8"
+    assert task["payload"]["runtime_policy"] == policy
 
     complete_response = client.post(
         f"/api/v1/node-api/tasks/{task['task_id']}/complete",
@@ -225,6 +240,102 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert status["status"] == "binding_waiting_user_login"
     assert status["binding_session_id"] == "bind-test"
     assert "tmux attach-session -t bind-claude" in status["connect_command"]
+
+
+def test_native_binding_requires_device_and_syncs_forced_command_key(
+    client: TestClient,
+) -> None:
+    admin_token = bootstrap(client)
+    create_response = client.post(
+        "/api/v1/nodes",
+        headers=auth_header(admin_token),
+        json={
+            "name": "native-us-west",
+            "region_code": "US",
+            "tags": ["us"],
+            "supported_tool_types": ["claude"],
+            "allowed_runtime_backends": ["native"],
+            "default_runtime_backend": "native",
+            "ssh_host": "10.42.0.20",
+            "ssh_user": "agent-remote",
+        },
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()["data"]
+    node_id = created["node"]["id"]
+    register = client.post(
+        "/api/v1/node-api/register",
+        json={
+            "node_id": node_id,
+            "registration_token": created["registration_token"],
+            "version": "0.0.3",
+        },
+    )
+    assert register.status_code == 200
+    node_token = register.json()["data"]["node_token"]
+    heartbeat = client.post(
+        "/api/v1/node-api/heartbeat",
+        headers=auth_header(node_token),
+        json={
+            "node_id": node_id,
+            "version": "0.0.3",
+            "supported_tool_types": ["claude"],
+            "resources": {
+                "cpu_load": 0.1,
+                "memory_used_bytes": 1024,
+                "memory_total_bytes": 4096,
+                "disk_used_bytes": 1024,
+                "disk_total_bytes": 8192,
+            },
+            "runtime": {
+                "docker_ok": False,
+                "tmux_ok": True,
+                "runtime_capabilities": {
+                    "backends": ["native"],
+                    "native": {"linux": True},
+                },
+            },
+        },
+    )
+    assert heartbeat.status_code == 200
+
+    device_response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "native-client",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAANATIVE rem@test",
+            "wireguard_public_key": "native-device-wg",
+        },
+    )
+    assert device_response.status_code == 200
+    device = device_response.json()["data"]
+    device_id = device["device"]["id"]
+    device_token = device["device_token"]["access_token"]
+    account = create_tool_account(client, device_token)
+
+    start = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/bind/start",
+        headers=auth_header(device_token),
+    )
+    assert start.status_code == 200
+    binding = start.json()["data"]
+    assert binding["runtime_backend"] == "native"
+    assert f"agent-remote-attach --binding {account['id']}" in binding["connect_command"]
+
+    task_types: set[str] = set()
+    forced_commands: list[str] = []
+    for _ in range(2):
+        poll = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+        assert poll.status_code == 200
+        tasks = poll.json()["data"]["tasks"]
+        assert len(tasks) == 1
+        task_types.add(tasks[0]["task_type"])
+        if tasks[0]["task_type"] == "sync_ssh_keys":
+            forced_commands.extend(key["forced_command"] for key in tasks[0]["payload"]["ssh_keys"])
+    assert task_types == {"create_binding_session", "sync_ssh_keys"}
+    assert forced_commands == [f"agent-remote-attach --device {device_id}"]
 
 
 def test_tool_account_verifier_success_makes_account_active(client: TestClient) -> None:
@@ -330,3 +441,91 @@ def test_tool_account_config_import_creates_node_task(client: TestClient) -> Non
     assert task["task_type"] == "import_tool_account_config"
     assert task["payload"]["tool_account_id"] == account["id"]
     assert task["payload"]["files"][0]["path"] == "~/.claude/settings.json"
+
+
+def test_runtime_migration_commits_only_after_task_success(client: TestClient) -> None:
+    token = bootstrap(client)
+    node_id, node_token = create_and_register_node(client, token)
+    account = create_tool_account(client, token)
+    started = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/bind/start", headers=auth_header(token)
+    )
+    assert started.status_code == 200
+    binding_task = client.post(
+        "/api/v1/node-api/tasks/poll", headers=auth_header(node_token)
+    ).json()["data"]["tasks"][0]
+    completed = client.post(
+        f"/api/v1/node-api/tasks/{binding_task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "status": "waiting_user_login",
+                "runtime_backend": "docker_sandbox",
+                "account_remote_path": binding_task["payload"]["account_remote_path"],
+            }
+        },
+    )
+    assert completed.status_code == 200
+
+    async def enable_native() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            node = await session.get(Node, UUID(node_id))
+            tool_account = await session.get(ToolAccount, UUID(str(account["id"])))
+            assert node is not None and tool_account is not None
+            node.allowed_runtime_backends = ["docker_sandbox", "native"]
+            node.runtime_capabilities = {"backends": ["docker_sandbox", "native"]}
+            tool_account.status = "active"
+            await session.commit()
+
+    asyncio.run(enable_native())
+    migration = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/runtime-migration",
+        headers=auth_header(token),
+        json={"target_runtime_backend": "native"},
+    )
+    assert migration.status_code == 200
+    migration_data = migration.json()["data"]
+    assert migration_data["source_runtime_backend"] == "docker_sandbox"
+    task = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token)).json()[
+        "data"
+    ]["tasks"][0]
+    assert task["task_type"] == "migrate_tool_account_runtime"
+    succeeded = client.post(
+        f"/api/v1/node-api/tasks/{task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "migrated": True,
+                "runtime_backend": "native",
+                "backup_path": "/var/lib/agent-remote-runtime/migrations/test",
+            }
+        },
+    )
+    assert succeeded.status_code == 200
+    current = client.get(
+        f"/api/v1/tool-accounts/{account['id']}", headers=auth_header(token)
+    ).json()["data"]
+    assert current["runtime_backend"] == "native"
+    assert current["status"] == "active"
+
+    rollback = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/runtime-migration",
+        headers=auth_header(token),
+        json={"target_runtime_backend": "docker_sandbox"},
+    )
+    assert rollback.status_code == 200
+    rollback_task = client.post(
+        "/api/v1/node-api/tasks/poll", headers=auth_header(node_token)
+    ).json()["data"]["tasks"][0]
+    failed = client.post(
+        f"/api/v1/node-api/tasks/{rollback_task['task_id']}/fail",
+        headers=auth_header(node_token),
+        json={"error": {"code": "RUNTIME_FAILED", "message": "verification failed"}},
+    )
+    assert failed.status_code == 200
+    after_failure = client.get(
+        f"/api/v1/tool-accounts/{account['id']}", headers=auth_header(token)
+    ).json()["data"]
+    assert after_failure["runtime_backend"] == "native"
+    assert after_failure["status"] == "active"

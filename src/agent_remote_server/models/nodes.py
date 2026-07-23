@@ -33,6 +33,18 @@ class Node(IdMixin, TimestampMixin, Base):
     ssh_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ssh_user: Mapped[str | None] = mapped_column(String(64), nullable=True)
     supported_tool_types: Mapped[list[str]] = mapped_column(JsonType, nullable=False, default=list)
+    allowed_runtime_backends: Mapped[list[str]] = mapped_column(
+        JsonType, nullable=False, default=lambda: ["docker_sandbox"]
+    )
+    default_runtime_backend: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="docker_sandbox"
+    )
+    runtime_policy: Mapped[dict[str, object]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    runtime_capabilities: Mapped[dict[str, object]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
     registration_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     node_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(

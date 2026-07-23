@@ -85,6 +85,7 @@ class ToolSessionService:
         workspace_id: UUID,
         project_key: str,
         argv: list[str],
+        replaces_session_id: UUID | None = None,
     ) -> Session:
         """
         创建工具运行 session 并投递节点任务
@@ -95,6 +96,7 @@ class ToolSessionService:
         :param workspace_id (UUID): workspace ID
         :param project_key (str): 项目 key
         :param argv (list): 工具 CLI 透传参数
+        :param replaces_session_id (UUID | None): 被替代的中断会话 ID
         :return Session: 工具 session 实体
         """
 
@@ -113,6 +115,22 @@ class ToolSessionService:
                 message="Workspace project key does not match request.",
                 status_code=409,
             )
+        replaced_session = None
+        if replaces_session_id is not None:
+            replaced_session = await self._repository.get_session(replaces_session_id)
+            if (
+                replaced_session is None
+                or replaced_session.user_id != user.id
+                or replaced_session.status != "interrupted"
+                or replaced_session.tool_account_id != account.id
+                or replaced_session.workspace_id != workspace.id
+                or replaced_session.project_key != project_key
+            ):
+                raise ApiError(
+                    code="SESSION_REPLACEMENT_INVALID",
+                    message="Only a matching interrupted session can be replaced.",
+                    status_code=409,
+                )
         if not workspace.remote_path:
             raise ApiError(
                 code="WORKSPACE_NOT_PREPARED",
@@ -120,6 +138,9 @@ class ToolSessionService:
                 status_code=409,
             )
         node = await self._choose_session_node(account)
+        if account.runtime_backend is None:
+            account.runtime_backend = node.default_runtime_backend
+        runtime_backend = account.runtime_backend
         profile = await self._repository.get_account_profile(account.id)
         developer_profile = await self._repository.get_developer_credential_profile_for_account(
             account.id
@@ -145,6 +166,9 @@ class ToolSessionService:
                 status="starting",
                 tmux_session_name=None,
                 container_id=None,
+                runtime_backend=runtime_backend,
+                runtime_resource_id=None,
+                replaces_session_id=replaced_session.id if replaced_session is not None else None,
             )
         )
         tmux_session_name = self._tmux_session_name(tool_session)
@@ -178,6 +202,8 @@ class ToolSessionService:
                     "locale": account.locale,
                     "argv": list(argv),
                     "template": self._runtime_payload(template, argv),
+                    "runtime_backend": runtime_backend,
+                    "runtime_policy": node.runtime_policy,
                 },
                 retry_count=0,
             )
@@ -217,6 +243,8 @@ class ToolSessionService:
                         "session_id": str(tool_session.id),
                         "tmux_session_name": tool_session.tmux_session_name,
                         "sandbox_name": tool_session.container_id,
+                        "runtime_backend": tool_session.runtime_backend,
+                        "runtime_resource_id": tool_session.runtime_resource_id,
                     },
                     retry_count=0,
                 )
@@ -282,20 +310,31 @@ class ToolSessionService:
             region_code=account.region_code,
             preferred_tags=account.preferred_node_tags,
         )
-        if not candidates:
+        node = next(
+            (candidate for candidate in candidates if self._node_can_host(candidate, account)), None
+        )
+        if node is None:
             raise ApiError(
                 code="NODE_UNAVAILABLE",
                 message="No available node can host this tool session.",
                 status_code=409,
             )
-        return candidates[0]
+        return node
 
     def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
         if node is None or node.status not in ACTIVE_NODE_STATUSES:
             return False
         if account.tool_type not in node.supported_tool_types:
             return False
-        return node.region_code == account.region_code
+        if node.region_code != account.region_code:
+            return False
+        backend = account.runtime_backend or node.default_runtime_backend
+        if backend not in node.allowed_runtime_backends:
+            return False
+        available = node.runtime_capabilities.get("backends")
+        if isinstance(available, list):
+            return backend in available
+        return backend == "docker_sandbox"
 
     def _runtime_payload(self, template: ToolRuntimeTemplate, argv: list[str]) -> dict[str, object]:
         command = [template.sandbox_agent, *argv]

@@ -19,6 +19,9 @@ class SessionData(BaseModel):
     status: str = Field(..., description="session 状态")
     tmux_session_name: str | None = Field(default=None, description="tmux session 名称")
     container_id: str | None = Field(default=None, description="容器或 sandbox 标识")
+    runtime_backend: str = Field(..., description="会话运行时")
+    runtime_resource_id: str | None = Field(default=None, description="运行时资源标识")
+    replaces_session_id: UUID | None = Field(default=None, description="被替代的会话标识")
     create_task_id: str | None = Field(default=None, description="创建任务 ID")
     stop_task_id: str | None = Field(default=None, description="停止任务 ID")
     created_at: datetime = Field(..., description="创建时间")
@@ -35,6 +38,7 @@ class CreateSessionRequest(BaseModel):
     workspace_id: UUID = Field(..., description="工作区标识")
     project_key: str = Field(..., description="项目 key")
     argv: list[str] = Field(default_factory=list, description="透传给工具 CLI 的参数")
+    replaces_session_id: UUID | None = Field(default=None, description="被替代的中断会话标识")
 
 
 class SessionResponse(BaseModel):

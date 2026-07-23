@@ -9,6 +9,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
+    AuthToken,
     Node,
     NodeTask,
     ToolAccount,
@@ -19,6 +20,7 @@ from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.tool_accounts import ToolAccountRepository
 from agent_remote_server.schemas.tool_accounts import (
     BindingStatusData,
+    RuntimeMigrationData,
     ToolAccountConfigImportData,
     ToolAccountConfigImportFile,
 )
@@ -241,6 +243,112 @@ class ToolAccountService:
         await self._session.commit()
         return account
 
+    async def migrate_runtime(
+        self, *, actor: User, account_id: UUID, target_backend: str
+    ) -> RuntimeMigrationData:
+        """
+        校验并派发工具账户运行时迁移任务
+
+        :param actor (User): 当前管理员
+        :param account_id (UUID): 工具账户 ID
+        :param target_backend (str): 目标运行时
+
+        :return RuntimeMigrationData: 迁移任务数据
+        """
+
+        account = await self._repository.get_account(account_id)
+        if account is None:
+            raise ApiError(
+                code="COMMON_NOT_FOUND", message="Tool account was not found.", status_code=404
+            )
+        source_backend = account.runtime_backend
+        if source_backend not in {"docker_sandbox", "native"}:
+            raise ApiError(
+                code="RUNTIME_BACKEND_NOT_PINNED",
+                message="Tool account does not have a pinned runtime backend.",
+                status_code=409,
+            )
+        if target_backend not in {"docker_sandbox", "native"} or target_backend == source_backend:
+            raise ApiError(
+                code="RUNTIME_MIGRATION_INVALID_TARGET",
+                message="Target runtime backend is invalid or unchanged.",
+                status_code=409,
+            )
+        if await self._repository.list_active_sessions(account.id):
+            raise ApiError(
+                code="RUNTIME_MIGRATION_ACTIVE_SESSIONS",
+                message="Stop all active sessions before migrating the account.",
+                status_code=409,
+            )
+        if account.affinity_node_id is None:
+            raise ApiError(
+                code="RUNTIME_MIGRATION_NODE_MISSING",
+                message="Tool account has no affinity node.",
+                status_code=409,
+            )
+        node = await self._repository.get_node(account.affinity_node_id)
+        if node is None or target_backend not in node.allowed_runtime_backends:
+            raise ApiError(
+                code="RUNTIME_BACKEND_UNAVAILABLE",
+                message="Target runtime is not allowed on the account node.",
+                status_code=409,
+            )
+        available = node.runtime_capabilities.get("backends")
+        if not isinstance(available, list) or target_backend not in available:
+            raise ApiError(
+                code="RUNTIME_BACKEND_UNAVAILABLE",
+                message="Target runtime capability is unavailable on the account node.",
+                status_code=409,
+            )
+        profile = await self._ensure_profile(
+            account=account, template=self._require_template(account.tool_type)
+        )
+        previous_status = account.status
+        task_id = f"migrate_tool_account_runtime:{account.id}:{uuid4()}"
+        await self._repository.add_task(
+            NodeTask(
+                node_id=node.id,
+                task_id=task_id,
+                task_type="migrate_tool_account_runtime",
+                status="pending",
+                payload={
+                    "tool_account_id": str(account.id),
+                    "user_id": str(account.user_id),
+                    "tool_type": account.tool_type,
+                    "source_runtime_backend": source_backend,
+                    "target_runtime_backend": target_backend,
+                    "runtime_policy": node.runtime_policy,
+                },
+                retry_count=0,
+            )
+        )
+        account.status = "migrating"
+        profile.profile_json = {
+            **profile.profile_json,
+            "runtime_migration": {
+                "task_id": task_id,
+                "source_runtime_backend": source_backend,
+                "target_runtime_backend": target_backend,
+                "previous_status": previous_status,
+                "status": "pending",
+            },
+        }
+        await self._audit(
+            actor_user_id=actor.id,
+            action="tool_accounts.runtime_migration_start",
+            target_type="tool_account",
+            target_id=str(account.id),
+            details={"source": source_backend, "target": target_backend, "task_id": task_id},
+        )
+        await self._session.commit()
+        return RuntimeMigrationData(
+            tool_account_id=account.id,
+            source_runtime_backend=source_backend,
+            target_runtime_backend=target_backend,
+            status="pending",
+            task_id=task_id,
+        )
+
     async def plan_config_import(
         self,
         *,
@@ -285,6 +393,8 @@ class ToolAccountService:
                 template=self._require_template(account.tool_type),
             )
             node = await self._choose_binding_node(account)
+            if account.runtime_backend is None:
+                account.runtime_backend = node.default_runtime_backend
             account.affinity_node_id = node.id
             account_remote_path = self._profile_text(
                 profile.profile_json,
@@ -309,6 +419,7 @@ class ToolAccountService:
                         "tool_type": account.tool_type,
                         "user_id": str(user.id),
                         "account_remote_path": account_remote_path,
+                        "runtime_backend": account.runtime_backend,
                         "files": accepted_files,
                     },
                     retry_count=0,
@@ -455,7 +566,9 @@ class ToolAccountService:
         parts = path.removeprefix("~/.claude/").split("/")
         return all(part not in {"", ".", ".."} for part in parts)
 
-    async def start_binding(self, *, user: User, account_id: UUID) -> BindingSession:
+    async def start_binding(
+        self, *, user: User, token: AuthToken, account_id: UUID
+    ) -> BindingSession:
         """
         创建工具账户绑定任务
 
@@ -468,6 +581,14 @@ class ToolAccountService:
         account = await self._require_account(user=user, account_id=account_id)
         template = self._require_template(account.tool_type)
         node = await self._choose_binding_node(account)
+        if account.runtime_backend is None:
+            account.runtime_backend = node.default_runtime_backend
+        if account.runtime_backend == "native" and token.user_device_id is None:
+            raise ApiError(
+                code="DEVICE_REQUIRED",
+                message="Native account binding requires a device token.",
+                status_code=403,
+            )
         profile = await self._ensure_profile(account=account, template=template)
 
         account_remote_path = self._profile_text(
@@ -515,6 +636,8 @@ class ToolAccountService:
                         "timezone": account.timezone,
                         "locale": account.locale,
                         "account_remote_path": account_remote_path,
+                        "runtime_backend": account.runtime_backend,
+                        "runtime_policy": node.runtime_policy,
                         "tmux_session_name": tmux_session_name,
                         "template": self._template_payload(template),
                         "verifier": template.verifier,
@@ -522,6 +645,48 @@ class ToolAccountService:
                     retry_count=0,
                 )
             )
+        if account.runtime_backend == "native":
+            assert token.user_device_id is not None
+            device = await self._identity_repository.get_device(token.user_device_id)
+            if device is None or device.user_id != user.id or device.status != "active":
+                raise ApiError(
+                    code="DEVICE_REVOKED", message="Device is not active.", status_code=403
+                )
+            ssh_keys = [
+                key
+                for key in await self._identity_repository.list_ssh_keys_for_device(device.id)
+                if key.status == "active"
+            ]
+            if not ssh_keys:
+                raise ApiError(
+                    code="SSH_KEY_MISSING",
+                    message="Current device has no active SSH key.",
+                    status_code=409,
+                )
+            ssh_task_id = f"sync_ssh_keys:{node.id}:{device.id}:{ssh_keys[0].id}"
+            if await self._repository.get_task_by_task_id(ssh_task_id) is None:
+                await self._repository.add_task(
+                    NodeTask(
+                        node_id=node.id,
+                        task_id=ssh_task_id,
+                        task_type="sync_ssh_keys",
+                        status="pending",
+                        payload={
+                            "device_id": str(device.id),
+                            "ssh_user": node.ssh_user or "agent-remote",
+                            "authorized_keys_path": None,
+                            "ssh_keys": [
+                                {
+                                    "id": str(key.id),
+                                    "public_key": key.public_key,
+                                    "forced_command": f"agent-remote-attach --device {device.id}",
+                                }
+                                for key in ssh_keys
+                            ],
+                        },
+                        retry_count=0,
+                    )
+                )
         await self._audit(
             actor_user_id=user.id,
             action="tool_accounts.bind.start",
@@ -614,7 +779,10 @@ class ToolAccountService:
             region_code=account.region_code,
             preferred_tags=account.preferred_node_tags,
         )
-        if not candidates:
+        node = next(
+            (candidate for candidate in candidates if self._node_can_host(candidate, account)), None
+        )
+        if node is None:
             account.status = "node_unavailable"
             await self._session.flush()
             raise ApiError(
@@ -622,7 +790,7 @@ class ToolAccountService:
                 message="No available node can host this tool account.",
                 status_code=409,
             )
-        return candidates[0]
+        return node
 
     async def _load_affinity_node(self, account: ToolAccount) -> Node | None:
         if account.affinity_node_id is None:
@@ -676,13 +844,16 @@ class ToolAccountService:
             binding_session_id=self._optional_text(profile_json, "binding_session_id"),
             tmux_session_name=self._optional_text(profile_json, "tmux_session_name"),
             account_remote_path=self._optional_text(profile_json, "account_remote_path"),
-            connect_command=self._connect_command(node, profile_json),
+            connect_command=self._connect_command(node, profile_json, account),
             task_id=task.task_id if task is not None else None,
             verifier=self._optional_text(profile_json, "verifier"),
             error=self._optional_text(profile_json, "last_error"),
+            runtime_backend=account.runtime_backend,
         )
 
-    def _connect_command(self, node: Node | None, profile_json: dict[str, object]) -> str | None:
+    def _connect_command(
+        self, node: Node | None, profile_json: dict[str, object], account: ToolAccount
+    ) -> str | None:
         if node is None:
             return None
         tmux_session_name = self._optional_text(profile_json, "tmux_session_name")
@@ -693,6 +864,11 @@ class ToolAccountService:
             return None
         ssh_user = node.ssh_user or "agent-remote"
         ssh_port = node.ssh_port or 22
+        if account.runtime_backend == "native":
+            return (
+                f"ssh -p {ssh_port} {ssh_user}@{ssh_host} "
+                f"agent-remote-attach --binding {account.id}"
+            )
         return f"ssh -p {ssh_port} {ssh_user}@{ssh_host} tmux attach-session -t {tmux_session_name}"
 
     def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
@@ -702,7 +878,15 @@ class ToolAccountService:
             return False
         if account.tool_type not in node.supported_tool_types:
             return False
-        return node.region_code == account.region_code
+        if node.region_code != account.region_code:
+            return False
+        backend = account.runtime_backend or node.default_runtime_backend
+        if backend not in node.allowed_runtime_backends:
+            return False
+        available = node.runtime_capabilities.get("backends")
+        if isinstance(available, list):
+            return backend in available
+        return backend == "docker_sandbox"
 
     def _require_template(self, tool_type: str) -> ToolRuntimeTemplate:
         return self._registry.get(tool_type)
