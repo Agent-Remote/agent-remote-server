@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4 - 2026-07-23
+
+- feat: add runtime backend control plane (1db6267)
+- fix: keep release version examples in sync (60f9f01)
+
 ## v0.0.3 - 2026-07-07
 
 - fix: include generated release files (b078e1d)
