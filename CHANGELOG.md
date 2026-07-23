@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.10 - 2026-07-23
+
+- fix: keep kasmvnc browser streams connected (3d562c8)
+
 ## v0.0.4-fix.9 - 2026-07-23
 
 - feat: add guarded resource deletion (37ce829)

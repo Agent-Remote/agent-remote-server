@@ -104,7 +104,7 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
         json={
             "node_id": node_id,
             "registration_token": registration_token,
-            "version": "0.0.4+fix.9",
+            "version": "0.0.4+fix.10",
         },
     )
     assert register_response.status_code == 200
@@ -339,7 +339,7 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
         json={
             "node_id": node_id,
             "registration_token": created["registration_token"],
-            "version": "0.0.4+fix.9",
+            "version": "0.0.4+fix.10",
         },
     )
     assert register.status_code == 200
@@ -349,7 +349,7 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
         headers=auth_header(node_token),
         json={
             "node_id": node_id,
-            "version": "0.0.4+fix.9",
+            "version": "0.0.4+fix.10",
             "supported_tool_types": ["claude"],
             "resources": {
                 "cpu_load": 0.1,
