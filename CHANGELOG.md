@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.7 - 2026-07-23
+
+- fix: clear stale binding errors (94bbab4)
+
 ## v0.0.4-fix.6 - 2026-07-23
 
 - fix: keep binding socket paths within unix limit (03ff46b)

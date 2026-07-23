@@ -102,7 +102,7 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
         json={
             "node_id": node_id,
             "registration_token": registration_token,
-            "version": "0.0.4+fix.6",
+            "version": "0.0.4+fix.7",
         },
     )
     assert register_response.status_code == 200
@@ -124,7 +124,7 @@ def heartbeat_payload(
 
     return {
         "node_id": node_id,
-        "version": "0.0.4+fix.6",
+        "version": "0.0.4+fix.7",
         "supported_tool_types": ["claude"],
         "wireguard_ip": "10.77.0.1",
         "wireguard_public_key": "node-wireguard-public-key",
