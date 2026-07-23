@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.5 - 2026-07-23
+
+- chore: complete v0.0.4-fix.4 version updates (32eb4fe)
+
 ## v0.0.4-fix.4 - 2026-07-23
 
 - fix: make tool account binding retries unique (9c53952)
