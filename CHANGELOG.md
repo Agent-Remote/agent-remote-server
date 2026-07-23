@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.6 - 2026-07-23
+
+- fix: keep binding socket paths within unix limit (03ff46b)
+
 ## v0.0.4-fix.5 - 2026-07-23
 
 - chore: complete v0.0.4-fix.4 version updates (32eb4fe)
