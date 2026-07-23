@@ -27,6 +27,10 @@ import tempfile
 from pathlib import Path
 
 version = sys.argv[1]
+fix_match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)-fix\.([0-9]+)", version)
+package_version = (
+    f"{fix_match.group(1)}+fix.{fix_match.group(2)}" if fix_match else version
+)
 
 script = Path("scripts/prepare-release.sh")
 text = script.read_text()
@@ -42,7 +46,9 @@ replacement.replace(script)
 
 pyproject = Path("pyproject.toml")
 text = pyproject.read_text()
-text = re.sub(r'(?m)^version = "[^"]+"$', f'version = "{version}"', text, count=1)
+text = re.sub(
+    r'(?m)^version = "[^"]+"$', f'version = "{package_version}"', text, count=1
+)
 pyproject.write_text(text)
 
 dockerfile = Path("Dockerfile")
@@ -57,12 +63,21 @@ dockerfile.write_text(text)
 
 runtime = Path("src/agent_remote_server/__init__.py")
 text = runtime.read_text()
-text = re.sub(r'_version = "[0-9A-Za-z.+-]+"', f'_version = "{version}"', text, count=1)
+text = re.sub(
+    r'_version = "[0-9A-Za-z.+-]+"',
+    f'_version = "{package_version}"',
+    text,
+    count=1,
+)
 runtime.write_text(text)
 
 for path in sorted(Path("tests").glob("test_*.py")):
     text = path.read_text()
-    text = re.sub(r'"version": "[0-9A-Za-z.+-]+"', f'"version": "{version}"', text)
+    text = re.sub(
+        r'"version": "[0-9A-Za-z.+-]+"',
+        f'"version": "{package_version}"',
+        text,
+    )
     path.write_text(text)
 PY
 
