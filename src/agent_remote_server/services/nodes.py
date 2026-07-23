@@ -458,6 +458,37 @@ class NodeService:
         await self._session.commit()
         return node
 
+    async def delete_node(self, *, actor: User, node_id: UUID) -> None:
+        """
+        删除已禁用且无业务引用的节点
+
+        :param actor (User): 操作人
+        :param node_id (UUID): 节点 ID
+        """
+
+        node = await self._require_node(node_id)
+        if node.status != "disabled":
+            raise ApiError(
+                code="NODE_DELETE_REQUIRES_DISABLED",
+                message="Disable the node before deleting it.",
+                status_code=409,
+            )
+        if await self._repository.has_business_references(node.id):
+            raise ApiError(
+                code="NODE_DELETE_BLOCKED",
+                message="The node is still referenced by accounts or session history.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=actor.id,
+            action="nodes.delete",
+            target_type="node",
+            target_id=str(node.id),
+            details={"name": node.name},
+        )
+        await self._repository.delete_node(node)
+        await self._session.commit()
+
     async def create_task(
         self,
         *,

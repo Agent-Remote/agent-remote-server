@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, NodeTask, SyncSession, UserDevice, Workspace
+from agent_remote_server.models import Node, NodeTask, Session, SyncSession, UserDevice, Workspace
 
 
 class WorkspaceRepository:
@@ -38,6 +38,35 @@ class WorkspaceRepository:
         """
 
         return await self._session.get(Workspace, workspace_id)
+
+    async def has_workspace_sessions(self, workspace_id: UUID) -> bool:
+        """
+        判断 workspace 是否仍有同步或工具 session
+
+        :param workspace_id (UUID): workspace ID
+        :return bool: 是否存在关联 session
+        """
+
+        sync_id = await self._session.scalar(
+            select(SyncSession.id).where(SyncSession.workspace_id == workspace_id).limit(1)
+        )
+        if sync_id is not None:
+            return True
+        return (
+            await self._session.scalar(
+                select(Session.id).where(Session.workspace_id == workspace_id).limit(1)
+            )
+            is not None
+        )
+
+    async def delete_workspace(self, workspace: Workspace) -> None:
+        """
+        删除无 session 引用的 workspace
+
+        :param workspace (Workspace): workspace 实体
+        """
+
+        await self._session.delete(workspace)
 
     async def get_workspace_by_project_key(
         self, *, user_id: UUID, project_key: str
@@ -112,6 +141,15 @@ class WorkspaceRepository:
         """
 
         return await self._session.get(SyncSession, sync_session_id)
+
+    async def delete_sync_session(self, sync_session: SyncSession) -> None:
+        """
+        删除失败且未运行的同步 session
+
+        :param sync_session (SyncSession): 同步 session 实体
+        """
+
+        await self._session.delete(sync_session)
 
     async def get_current_sync_session_for_workspace(
         self, *, workspace_id: UUID

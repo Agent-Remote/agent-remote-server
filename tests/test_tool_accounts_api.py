@@ -177,6 +177,29 @@ def test_tool_account_create_list_and_validation(client: TestClient) -> None:
     assert unsupported.json()["error"]["code"] == "TOOL_TYPE_UNSUPPORTED"
 
 
+def test_tool_account_delete_requires_disabled_unbound_account(client: TestClient) -> None:
+    token = bootstrap(client)
+    account = create_tool_account(client, token, name="Disposable")
+    account_id = str(account["id"])
+
+    blocked = client.delete(f"/api/v1/tool-accounts/{account_id}", headers=auth_header(token))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "TOOL_ACCOUNT_DELETE_REQUIRES_DISABLED"
+
+    assert (
+        client.post(
+            f"/api/v1/tool-accounts/{account_id}/disable", headers=auth_header(token)
+        ).status_code
+        == 200
+    )
+    deleted = client.delete(f"/api/v1/tool-accounts/{account_id}", headers=auth_header(token))
+    assert deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/tool-accounts/{account_id}", headers=auth_header(token)).status_code
+        == 404
+    )
+
+
 def test_tool_account_binding_task_and_status_update(client: TestClient) -> None:
     token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, token)

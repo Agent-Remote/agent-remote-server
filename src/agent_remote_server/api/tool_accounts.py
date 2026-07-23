@@ -15,6 +15,7 @@ from agent_remote_server.api.developer_credentials import profile_data
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import AuthToken, ToolAccount, User
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.developer_credentials import (
     BindDeveloperCredentialProfileRequest,
     DeveloperCredentialProfileResponse,
@@ -303,6 +304,29 @@ async def disable_tool_account(
         account_id=tool_account_id,
     )
     return ToolAccountResponse(data=tool_account_data(account), request_id=get_request_id())
+
+
+@router.delete("/{tool_account_id}", response_model=EmptyResponse)
+async def delete_tool_account(
+    tool_account_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除已禁用且未绑定运行时的工具账户
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return EmptyResponse: 空响应
+    """
+
+    await ToolAccountService(session, settings).delete_account(
+        user=user, account_id=tool_account_id
+    )
+    return EmptyResponse(request_id=get_request_id())
 
 
 @router.post("/{tool_account_id}/config-imports", response_model=ToolAccountConfigImportResponse)

@@ -311,3 +311,35 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
             assert wireguard_public_key not in details_text
 
     asyncio.run(inspect_state())
+
+
+def test_device_delete_requires_revoke(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "disposable-device",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAADISPOSABLE test@example.com",
+        },
+    )
+    assert response.status_code == 200
+    device_id = response.json()["data"]["device"]["id"]
+
+    blocked = client.delete(f"/api/v1/devices/{device_id}", headers=auth_header(admin_token))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "DEVICE_DELETE_REQUIRES_REVOKED"
+
+    assert (
+        client.post(
+            f"/api/v1/devices/{device_id}/disable", headers=auth_header(admin_token)
+        ).status_code
+        == 200
+    )
+    deleted = client.delete(f"/api/v1/devices/{device_id}", headers=auth_header(admin_token))
+    assert deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/devices/{device_id}", headers=auth_header(admin_token)).status_code
+        == 404
+    )

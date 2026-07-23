@@ -10,6 +10,7 @@ from agent_remote_server.context import get_request_id
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import Node, NodeTask, NodeTaskResult, User
 from agent_remote_server.repositories.nodes import NodeRepository
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.nodes import (
     CreateNodeRequest,
     NodeData,
@@ -366,3 +367,24 @@ async def disable_node(
 
     node = await NodeService(session, settings).disable_node(actor=admin, node_id=node_id)
     return NodeResponse(data=node_data(node), request_id=get_request_id())
+
+
+@router.delete("/{node_id}", response_model=EmptyResponse)
+async def delete_node(
+    node_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> EmptyResponse:
+    """
+    删除已禁用且无业务引用的节点
+
+    :param node_id (UUID): 节点 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param admin (User): 当前管理员
+    :return EmptyResponse: 空响应
+    """
+
+    await NodeService(session, settings).delete_node(actor=admin, node_id=node_id)
+    return EmptyResponse(request_id=get_request_id())

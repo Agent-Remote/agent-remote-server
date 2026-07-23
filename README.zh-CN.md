@@ -23,6 +23,9 @@ Runtime 控制平面还提供：
 - 每账户 runtime backend 固定，以及 Native Runtime 与 Docker Sandbox 之间的显式迁移。
 - Session runtime 标识、中断 session 对账和不重放命令的 replacement session 继承关系。
 - 非特权 node worker 与特权 Native Runtime helper 之间的窄任务契约。
+- 为退役资源提供受保护的删除能力，删除前校验生命周期状态和关联记录。
+
+管理前端只能删除失败的同步会话。活跃的本地 Mutagen 会话必须在所属设备上终止，控制面不会静默遗留运行中的同步进程。
 
 ## 要求
 

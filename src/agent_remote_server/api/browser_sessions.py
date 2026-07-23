@@ -358,6 +358,29 @@ async def stop_browser_session(
     return EmptyResponse(request_id=get_request_id())
 
 
+@router.delete("/{browser_session_id}", response_model=EmptyResponse)
+async def delete_browser_session(
+    browser_session_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除终态浏览器 session
+
+    :param browser_session_id (UUID): 浏览器 session ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return EmptyResponse: 空响应
+    """
+
+    await BrowserSessionService(session, settings).delete_browser_session(
+        user=user, browser_session_id=browser_session_id
+    )
+    return EmptyResponse(request_id=get_request_id())
+
+
 class _UpstreamEndpoint:
     """
     Kasm 浏览器上游连接信息

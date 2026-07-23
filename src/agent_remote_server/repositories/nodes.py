@@ -5,7 +5,16 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, NodeHeartbeat, NodeTask, NodeTaskResult, Session
+from agent_remote_server.models import (
+    BrowserSession,
+    Node,
+    NodeHeartbeat,
+    NodeTask,
+    NodeTaskResult,
+    Session,
+    SyncSession,
+    ToolAccount,
+)
 
 
 class NodeRepository:
@@ -60,6 +69,34 @@ class NodeRepository:
 
         result = await self._session.scalars(select(Node).order_by(Node.created_at))
         return result.all()
+
+    async def has_business_references(self, node_id: UUID) -> bool:
+        """
+        判断节点是否仍被账户或运行记录引用
+
+        :param node_id (UUID): 节点 ID
+        :return bool: 是否存在业务引用
+        """
+
+        statements = (
+            select(ToolAccount.id).where(ToolAccount.affinity_node_id == node_id).limit(1),
+            select(SyncSession.id).where(SyncSession.node_id == node_id).limit(1),
+            select(Session.id).where(Session.node_id == node_id).limit(1),
+            select(BrowserSession.id).where(BrowserSession.node_id == node_id).limit(1),
+        )
+        for statement in statements:
+            if await self._session.scalar(statement) is not None:
+                return True
+        return False
+
+    async def delete_node(self, node: Node) -> None:
+        """
+        删除已禁用且无业务引用的节点
+
+        :param node (Node): 节点实体
+        """
+
+        await self._session.delete(node)
 
     async def list_active_sessions_for_node(self, node_id: UUID) -> Sequence[Session]:
         """

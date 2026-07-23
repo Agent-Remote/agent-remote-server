@@ -13,6 +13,7 @@ from agent_remote_server.api.deps import (
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import AuthToken, User, Workspace
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.workspaces import (
     CreateWorkspaceRequest,
     GitSyncPolicy,
@@ -162,3 +163,24 @@ async def update_workspace(
         else None,
     )
     return WorkspaceResponse(data=workspace_data(workspace), request_id=get_request_id())
+
+
+@router.delete("/{workspace_id}", response_model=EmptyResponse)
+async def delete_workspace(
+    workspace_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除无 session 引用的 workspace
+
+    :param workspace_id (UUID): workspace ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return EmptyResponse: 空响应
+    """
+
+    await WorkspaceService(session, settings).delete_workspace(user=user, workspace_id=workspace_id)
+    return EmptyResponse(request_id=get_request_id())

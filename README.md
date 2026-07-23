@@ -23,6 +23,10 @@ The runtime control plane also provides:
 - Per-account runtime backend pinning and explicit migration between Native Runtime and Docker Sandbox.
 - Session runtime identity, interrupted-session reconciliation, and replacement-session lineage without command replay.
 - A narrow task contract between the unprivileged node worker and the privileged Native Runtime helper.
+- Guarded deletion for retired resources: dependencies and lifecycle state are checked before records are removed.
+
+The web console can only delete failed sync sessions. Active local Mutagen sessions must be
+terminated on their owning device, so the control plane does not silently orphan them.
 
 ## Requirements
 

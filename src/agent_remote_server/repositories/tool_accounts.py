@@ -55,6 +55,30 @@ class ToolAccountRepository:
         )
         return result.all()
 
+    async def has_sessions_for_account(self, account_id: UUID) -> bool:
+        """
+        判断工具账户是否仍有历史工具 session
+
+        :param account_id (UUID): 工具账户 ID
+        :return bool: 是否存在工具 session
+        """
+
+        return (
+            await self._session.scalar(
+                select(Session.id).where(Session.tool_account_id == account_id).limit(1)
+            )
+            is not None
+        )
+
+    async def delete_account(self, account: ToolAccount) -> None:
+        """
+        删除未绑定且无历史 session 的工具账户
+
+        :param account (ToolAccount): 工具账户实体
+        """
+
+        await self._session.delete(account)
+
     async def add_profile(self, profile: ToolAccountProfile) -> ToolAccountProfile:
         """
         新增工具账户 profile

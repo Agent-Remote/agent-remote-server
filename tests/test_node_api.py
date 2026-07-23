@@ -338,3 +338,36 @@ def test_node_reconcile_and_disable(client: TestClient) -> None:
             assert "node_api.reconcile" in actions
 
     asyncio.run(inspect_audit())
+
+
+def test_node_delete_requires_disabled_unreferenced_node(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    created = client.post(
+        "/api/v1/nodes",
+        headers=auth_header(admin_token),
+        json={
+            "name": "disposable-node",
+            "region_code": "US",
+            "tags": [],
+            "weight": 10,
+            "supported_tool_types": ["claude"],
+        },
+    )
+    assert created.status_code == 200
+    node_id = created.json()["data"]["node"]["id"]
+
+    blocked = client.delete(f"/api/v1/nodes/{node_id}", headers=auth_header(admin_token))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "NODE_DELETE_REQUIRES_DISABLED"
+
+    assert (
+        client.post(
+            f"/api/v1/nodes/{node_id}/disable", headers=auth_header(admin_token)
+        ).status_code
+        == 200
+    )
+    deleted = client.delete(f"/api/v1/nodes/{node_id}", headers=auth_header(admin_token))
+    assert deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/nodes/{node_id}", headers=auth_header(admin_token)).status_code == 404
+    )

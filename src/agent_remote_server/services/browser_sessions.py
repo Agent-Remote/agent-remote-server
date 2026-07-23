@@ -277,6 +277,33 @@ class BrowserSessionService:
         await self._session.commit()
         return browser_session
 
+    async def delete_browser_session(self, *, user: User, browser_session_id: UUID) -> None:
+        """
+        删除已进入终态的浏览器 session
+
+        :param user (User): 当前用户
+        :param browser_session_id (UUID): 浏览器 session ID
+        """
+
+        browser_session = await self._require_user_browser_session(
+            user=user, browser_session_id=browser_session_id
+        )
+        if browser_session.status not in {"stopped", "failed", "expired"}:
+            raise ApiError(
+                code="BROWSER_SESSION_DELETE_REQUIRES_STOPPED",
+                message="Stop the browser session before deleting it.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=user.id,
+            action="browser_sessions.delete",
+            target_type="browser_session",
+            target_id=str(browser_session.id),
+            details={"status": browser_session.status},
+        )
+        await self._repository.delete_browser_session(browser_session)
+        await self._session.commit()
+
     async def expire_due_sessions(self) -> None:
         """
         标记已过期浏览器 session 并投递停止任务

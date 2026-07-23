@@ -38,6 +38,15 @@ class BrowserSessionRepository:
 
         return await self._session.get(BrowserSession, browser_session_id)
 
+    async def delete_browser_session(self, browser_session: BrowserSession) -> None:
+        """
+        删除终态浏览器 session
+
+        :param browser_session (BrowserSession): 浏览器 session 实体
+        """
+
+        await self._session.delete(browser_session)
+
     async def list_browser_sessions_for_user(self, user_id: UUID) -> Sequence[BrowserSession]:
         """
         列出用户浏览器 session

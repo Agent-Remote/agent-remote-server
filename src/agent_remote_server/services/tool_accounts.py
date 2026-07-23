@@ -243,6 +243,45 @@ class ToolAccountService:
         await self._session.commit()
         return account
 
+    async def delete_account(self, *, user: User, account_id: UUID) -> None:
+        """
+        删除已禁用且从未绑定运行时的工具账户
+
+        :param user (User): 当前用户
+        :param account_id (UUID): 工具账户 ID
+        """
+
+        account = await self._require_account(user=user, account_id=account_id)
+        if account.status != "disabled":
+            raise ApiError(
+                code="TOOL_ACCOUNT_DELETE_REQUIRES_DISABLED",
+                message="Disable the tool account before deleting it.",
+                status_code=409,
+            )
+        if account.affinity_node_id is not None or account.runtime_backend is not None:
+            raise ApiError(
+                code="TOOL_ACCOUNT_DELETE_BLOCKED",
+                message=(
+                    "Bound tool accounts must be retained for runtime cleanup and audit history."
+                ),
+                status_code=409,
+            )
+        if await self._repository.has_sessions_for_account(account.id):
+            raise ApiError(
+                code="TOOL_ACCOUNT_DELETE_BLOCKED",
+                message="Tool accounts with session history cannot be deleted.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=user.id,
+            action="tool_accounts.delete",
+            target_type="tool_account",
+            target_id=str(account.id),
+            details={"tool_type": account.tool_type},
+        )
+        await self._repository.delete_account(account)
+        await self._session.commit()
+
     async def migrate_runtime(
         self, *, actor: User, account_id: UUID, target_backend: str
     ) -> RuntimeMigrationData:

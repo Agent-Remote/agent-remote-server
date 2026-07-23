@@ -573,6 +573,37 @@ class IdentityService:
         await self._session.commit()
         return device
 
+    async def delete_device(self, *, actor: User, device_id: UUID) -> None:
+        """
+        删除已撤销且未关联 workspace 的设备
+
+        :param actor (User): 操作人
+        :param device_id (UUID): 设备 ID
+        """
+
+        device = await self._require_visible_device(actor=actor, device_id=device_id)
+        if device.status != "revoked":
+            raise ApiError(
+                code="DEVICE_DELETE_REQUIRES_REVOKED",
+                message="Revoke the device before deleting it.",
+                status_code=409,
+            )
+        if await self._repository.has_workspaces_for_device(device.id):
+            raise ApiError(
+                code="DEVICE_DELETE_BLOCKED",
+                message="Delete the device workspaces before deleting the device.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=actor.id,
+            action="devices.delete",
+            target_type="user_device",
+            target_id=str(device.id),
+            details={"device_user_id": str(device.user_id)},
+        )
+        await self._repository.delete_device(device)
+        await self._session.commit()
+
     async def rotate_device_token(self, *, actor: User, device_id: UUID) -> TokenIssue:
         """
         轮换设备令牌

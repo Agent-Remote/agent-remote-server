@@ -171,6 +171,31 @@ class WorkspaceService:
         await self._session.commit()
         return workspace
 
+    async def delete_workspace(self, *, user: User, workspace_id: UUID) -> None:
+        """
+        删除没有同步或工具 session 的 workspace
+
+        :param user (User): 当前用户
+        :param workspace_id (UUID): workspace ID
+        """
+
+        workspace = await self._require_workspace(user=user, workspace_id=workspace_id)
+        if await self._repository.has_workspace_sessions(workspace.id):
+            raise ApiError(
+                code="WORKSPACE_DELETE_BLOCKED",
+                message="Delete related sync sessions before deleting the workspace.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=user.id,
+            action="workspaces.delete",
+            target_type="workspace",
+            target_id=str(workspace.id),
+            details={"project_key": workspace.project_key},
+        )
+        await self._repository.delete_workspace(workspace)
+        await self._session.commit()
+
     async def list_sync_sessions(self, *, user: User) -> list[SyncSessionResult]:
         """
         列出用户同步 session
@@ -284,6 +309,31 @@ class WorkspaceService:
             await self._repository.get_node(sync_session.node_id) if sync_session.node_id else None
         )
         return SyncSessionResult(sync_session=sync_session, node=node, prepare_task_id=None)
+
+    async def delete_sync_session(self, *, user: User, sync_session_id: UUID) -> None:
+        """
+        删除未创建本地 Mutagen 资源的失败同步 session
+
+        :param user (User): 当前用户
+        :param sync_session_id (UUID): 同步 session ID
+        """
+
+        sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
+        if sync_session.status != "failed":
+            raise ApiError(
+                code="SYNC_SESSION_DELETE_REQUIRES_FAILED",
+                message="Only failed sync sessions can be deleted from the web console.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=user.id,
+            action="sync_sessions.delete",
+            target_type="sync_session",
+            target_id=str(sync_session.id),
+            details={"workspace_id": str(sync_session.workspace_id)},
+        )
+        await self._repository.delete_sync_session(sync_session)
+        await self._session.commit()
 
     async def pause_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """

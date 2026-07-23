@@ -12,6 +12,7 @@ from agent_remote_server.models import (
     User,
     UserDevice,
     WireGuardPeer,
+    Workspace,
 )
 
 
@@ -180,6 +181,30 @@ class IdentityRepository:
             select(UserDevice).where(UserDevice.user_id == user_id).order_by(UserDevice.created_at)
         )
         return result.all()
+
+    async def has_workspaces_for_device(self, device_id: UUID) -> bool:
+        """
+        判断设备是否仍有关联 workspace
+
+        :param device_id (UUID): 设备 ID
+        :return bool: 是否存在关联 workspace
+        """
+
+        return (
+            await self._session.scalar(
+                select(Workspace.id).where(Workspace.device_id == device_id).limit(1)
+            )
+            is not None
+        )
+
+    async def delete_device(self, device: UserDevice) -> None:
+        """
+        删除已撤销且无业务引用的设备
+
+        :param device (UserDevice): 设备实体
+        """
+
+        await self._session.delete(device)
 
     async def add_ssh_key(self, ssh_key: SshKey) -> SshKey:
         """

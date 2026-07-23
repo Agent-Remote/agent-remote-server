@@ -198,6 +198,51 @@ def test_workspace_create_is_device_bound_and_idempotent(client: TestClient) -> 
     assert user_token_response.json()["error"]["code"] == "DEVICE_REQUIRED"
 
 
+def test_workspace_and_failed_sync_session_can_be_deleted(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    node_id, _ = create_node(client, admin_token)
+    device_id, device_token = register_device(client, admin_token)
+    workspace = create_workspace(client, device_id=device_id, device_token=device_token)
+    sync_response = client.post(
+        "/api/v1/sync-sessions",
+        headers=auth_header(device_token),
+        json={"workspace_id": workspace["id"], "node_id": node_id},
+    )
+    assert sync_response.status_code == 200
+    sync_id = sync_response.json()["data"]["id"]
+
+    blocked_workspace = client.delete(
+        f"/api/v1/workspaces/{workspace['id']}", headers=auth_header(device_token)
+    )
+    assert blocked_workspace.status_code == 409
+    blocked_sync = client.delete(
+        f"/api/v1/sync-sessions/{sync_id}", headers=auth_header(device_token)
+    )
+    assert blocked_sync.status_code == 409
+
+    async def fail_sync() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            sync = await session.get(SyncSession, UUID(sync_id))
+            assert sync is not None
+            sync.status = "failed"
+            await session.commit()
+
+    asyncio.run(fail_sync())
+    assert (
+        client.delete(
+            f"/api/v1/sync-sessions/{sync_id}", headers=auth_header(device_token)
+        ).status_code
+        == 200
+    )
+    assert (
+        client.delete(
+            f"/api/v1/workspaces/{workspace['id']}", headers=auth_header(device_token)
+        ).status_code
+        == 200
+    )
+
+
 def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None:
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)

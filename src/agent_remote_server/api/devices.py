@@ -167,3 +167,24 @@ async def rotate_device_token(
         device_id=device_id,
     )
     return RotateDeviceTokenResponse(data=_token_data(token_issue), request_id=get_request_id())
+
+
+@router.delete("/{device_id}", response_model=EmptyResponse)
+async def delete_device(
+    device_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除已撤销且无 workspace 引用的设备
+
+    :param device_id (UUID): 设备 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return EmptyResponse: 空响应
+    """
+
+    await IdentityService(session, settings).delete_device(actor=user, device_id=device_id)
+    return EmptyResponse(request_id=get_request_id())

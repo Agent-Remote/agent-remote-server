@@ -8,6 +8,7 @@ from agent_remote_server.api.deps import get_current_user, get_session, get_sett
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import Node, SyncSession, User
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.workspaces import (
     CreateSyncSessionRequest,
     SyncSessionActionRequest,
@@ -245,3 +246,26 @@ async def reset_sync_session(
         user=user, sync_session_id=sync_session_id
     )
     return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
+
+
+@router.delete("/{sync_session_id}", response_model=EmptyResponse)
+async def delete_sync_session(
+    sync_session_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除失败且未运行的同步 session
+
+    :param sync_session_id (UUID): 同步 session ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return EmptyResponse: 空响应
+    """
+
+    await WorkspaceService(session, settings).delete_sync_session(
+        user=user, sync_session_id=sync_session_id
+    )
+    return EmptyResponse(request_id=get_request_id())

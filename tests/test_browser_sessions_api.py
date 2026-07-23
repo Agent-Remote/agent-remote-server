@@ -189,3 +189,20 @@ def test_browser_session_lifecycle(client: TestClient) -> None:
     stop_task = stop_poll.json()["data"]["tasks"][0]
     assert stop_task["task_type"] == "stop_browser_session"
     assert stop_task["payload"]["browser_session_id"] == browser_session["id"]
+
+    blocked_delete = client.delete(
+        f"/api/v1/browser-sessions/{browser_session['id']}", headers=auth_header(token)
+    )
+    assert blocked_delete.status_code == 409
+    assert blocked_delete.json()["error"]["code"] == "BROWSER_SESSION_DELETE_REQUIRES_STOPPED"
+
+    complete_stop = client.post(
+        f"/api/v1/node-api/tasks/{stop_task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "stopped", "browser_session_id": browser_session["id"]}},
+    )
+    assert complete_stop.status_code == 200
+    deleted = client.delete(
+        f"/api/v1/browser-sessions/{browser_session['id']}", headers=auth_header(token)
+    )
+    assert deleted.status_code == 200
