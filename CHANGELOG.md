@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.2 - 2026-07-23
+
+- fix: refresh auth and synchronize wireguard peers (f8318e3)
+
 ## v0.0.4-fix.1 - 2026-07-23
 
 - fix: map fix releases to python versions (890de61)
