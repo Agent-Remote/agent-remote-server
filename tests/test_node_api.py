@@ -126,6 +126,9 @@ def heartbeat_payload(
         "node_id": node_id,
         "version": "0.0.4+fix.1",
         "supported_tool_types": ["claude"],
+        "wireguard_ip": "10.77.0.1",
+        "wireguard_public_key": "node-wireguard-public-key",
+        "wireguard_endpoint": "203.0.113.10:51820",
         "resources": {
             "cpu_load": 0.1,
             "memory_used_bytes": 1024,
@@ -157,6 +160,29 @@ def test_node_registration_heartbeat_and_offline_marking(client: TestClient) -> 
     get_response = client.get(f"/api/v1/nodes/{node_id}", headers=auth_header(admin_token))
     assert get_response.status_code == 200
     assert get_response.json()["data"]["status"] == "healthy"
+    assert get_response.json()["data"]["wireguard_ip"] == "10.77.0.1"
+    assert get_response.json()["data"]["wireguard_public_key"] == "node-wireguard-public-key"
+    assert get_response.json()["data"]["wireguard_endpoint"] == "203.0.113.10:51820"
+
+    register_device = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "macbook",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAATEST rem@test",
+            "wireguard_public_key": "device-wireguard-public-key",
+        },
+    )
+    assert register_device.status_code == 200
+    peer_response = client.get("/api/v1/node-api/wireguard/peers", headers=auth_header(node_token))
+    assert peer_response.status_code == 200
+    assert peer_response.json()["data"]["items"] == [
+        {
+            "public_key": "device-wireguard-public-key",
+            "allowed_ips": ["10.77.0.2/32"],
+        }
+    ]
 
     async def make_stale() -> None:
         app = cast(FastAPI, client.app)

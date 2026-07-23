@@ -188,8 +188,37 @@ class NodeHeartbeatRequest(BaseModel):
     node_id: UUID = Field(..., description="节点 ID")
     version: str = Field(..., description="节点版本")
     supported_tool_types: list[str] = Field(default_factory=list, description="支持工具类型")
+    wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
+    wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
+    wireguard_endpoint: str | None = Field(default=None, description="WireGuard 连接端点")
     resources: NodeResourcesData = Field(..., description="资源快照")
     runtime: NodeRuntimeData = Field(..., description="运行时快照")
+
+
+class NodeWireGuardPeerData(BaseModel):
+    """
+    节点侧 WireGuard 对等端数据
+    """
+
+    public_key: str = Field(..., description="设备 WireGuard 公钥")
+    allowed_ips: list[str] = Field(..., description="设备允许地址")
+
+
+class NodeWireGuardPeerListData(BaseModel):
+    """
+    节点侧 WireGuard 对等端列表数据
+    """
+
+    items: list[NodeWireGuardPeerData] = Field(default_factory=list, description="对等端列表")
+
+
+class NodeWireGuardPeerListResponse(BaseModel):
+    """
+    节点侧 WireGuard 对等端列表响应
+    """
+
+    data: NodeWireGuardPeerListData = Field(..., description="对等端列表数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class NodeTaskEnvelope(BaseModel):

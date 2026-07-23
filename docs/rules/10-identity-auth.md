@@ -14,6 +14,7 @@
 - Only keyed token hashes may be stored.
 - Tokens must have an expiration time and a revocable status.
 - Logout, refresh, device revoke, and device token rotation must update persisted token status.
+- Device tokens use a separate long-lived TTL and clients must refresh them before expiry.
 
 ## CLI Login
 
@@ -21,6 +22,7 @@
 - The `user_code` is short-lived and must expire.
 - Completing CLI login before approval must fail.
 - Completed or expired login codes must not be reused.
+- The verification URL must route to the admin web approval view and include the user code.
 
 ## Devices And Keys
 

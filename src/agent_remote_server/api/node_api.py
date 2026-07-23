@@ -7,6 +7,7 @@ from agent_remote_server.api.deps import get_current_node, get_session, get_sett
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import Node
+from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.connections import (
     VerifyAttachData,
@@ -29,6 +30,9 @@ from agent_remote_server.schemas.nodes import (
     NodeTaskEnvelope,
     NodeTaskPollData,
     NodeTaskPollResponse,
+    NodeWireGuardPeerData,
+    NodeWireGuardPeerListData,
+    NodeWireGuardPeerListResponse,
     ReconcileRequest,
     task_expires_at,
 )
@@ -88,10 +92,43 @@ async def heartbeat(
         node_id=payload.node_id,
         version=payload.version,
         supported_tool_types=payload.supported_tool_types,
+        wireguard_ip=payload.wireguard_ip,
+        wireguard_public_key=payload.wireguard_public_key,
+        wireguard_endpoint=payload.wireguard_endpoint,
         resources=payload.resources.model_dump(),
         runtime=payload.runtime.model_dump(),
     )
     return EmptyResponse(request_id=get_request_id())
+
+
+@router.get("/wireguard/peers", response_model=NodeWireGuardPeerListResponse)
+async def list_wireguard_peers(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    node: Annotated[Node, Depends(get_current_node)],
+) -> NodeWireGuardPeerListResponse:
+    """
+    读取节点需要同步的 WireGuard 对等端
+
+    :param session (AsyncSession): 数据库会话
+    :param node (Node): 当前节点
+
+    :return NodeWireGuardPeerListResponse: WireGuard 对等端列表
+    """
+
+    _ = node
+    peers = await IdentityRepository(session).list_active_device_wireguard_peers()
+    return NodeWireGuardPeerListResponse(
+        data=NodeWireGuardPeerListData(
+            items=[
+                NodeWireGuardPeerData(
+                    public_key=peer.public_key,
+                    allowed_ips=[f"{peer.ip_address}/32"],
+                )
+                for peer in peers
+            ]
+        ),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/tasks/poll", response_model=NodeTaskPollResponse)

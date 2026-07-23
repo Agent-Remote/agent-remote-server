@@ -34,6 +34,7 @@ def client() -> Iterator[TestClient]:
         log_level="CRITICAL",
         database_url="sqlite+aiosqlite:///:memory:",
         access_token_ttl_seconds=3600,
+        device_token_ttl_seconds=86_400,
     )
     app = create_app(settings)
     asyncio.run(create_schema(app))
@@ -132,6 +133,7 @@ def test_cli_device_code_login_flow(client: TestClient) -> None:
     start_response = client.post("/api/v1/auth/cli/start")
     assert start_response.status_code == 200
     start_payload = start_response.json()["data"]
+    assert start_payload["verification_url"].endswith(f"/cli?code={start_payload['user_code']}")
 
     early_complete = client.post(
         "/api/v1/auth/cli/complete",
@@ -206,11 +208,24 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     registration = register_response.json()["data"]
     device_id = UUID(registration["device"]["id"])
     device_token = registration["device_token"]["access_token"]
+    assert registration["device_token"]["expires_in"] == 86_400
     assert registration["ssh_key_id"]
     assert registration["wireguard_peer_id"]
 
     device_me = client.get("/api/v1/users/me", headers=auth_header(device_token))
     assert device_me.status_code == 200
+
+    refresh_response = client.post("/api/v1/auth/refresh", headers=auth_header(device_token))
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["data"]["expires_in"] == 86_400
+    refreshed_device_token = refresh_response.json()["data"]["access_token"]
+    expired_device_me = client.get("/api/v1/users/me", headers=auth_header(device_token))
+    assert expired_device_me.status_code == 401
+    assert expired_device_me.json()["error"]["code"] == "AUTH_TOKEN_REVOKED"
+    refreshed_device_me = client.get(
+        "/api/v1/users/me", headers=auth_header(refreshed_device_token)
+    )
+    assert refreshed_device_me.status_code == 200
 
     revoke_response = client.post(
         f"/api/v1/devices/{device_id}/disable",
@@ -218,7 +233,9 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     )
     assert revoke_response.status_code == 200
 
-    revoked_token_response = client.get("/api/v1/users/me", headers=auth_header(device_token))
+    revoked_token_response = client.get(
+        "/api/v1/users/me", headers=auth_header(refreshed_device_token)
+    )
     assert revoked_token_response.status_code == 401
     assert revoked_token_response.json()["error"]["code"] == "AUTH_TOKEN_REVOKED"
 
@@ -247,7 +264,7 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
                     select(AuthToken).where(AuthToken.user_device_id == device.id)
                 )
             )
-            assert [token.status for token in tokens] == ["revoked"]
+            assert [token.status for token in tokens] == ["revoked", "revoked"]
 
             logs = list(await session.scalars(select(AuditLog)))
             details_text = json.dumps([log.details for log in logs], sort_keys=True)

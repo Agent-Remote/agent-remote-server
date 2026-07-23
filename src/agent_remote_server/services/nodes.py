@@ -226,6 +226,9 @@ class NodeService:
         node_id: UUID,
         version: str,
         supported_tool_types: list[str],
+        wireguard_ip: str | None,
+        wireguard_public_key: str | None,
+        wireguard_endpoint: str | None,
         resources: dict[str, object],
         runtime: dict[str, object],
     ) -> None:
@@ -236,6 +239,9 @@ class NodeService:
         :param node_id (UUID): 请求中的节点 ID
         :param version (str): 节点版本
         :param supported_tool_types (list): 支持工具类型
+        :param wireguard_ip (str): WireGuard 地址
+        :param wireguard_public_key (str): WireGuard 公钥
+        :param wireguard_endpoint (str): WireGuard 连接端点
         :param resources (dict): 资源快照
         :param runtime (dict): 运行时快照
         """
@@ -249,6 +255,12 @@ class NodeService:
         now = self._now()
         node.version = version
         node.supported_tool_types = supported_tool_types
+        if wireguard_ip:
+            node.wireguard_ip = wireguard_ip
+        if wireguard_public_key:
+            node.wireguard_public_key = wireguard_public_key
+        if wireguard_endpoint:
+            node.wireguard_endpoint = wireguard_endpoint
         node.last_heartbeat_at = now
         capabilities = runtime.get("runtime_capabilities")
         node.runtime_capabilities = capabilities if isinstance(capabilities, dict) else {}

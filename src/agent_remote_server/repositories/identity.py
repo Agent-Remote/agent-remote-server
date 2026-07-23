@@ -244,6 +244,23 @@ class IdentityRepository:
 
         return await self._session.scalar(select(func.count(WireGuardPeer.id))) or 0
 
+    async def list_active_device_wireguard_peers(self) -> Sequence[WireGuardPeer]:
+        """
+        列出活跃设备的 WireGuard 对等端
+
+        :return Sequence: WireGuard 对等端列表
+        """
+
+        result = await self._session.scalars(
+            select(WireGuardPeer)
+            .join(UserDevice, UserDevice.id == WireGuardPeer.user_device_id)
+            .where(WireGuardPeer.peer_type == "device")
+            .where(WireGuardPeer.status == "active")
+            .where(UserDevice.status == "active")
+            .order_by(WireGuardPeer.created_at)
+        )
+        return result.all()
+
     async def list_tokens_for_device(self, device_id: UUID) -> Sequence[AuthToken]:
         """
         列出设备令牌

@@ -2,6 +2,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from urllib.parse import urlencode
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -250,7 +251,9 @@ class IdentityService:
         return CliLoginStart(
             device_code=device_code,
             user_code=user_code,
-            verification_url=f"{self._settings.public_base_url.rstrip('/')}/cli",
+            verification_url=(
+                f"{self._settings.public_base_url.rstrip('/')}/cli?{urlencode({'code': user_code})}"
+            ),
             expires_in=expires_in,
             interval=interval,
         )
@@ -650,7 +653,11 @@ class IdentityService:
         token_type: str,
     ) -> TokenIssue:
         raw_token = create_opaque_token("art")
-        expires_in = self._settings.access_token_ttl_seconds
+        expires_in = (
+            self._settings.device_token_ttl_seconds
+            if token_type == "device"
+            else self._settings.access_token_ttl_seconds
+        )
         token = await self._repository.add_token(
             AuthToken(
                 user_id=user.id,
