@@ -83,7 +83,7 @@ def create_node(client: TestClient, token: str) -> tuple[str, str]:
         json={
             "node_id": node_id,
             "registration_token": node["registration_token"],
-            "version": "0.0.4+fix.3",
+            "version": "0.0.4+fix.4",
         },
     )
     assert register.status_code == 200
