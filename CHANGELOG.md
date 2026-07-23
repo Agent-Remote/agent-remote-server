@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.1 - 2026-07-23
+
+- fix: map fix releases to python versions (890de61)
+- fix: repair missing device wireguard peers (7f8d140)
+
 ## v0.0.4 - 2026-07-23
 
 - feat: add runtime backend control plane (1db6267)
