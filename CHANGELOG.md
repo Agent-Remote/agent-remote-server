@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.14 - 2026-07-24
+
+- fix: restore completed sync sessions to active (0a16403)
+
 ## v0.0.4-fix.13 - 2026-07-24
 
 - fix: make claude account verification resilient (65514af)
