@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.12 - 2026-07-24
+
+- fix: track device activity timestamps (51287df)
+
 ## v0.0.4-fix.11 - 2026-07-24
 
 - feat: expose bootstrap status (8009b29)
