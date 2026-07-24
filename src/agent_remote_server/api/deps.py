@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -15,6 +15,7 @@ from agent_remote_server.security import hash_token
 from agent_remote_server.services.nodes import NodeService
 
 bearer_scheme = HTTPBearer(auto_error=False)
+DEVICE_LAST_SEEN_WRITE_INTERVAL = timedelta(minutes=1)
 
 
 def get_settings(request: Request) -> Settings:
@@ -143,6 +144,12 @@ async def _resolve_token(
             raise ApiError(
                 code="DEVICE_REVOKED", message="Device has been revoked.", status_code=403
             )
+        last_seen_at = device.last_seen_at
+        if last_seen_at is not None and last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=UTC)
+        if last_seen_at is None or last_seen_at <= now - DEVICE_LAST_SEEN_WRITE_INTERVAL:
+            device.last_seen_at = now
+            await session.commit()
 
     return token
 

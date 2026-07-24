@@ -245,6 +245,7 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     registration = register_response.json()["data"]
     device_id = UUID(registration["device"]["id"])
     device_token = registration["device_token"]["access_token"]
+    assert registration["device"]["last_seen_at"] is not None
     assert registration["device_token"]["expires_in"] == 86_400
     assert registration["ssh_key_id"]
     assert registration["wireguard_peer_id"]
@@ -290,6 +291,7 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
             device = await session.get(UserDevice, device_id)
             assert device is not None
             assert device.status == "revoked"
+            assert device.last_seen_at is not None
 
             ssh_keys = list(
                 await session.scalars(select(SshKey).where(SshKey.user_device_id == device.id))
@@ -319,6 +321,55 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
             assert wireguard_public_key not in details_text
 
     asyncio.run(inspect_state())
+
+
+def test_device_activity_updates_last_seen_with_write_throttling(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    register_response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "activity-device",
+            "platform": "linux",
+            "ssh_public_key": "ssh-ed25519 AAAADEVICEACTIVITY rem@test",
+        },
+    )
+    assert register_response.status_code == 200
+    registration = register_response.json()["data"]
+    device_id = UUID(registration["device"]["id"])
+    device_token = registration["device_token"]["access_token"]
+    stale_seen_at = datetime.now(UTC) - timedelta(minutes=10)
+
+    async def set_last_seen_at(value: datetime) -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            device = await session.get(UserDevice, device_id)
+            assert device is not None
+            device.last_seen_at = value
+            await session.commit()
+
+    async def get_last_seen_at() -> datetime:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            device = await session.get(UserDevice, device_id)
+            assert device is not None
+            assert device.last_seen_at is not None
+            return device.last_seen_at
+
+    asyncio.run(set_last_seen_at(stale_seen_at))
+    activity_response = client.get("/api/v1/users/me", headers=auth_header(device_token))
+    assert activity_response.status_code == 200
+    refreshed_seen_at = asyncio.run(get_last_seen_at())
+    normalized_refreshed = (
+        refreshed_seen_at
+        if refreshed_seen_at.tzinfo is not None
+        else refreshed_seen_at.replace(tzinfo=UTC)
+    )
+    assert normalized_refreshed > stale_seen_at
+
+    second_activity = client.get("/api/v1/users/me", headers=auth_header(device_token))
+    assert second_activity.status_code == 200
+    assert asyncio.run(get_last_seen_at()) == refreshed_seen_at
 
 
 def test_device_delete_requires_revoke(client: TestClient) -> None:

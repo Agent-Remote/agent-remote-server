@@ -508,7 +508,13 @@ class IdentityService:
         """
 
         device = await self._repository.add_device(
-            UserDevice(user_id=user.id, name=name, platform=platform, status="active")
+            UserDevice(
+                user_id=user.id,
+                name=name,
+                platform=platform,
+                status="active",
+                last_seen_at=self._now(),
+            )
         )
         ssh_key = await self._repository.add_ssh_key(
             SshKey(
