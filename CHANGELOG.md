@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.16 - 2026-07-24
+
+- fix: authorize ssh agent forwarding (f4009b0)
+
 ## v0.0.4-fix.15 - 2026-07-24
 
 - fix: normalize managed terminal attaches (8fc55e0)
