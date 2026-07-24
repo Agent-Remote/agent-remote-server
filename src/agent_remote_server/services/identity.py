@@ -77,6 +77,15 @@ class IdentityService:
         self._settings = settings
         self._repository = IdentityRepository(session)
 
+    async def bootstrap_required(self) -> bool:
+        """
+        判断系统是否需要创建首个管理员
+
+        :return bool: 是否需要初始化
+        """
+
+        return not await self._repository.has_users()
+
     async def bootstrap_admin(
         self,
         *,

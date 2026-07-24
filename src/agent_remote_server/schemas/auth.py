@@ -11,6 +11,23 @@ class BootstrapAdminRequest(BaseModel):
     display_name: str | None = Field(default=None, description="管理员显示名")
 
 
+class BootstrapStatusData(BaseModel):
+    """
+    系统初始化状态
+    """
+
+    required: bool = Field(..., description="是否需要创建首个管理员")
+
+
+class BootstrapStatusResponse(BaseModel):
+    """
+    系统初始化状态响应
+    """
+
+    data: BootstrapStatusData = Field(..., description="初始化状态")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
 class LoginRequest(BaseModel):
     """
     登录请求

@@ -17,6 +17,8 @@ from agent_remote_server.schemas.auth import (
     AuthTokenData,
     AuthTokenResponse,
     BootstrapAdminRequest,
+    BootstrapStatusData,
+    BootstrapStatusResponse,
     CliLoginApproveRequest,
     CliLoginCompleteRequest,
     CliLoginStartData,
@@ -37,6 +39,24 @@ def _token_data(token_issue: TokenIssue) -> AuthTokenData:
         access_token=token_issue.raw_token,
         token_type="bearer",
         expires_in=token_issue.expires_in,
+    )
+
+
+@router.get("/bootstrap-status", response_model=BootstrapStatusResponse)
+async def bootstrap_status(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> BootstrapStatusResponse:
+    """
+    查询是否需要初始化首个管理员
+
+    :return BootstrapStatusResponse: 初始化状态
+    """
+
+    required = await IdentityService(session, settings).bootstrap_required()
+    return BootstrapStatusResponse(
+        data=BootstrapStatusData(required=required),
+        request_id=get_request_id(),
     )
 
 

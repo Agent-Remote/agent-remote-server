@@ -107,7 +107,15 @@ def test_expired_user_token_cannot_refresh(client: TestClient) -> None:
 
 
 def test_bootstrap_login_and_user_management(client: TestClient) -> None:
+    initial_status = client.get("/api/v1/auth/bootstrap-status")
+    assert initial_status.status_code == 200
+    assert initial_status.json()["data"] == {"required": True}
+
     admin_token = bootstrap(client)
+
+    initialized_status = client.get("/api/v1/auth/bootstrap-status")
+    assert initialized_status.status_code == 200
+    assert initialized_status.json()["data"] == {"required": False}
 
     second_bootstrap = client.post(
         "/api/v1/auth/bootstrap",
