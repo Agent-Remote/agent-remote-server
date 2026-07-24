@@ -15,9 +15,11 @@ from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import (
     AuditLog,
+    DeveloperCredentialProfile,
     Session,
     SyncSession,
     ToolAccount,
+    ToolAccountDeveloperCredentialProfile,
     ToolAccountProfile,
     UserDevice,
     WireGuardPeer,
@@ -284,6 +286,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert attach["node_wireguard_ip"] == "10.42.0.10"
     assert attach["ssh_user"] == "agent-remote"
     assert attach["ssh_command"].startswith("ssh -tt -p 22 ")
+    assert attach["forward_ssh_agent"] is False
     assert "agent-remote-attach --session" in attach["ssh_command"]
     assert attach["authorization_task_id"].startswith("sync_ssh_keys:")
 
@@ -304,6 +307,48 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     )
     assert verify_response.status_code == 200
     assert verify_response.json()["data"]["tmux_session_name"] == "claude-test"
+    assert verify_response.json()["data"]["forward_ssh_agent"] is False
+
+    async def bind_forwarding_profile() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(session_id))
+            assert tool_session is not None
+            tool_session.runtime_backend = "native"
+            profile = DeveloperCredentialProfile(
+                user_id=tool_session.user_id,
+                display_name="Forwarded SSH",
+                status="active",
+                git_identity={},
+                github_cli_mode="remote_login",
+                ssh_mode="agent_forwarding",
+            )
+            session.add(profile)
+            await session.flush()
+            session.add(
+                ToolAccountDeveloperCredentialProfile(
+                    tool_account_id=tool_session.tool_account_id,
+                    developer_credential_profile_id=profile.id,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(bind_forwarding_profile())
+    forwarded_attach = client.post(
+        f"/api/v1/sessions/{session_id}/attach", headers=auth_header(device_token)
+    )
+    assert forwarded_attach.status_code == 200
+    forwarded_data = forwarded_attach.json()["data"]
+    assert forwarded_data["forward_ssh_agent"] is True
+    assert forwarded_data["ssh_command"].startswith("ssh -A -tt -p 22 ")
+
+    forwarded_verify = client.post(
+        "/api/v1/node-api/attach/verify",
+        headers=auth_header(node_token),
+        json={"node_id": node_id, "session_id": session_id, "device_id": device_id},
+    )
+    assert forwarded_verify.status_code == 200
+    assert forwarded_verify.json()["data"]["forward_ssh_agent"] is True
 
     revoke_response = client.post(
         f"/api/v1/devices/{device_id}/disable", headers=auth_header(admin_token)

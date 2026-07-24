@@ -51,6 +51,7 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
 - Missing native resources reported during reconciliation move active sessions to `interrupted`; the control plane never replays their commands.
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
+- SSH agent forwarding is authorized only for active developer credential profiles that explicitly select `agent_forwarding`; both the client attach response and the node forced-command verification carry that decision.
 
 ## Device WireGuard Enrollment
 

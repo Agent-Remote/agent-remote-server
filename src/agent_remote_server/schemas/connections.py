@@ -79,6 +79,7 @@ class AttachSessionData(BaseModel):
     tmux_session_name: str = Field(..., description="tmux session 名称")
     command_args: list[str] = Field(default_factory=list, description="远端命令参数")
     ssh_command: str = Field(..., description="推荐 SSH 命令")
+    forward_ssh_agent: bool = Field(..., description="是否允许转发当前设备 SSH agent")
     authorization_task_id: str = Field(..., description="SSH key 同步任务 ID")
     expires_in: int = Field(..., description="授权建议缓存秒数")
 
@@ -112,6 +113,7 @@ class VerifyAttachData(BaseModel):
     container_id: str | None = Field(default=None, description="容器 ID")
     runtime_backend: str = Field(..., description="会话运行时")
     runtime_resource_id: str | None = Field(default=None, description="运行时资源标识")
+    forward_ssh_agent: bool = Field(..., description="是否允许接入设备 SSH agent")
 
 
 class VerifyAttachResponse(BaseModel):

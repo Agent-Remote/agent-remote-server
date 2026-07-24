@@ -35,6 +35,7 @@ class AttachAuthorization:
     ssh_command: str
     command_args: list[str]
     task_id: str
+    forward_ssh_agent: bool
 
 
 @dataclass(frozen=True)
@@ -168,8 +169,9 @@ class ConnectionService:
                 status_code=409,
             )
         ssh_port = node.ssh_port or 22
+        forward_ssh_agent = await self.allows_ssh_agent_forwarding(tool_session)
         command_args = ["agent-remote-attach", "--session", str(tool_session.id)]
-        task_id = f"sync_ssh_keys:{node.id}:{device.id}:{ssh_keys[0].id}"
+        task_id = f"sync_ssh_keys:v2:{node.id}:{device.id}:{ssh_keys[0].id}"
         forced_command = f"agent-remote-attach --device {device.id}"
         payload: dict[str, object] = {
             "device_id": str(device.id),
@@ -201,8 +203,9 @@ class ConnectionService:
             existing.status = "pending"
             existing.payload = payload
             existing.lease_until = None
+        forwarding_option = "-A " if forward_ssh_agent else ""
         ssh_command = (
-            f"ssh -tt -p {ssh_port} {ssh_user}@{ssh_host} "
+            f"ssh {forwarding_option}-tt -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --session {tool_session.id}"
         )
         await self._audit(
@@ -221,6 +224,27 @@ class ConnectionService:
             ssh_command=ssh_command,
             command_args=command_args,
             task_id=task_id,
+            forward_ssh_agent=forward_ssh_agent,
+        )
+
+    async def allows_ssh_agent_forwarding(self, tool_session: Session) -> bool:
+        """
+        判断工具 session 是否获准使用设备 SSH agent
+
+        :param tool_session (Session): 工具 session
+
+        :return bool: 是否允许 SSH agent 转发
+        """
+
+        if tool_session.runtime_backend != "native":
+            return False
+        profile = await self._repository.get_developer_credential_profile_for_account(
+            tool_session.tool_account_id
+        )
+        return (
+            profile is not None
+            and profile.status == "active"
+            and profile.ssh_mode == "agent_forwarding"
         )
 
     async def verify_node_attach(

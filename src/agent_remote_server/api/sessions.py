@@ -225,6 +225,7 @@ async def attach_session(
             tmux_session_name=authorization.tmux_session_name,
             command_args=authorization.command_args,
             ssh_command=authorization.ssh_command,
+            forward_ssh_agent=authorization.forward_ssh_agent,
             authorization_task_id=authorization.task_id,
             expires_in=300,
         ),

@@ -286,7 +286,8 @@ async def verify_attach(
     :return VerifyAttachResponse: attach 校验响应
     """
 
-    tool_session = await ConnectionService(session, settings).verify_node_attach(
+    service = ConnectionService(session, settings)
+    tool_session = await service.verify_node_attach(
         node=node,
         node_id=payload.node_id,
         session_id=payload.session_id,
@@ -299,6 +300,7 @@ async def verify_attach(
             container_id=tool_session.container_id,
             runtime_backend=tool_session.runtime_backend,
             runtime_resource_id=tool_session.runtime_resource_id,
+            forward_ssh_agent=await service.allows_ssh_agent_forwarding(tool_session),
         ),
         request_id=get_request_id(),
     )
