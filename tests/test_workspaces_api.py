@@ -291,6 +291,59 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     assert duplicate.json()["data"]["id"] == sync["id"]
 
 
+def test_completed_sync_session_resume_and_reset_remain_active(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    node_id, node_token = create_node(client, admin_token)
+    device_id, device_token = register_device(client, admin_token)
+    workspace = create_workspace(client, device_id=device_id, device_token=device_token)
+
+    create_response = client.post(
+        "/api/v1/sync-sessions",
+        headers=auth_header(device_token),
+        json={"workspace_id": workspace["id"], "node_id": node_id},
+    )
+    assert create_response.status_code == 200
+    sync = create_response.json()["data"]
+    poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    task = poll_response.json()["data"]["tasks"][0]
+    complete_response = client.post(
+        f"/api/v1/node-api/tasks/{task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "prepared", "remote_path": sync["remote_path"]}},
+    )
+    assert complete_response.status_code == 200
+
+    pause_response = client.post(
+        f"/api/v1/sync-sessions/{sync['id']}/pause",
+        headers=auth_header(device_token),
+        json={},
+    )
+    assert pause_response.status_code == 200
+    assert pause_response.json()["data"]["status"] == "paused"
+
+    resume_response = client.post(
+        f"/api/v1/sync-sessions/{sync['id']}/resume",
+        headers=auth_header(device_token),
+        json={},
+    )
+    assert resume_response.status_code == 200
+    assert resume_response.json()["data"]["status"] == "active"
+
+    reset_response = client.post(
+        f"/api/v1/sync-sessions/{sync['id']}/reset",
+        headers=auth_header(device_token),
+        json={},
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["data"]["status"] == "active"
+
+    empty_poll_response = client.post(
+        "/api/v1/node-api/tasks/poll", headers=auth_header(node_token)
+    )
+    assert empty_poll_response.status_code == 200
+    assert empty_poll_response.json()["data"]["tasks"] == []
+
+
 def test_sync_conflict_blocks_attach(client: TestClient) -> None:
     admin_token = bootstrap(client)
     node_id, _node_token = create_node(client, admin_token)

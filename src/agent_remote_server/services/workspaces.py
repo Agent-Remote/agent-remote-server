@@ -548,6 +548,8 @@ class WorkspaceService:
             ],
         }
         if existing is not None:
+            if existing.status == "succeeded":
+                sync_session.status = "active"
             if existing.status in {"failed", "cancelled", "expired"}:
                 existing.status = "pending"
                 existing.payload = payload
