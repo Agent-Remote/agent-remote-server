@@ -236,7 +236,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert task["task_type"] == "create_binding_session"
     assert task["payload"]["tool_account_id"] == account["id"]
     assert task["payload"]["template"]["sandbox_agent"] == "claude"
-    assert task["payload"]["template"]["command"] == ["claude", "auth", "login"]
+    assert task["payload"]["template"]["command"] == ["claude"]
     assert task["payload"]["timezone"] == "America/Los_Angeles"
     assert task["payload"]["locale"] == "en_US.UTF-8"
     assert task["payload"]["runtime_policy"] == policy
@@ -410,7 +410,7 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
     assert forced_commands == [f"agent-remote-attach --device {device_id}"]
 
 
-def test_tool_account_verifier_success_makes_account_active(client: TestClient) -> None:
+def test_tool_account_verifier_can_retry_after_failure(client: TestClient) -> None:
     token = bootstrap(client)
     _node_id, node_token = create_and_register_node(client, token)
     account = create_tool_account(client, token)
@@ -455,20 +455,63 @@ def test_tool_account_verifier_success_makes_account_active(client: TestClient) 
         headers=auth_header(node_token),
         json={
             "result": {
-                "verified": True,
+                "verified": False,
                 "account_remote_path": verify_task["payload"]["account_remote_path"],
-                "metadata": {"matched_paths": [".agent-remote-claude-auth.json"]},
+                "metadata": {"matched_paths": []},
+                "error": "Claude auth files were not found.",
             }
         },
     )
     assert complete_verify.status_code == 200
 
-    get_response = client.get(
+    failed_response = client.get(
         f"/api/v1/tool-accounts/{account['id']}",
         headers=auth_header(token),
     )
-    assert get_response.status_code == 200
-    assert get_response.json()["data"]["status"] == "active"
+    assert failed_response.status_code == 200
+    assert failed_response.json()["data"]["status"] == "failed"
+
+    retry_response = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/bind/verify",
+        headers=auth_header(token),
+    )
+    assert retry_response.status_code == 200
+    retry_data = retry_response.json()["data"]
+    assert retry_data["status"] == "binding_verifying"
+    assert retry_data["task_id"] != verify_task["task_id"]
+
+    poll_retry = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    retry_tasks = poll_retry.json()["data"]["tasks"]
+    assert len(retry_tasks) == 1
+    retry_task = retry_tasks[0]
+    assert retry_task["task_id"] == retry_data["task_id"]
+
+    complete_retry = client.post(
+        f"/api/v1/node-api/tasks/{retry_task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "verified": True,
+                "account_remote_path": retry_task["payload"]["account_remote_path"],
+                "metadata": {"matched_paths": [".claude/.credentials.json"]},
+            }
+        },
+    )
+    assert complete_retry.status_code == 200
+
+    active_response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}",
+        headers=auth_header(token),
+    )
+    assert active_response.status_code == 200
+    assert active_response.json()["data"]["status"] == "active"
+
+    status_response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/bind/status",
+        headers=auth_header(token),
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["data"]["task_id"] == retry_task["task_id"]
 
 
 def test_tool_account_config_import_creates_node_task(client: TestClient) -> None:

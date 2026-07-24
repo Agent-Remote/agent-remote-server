@@ -255,6 +255,51 @@ def test_create_session_polls_create_tool_session_task(client: TestClient) -> No
     assert current["status"] == "running"
 
 
+def test_create_session_failure_does_not_fail_tool_account(client: TestClient) -> None:
+    token = bootstrap(client)
+    _node_id, node_token = create_node(client, token, name="us-west-1", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:failed-session")
+    account_id = create_account(client, token)
+
+    response = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:failed-session",
+            "argv": [],
+        },
+    )
+    assert response.status_code == 200
+    tool_session = response.json()["data"]
+
+    poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    task = poll_response.json()["data"]["tasks"][0]
+    fail_response = client.post(
+        f"/api/v1/node-api/tasks/{task['task_id']}/fail",
+        headers=auth_header(node_token),
+        json={"error": {"code": "RUNTIME_FAILED", "message": "session startup failed"}},
+    )
+    assert fail_response.status_code == 200
+
+    session_response = client.get(
+        f"/api/v1/sessions/{tool_session['id']}",
+        headers=auth_header(token),
+    )
+    assert session_response.status_code == 200
+    assert session_response.json()["data"]["status"] == "failed"
+
+    account_response = client.get(
+        f"/api/v1/tool-accounts/{account_id}",
+        headers=auth_header(token),
+    )
+    assert account_response.status_code == 200
+    assert account_response.json()["data"]["status"] == "active"
+
+
 def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> None:
     token = bootstrap(client)
     first_node_id, _ = create_node(client, token, name="us-west-1", weight=10)

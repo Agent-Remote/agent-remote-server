@@ -646,6 +646,7 @@ class ToolAccountService:
             **profile.profile_json,
             "binding_session_id": binding_session_id,
             "binding_task_id": task_id,
+            "verification_task_id": None,
             "tmux_session_name": tmux_session_name,
             "account_remote_path": account_remote_path,
             "template": self._template_payload(template),
@@ -742,11 +743,11 @@ class ToolAccountService:
         account = await self._require_account(user=user, account_id=account_id)
         profile = await self._repository.get_profile(account.id)
         node = await self._load_affinity_node(account)
-        task_id = (
-            self._profile_text(profile.profile_json, "binding_task_id", "")
-            if profile is not None
-            else ""
-        )
+        task_id = ""
+        if profile is not None:
+            task_id = self._profile_text(profile.profile_json, "verification_task_id", "")
+            if not task_id:
+                task_id = self._profile_text(profile.profile_json, "binding_task_id", "")
         task = await self._repository.get_task_by_task_id(task_id) if task_id else None
         return self._binding_status(account, profile, node, task)
 
@@ -772,30 +773,33 @@ class ToolAccountService:
             )
 
         account.status = "binding_verifying"
-        task_id = f"verify_tool_account:{account.id}"
+        task_id = f"verify_tool_account:{account.id}:{uuid4().hex[:12]}"
         account_remote_path = self._profile_text(
             profile.profile_json,
             "account_remote_path",
             self._account_remote_path(user.id, account.tool_type, account.id),
         )
-        task = await self._repository.get_task_by_task_id(task_id)
-        if task is None:
-            task = await self._repository.add_task(
-                NodeTask(
-                    node_id=node.id,
-                    task_id=task_id,
-                    task_type="verify_tool_account",
-                    status="pending",
-                    payload={
-                        "tool_account_id": str(account.id),
-                        "tool_type": account.tool_type,
-                        "user_id": str(user.id),
-                        "verifier": template.verifier,
-                        "account_remote_path": account_remote_path,
-                    },
-                    retry_count=0,
-                )
+        profile.profile_json = {
+            **profile.profile_json,
+            "verification_task_id": task_id,
+            "last_error": None,
+        }
+        task = await self._repository.add_task(
+            NodeTask(
+                node_id=node.id,
+                task_id=task_id,
+                task_type="verify_tool_account",
+                status="pending",
+                payload={
+                    "tool_account_id": str(account.id),
+                    "tool_type": account.tool_type,
+                    "user_id": str(user.id),
+                    "verifier": template.verifier,
+                    "account_remote_path": account_remote_path,
+                },
+                retry_count=0,
             )
+        )
         await self._audit(
             actor_user_id=user.id,
             action="tool_accounts.bind.verify",

@@ -806,6 +806,8 @@ class NodeService:
             }
             return
         if task.task_type == "verify_tool_account":
+            if profile.profile_json.get("verification_task_id") != task.task_id:
+                return
             if result.get("verified") is True:
                 account.status = "active"
                 profile.profile_json = {
@@ -828,6 +830,12 @@ class NodeService:
     async def _apply_tool_account_task_failure(
         self, task: NodeTask, error: dict[str, object]
     ) -> None:
+        if task.task_type not in {
+            "create_binding_session",
+            "verify_tool_account",
+            "migrate_tool_account_runtime",
+        }:
+            return
         account_id = self._task_tool_account_id(task, error)
         if account_id is None:
             return
@@ -838,6 +846,11 @@ class NodeService:
         if (
             task.task_type == "create_binding_session"
             and profile.profile_json.get("binding_task_id") != task.task_id
+        ):
+            return
+        if (
+            task.task_type == "verify_tool_account"
+            and profile.profile_json.get("verification_task_id") != task.task_id
         ):
             return
         if task.task_type == "migrate_tool_account_runtime":
