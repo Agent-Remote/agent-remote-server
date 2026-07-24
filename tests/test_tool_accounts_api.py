@@ -263,8 +263,8 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     status = status_response.json()["data"]
     assert status["status"] == "binding_waiting_user_login"
     assert status["binding_session_id"] == "bind-test"
-    assert status["connect_command"].startswith("ssh -t -p 22 ")
-    assert "tmux attach-session -t bind-claude" in status["connect_command"]
+    assert status["connect_command"].startswith("ssh -tt -p 22 ")
+    assert f"agent-remote-attach --binding {account['id']}" in status["connect_command"]
 
     retry_response = client.post(
         f"/api/v1/tool-accounts/{account['id']}/bind/start",
@@ -393,7 +393,7 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
     assert start.status_code == 200
     binding = start.json()["data"]
     assert binding["runtime_backend"] == "native"
-    assert binding["connect_command"].startswith("ssh -t -p 22 ")
+    assert binding["connect_command"].startswith("ssh -tt -p 22 ")
     assert f"agent-remote-attach --binding {account['id']}" in binding["connect_command"]
 
     task_types: set[str] = set()

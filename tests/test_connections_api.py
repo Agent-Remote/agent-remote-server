@@ -283,7 +283,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert attach["node_id"] == node_id
     assert attach["node_wireguard_ip"] == "10.42.0.10"
     assert attach["ssh_user"] == "agent-remote"
-    assert attach["ssh_command"].startswith("ssh -t -p 22 ")
+    assert attach["ssh_command"].startswith("ssh -tt -p 22 ")
     assert "agent-remote-attach --session" in attach["ssh_command"]
     assert attach["authorization_task_id"].startswith("sync_ssh_keys:")
 
