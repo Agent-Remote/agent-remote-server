@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.11 - 2026-07-24
+
+- feat: expose bootstrap status (8009b29)
+
 ## v0.0.4-fix.10 - 2026-07-23
 
 - fix: keep kasmvnc browser streams connected (3d562c8)
