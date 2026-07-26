@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.18 - 2026-07-26
+
+- fix: support windows device registration (b516867)
+- docs: refresh third-party notices (c82fad6)
+
 ## v0.0.4-fix.17 - 2026-07-26
 
 - feat: filter and reconcile tool sessions (b4defe6)
