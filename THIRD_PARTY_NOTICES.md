@@ -1,23 +1,38 @@
-# Third Party Notices
+# Third-Party Notices
 
 This repository is licensed under GPL-3.0-only. See `LICENSE`.
 
-agent-remote is designed to manage or bundle selected external programs in release artifacts. The exact binary artifact, version, source URL, checksum, and license text must be recorded by the release process whenever a binary is shipped.
+## Python Runtime Dependencies
 
-## Managed External Programs
-
-| Component | Use in agent-remote | Upstream license notice |
+| Component | Use | License |
 | --- | --- | --- |
-| WireGuard tools/helpers | Local-to-node tunnel setup and checks | `wireguard-tools` is distributed under GPL-2.0-only. Platform-specific WireGuard implementations can have different licenses; packaged artifacts must carry their exact upstream notice. Source: https://git.zx2c4.com/wireguard-tools/tree/COPYING |
-| Mutagen | Workspace file synchronization | The Mutagen repository states that code is MIT unless otherwise specified, and also notes that official release builds from v0.17 onward include SSPL-licensed code by default. Packaged artifacts must identify whether they are official builds or custom MIT-only builds and include the matching upstream notices. Source: https://github.com/mutagen-io/mutagen/blob/master/LICENSE |
-| Kasm Chrome container image | Optional default remote browser runtime image (`kasmweb/chrome:1.18.0`) | The image is referenced as an external, configurable runtime component for browser session tasks. Release artifacts that redistribute the image or derived images must include the exact upstream image digest and its applicable notices. Source: https://hub.docker.com/r/kasmweb/chrome |
+| FastAPI | HTTP API framework | MIT. Source: https://github.com/fastapi/fastapi/blob/master/LICENSE |
+| SQLAlchemy / Alembic | Database access and migrations | MIT. Sources: https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE and https://github.com/sqlalchemy/alembic/blob/main/LICENSE |
+| asyncpg | PostgreSQL driver | Apache-2.0. Source: https://github.com/MagicStack/asyncpg/blob/master/LICENSE |
+| redis-py | Redis client | MIT. Source: https://github.com/redis/redis-py/blob/master/LICENSE |
+| Pydantic Settings | Configuration and validation | MIT. Source: https://github.com/pydantic/pydantic-settings/blob/main/LICENSE |
+| Uvicorn | ASGI server | BSD-3-Clause. Source: https://github.com/Kludex/uvicorn/blob/master/LICENSE.md |
+| HTTPX | HTTP client | BSD-3-Clause. Source: https://github.com/encode/httpx/blob/master/LICENSE.md |
+| Cryptography | Cryptographic primitives | Apache-2.0 OR BSD-3-Clause. Source: https://github.com/pyca/cryptography/blob/main/LICENSE |
+| argon2-cffi | Password hashing bindings | MIT. Source: https://github.com/hynek/argon2-cffi/blob/main/LICENSE |
+| websockets | WebSocket support | BSD-3-Clause. Source: https://github.com/python-websockets/websockets/blob/main/LICENSE |
 
-## Packaging Rule
+The production image is based on `python:3.13-slim`. Python is distributed
+under the PSF License; operating-system packages retain their individual
+licenses. Derived images must retain the notices from the exact base-image
+digest.
 
-Do not publish an agent-remote release artifact with embedded WireGuard or Mutagen binaries unless the artifact includes:
+The exact Python dependency graph is recorded in `uv.lock`.
 
-- the exact upstream component name and version;
-- the source URL used to obtain or build it;
-- the checksum of the packaged binary;
-- the applicable upstream license text;
-- any required source offer or source distribution instructions.
+The server references `kasmweb/chrome:1.18.0` as an external browser runtime;
+it does not embed that image. Mirrors and derived images must retain notices
+from the exact image digest. Source: https://hub.docker.com/r/kasmweb/chrome
+
+## Distribution Requirements
+
+When a release artifact redistributes third-party software, it must include:
+
+- the exact component name and version;
+- the source URL and checksum;
+- the applicable license and notice text;
+- any required source code, source offer, or relinking instructions.
