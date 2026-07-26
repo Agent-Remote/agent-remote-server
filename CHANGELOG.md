@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.4-fix.17 - 2026-07-26
+
+- feat: filter and reconcile tool sessions (b4defe6)
+
 ## v0.0.4-fix.16 - 2026-07-24
 
 - fix: authorize ssh agent forwarding (f4009b0)
