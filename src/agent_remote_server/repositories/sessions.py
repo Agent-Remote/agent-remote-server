@@ -49,22 +49,29 @@ class SessionRepository:
         return await self._session.get(Session, session_id)
 
     async def list_sessions_for_user(
-        self, user_id: UUID, tool_type: str | None
-    ) -> Sequence[Session]:
+        self, user_id: UUID, tool_type: str | None, statuses: list[str] | None
+    ) -> Sequence[tuple[Session, Workspace]]:
         """
         列出用户工具 session
 
         :param user_id (UUID): 用户 ID
         :param tool_type (str): 工具类型
+        :param statuses (list): session 状态过滤
 
-        :return Sequence: 工具 session 列表
+        :return Sequence: 工具 session 与 workspace 列表
         """
 
-        statement = select(Session).where(Session.user_id == user_id)
+        statement = (
+            select(Session, Workspace)
+            .join(Workspace, Workspace.id == Session.workspace_id)
+            .where(Session.user_id == user_id)
+        )
         if tool_type is not None:
             statement = statement.where(Session.tool_type == tool_type)
-        result = await self._session.scalars(statement.order_by(Session.updated_at.desc()))
-        return result.all()
+        if statuses:
+            statement = statement.where(Session.status.in_(statuses))
+        result = await self._session.execute(statement.order_by(Session.updated_at.desc()))
+        return result.tuples().all()
 
     async def get_latest_project_session(
         self, *, user_id: UUID, tool_type: str, project_key: str

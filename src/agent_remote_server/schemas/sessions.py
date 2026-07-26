@@ -14,6 +14,8 @@ class SessionData(BaseModel):
     user_id: UUID = Field(..., description="用户 ID")
     tool_account_id: UUID = Field(..., description="工具账户 ID")
     workspace_id: UUID = Field(..., description="工作区标识")
+    workspace_local_path: str | None = Field(default=None, description="工作区本地起始目录")
+    workspace_remote_path: str | None = Field(default=None, description="工作区远端工作目录")
     node_id: UUID = Field(..., description="节点 ID")
     project_key: str = Field(..., description="项目 key")
     status: str = Field(..., description="session 状态")

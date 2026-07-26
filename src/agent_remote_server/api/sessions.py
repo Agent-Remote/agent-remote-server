@@ -12,7 +12,7 @@ from agent_remote_server.api.deps import (
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.models import AuthToken, Session, User
+from agent_remote_server.models import AuthToken, Session, User, Workspace
 from agent_remote_server.schemas.connections import AttachSessionData, AttachSessionResponse
 from agent_remote_server.schemas.sessions import (
     CreateSessionRequest,
@@ -27,11 +27,12 @@ from agent_remote_server.services.sessions import ToolSessionService
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def session_data(tool_session: Session) -> SessionData:
+def session_data(tool_session: Session, workspace: Workspace | None = None) -> SessionData:
     """
     转换工具 session 响应数据
 
     :param tool_session (Session): 工具 session 实体
+    :param workspace (Workspace | None): session 对应工作区
 
     :return SessionData: session 响应数据
     """
@@ -44,6 +45,8 @@ def session_data(tool_session: Session) -> SessionData:
         user_id=tool_session.user_id,
         tool_account_id=tool_session.tool_account_id,
         workspace_id=tool_session.workspace_id,
+        workspace_local_path=workspace.local_start_path if workspace is not None else None,
+        workspace_remote_path=workspace.remote_path if workspace is not None else None,
         node_id=tool_session.node_id,
         project_key=tool_session.project_key,
         status=tool_session.status,
@@ -65,6 +68,7 @@ async def list_sessions(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     tool_type: Annotated[str | None, Query()] = None,
+    statuses: Annotated[list[str] | None, Query(alias="status")] = None,
 ) -> SessionListResponse:
     """
     列出工具 session
@@ -73,15 +77,18 @@ async def list_sessions(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param tool_type (str): 工具类型过滤
+    :param statuses (list): session 状态过滤
 
     :return SessionListResponse: session 列表响应
     """
 
     sessions = await ToolSessionService(session, settings).list_sessions(
-        user=user, tool_type=tool_type
+        user=user, tool_type=tool_type, statuses=statuses
     )
     return SessionListResponse(
-        data=SessionListData(items=[session_data(item) for item in sessions]),
+        data=SessionListData(
+            items=[session_data(tool_session, workspace) for tool_session, workspace in sessions]
+        ),
         request_id=get_request_id(),
     )
 

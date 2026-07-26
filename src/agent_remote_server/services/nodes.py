@@ -685,14 +685,22 @@ class NodeService:
                 status_code=403,
             )
         interrupted_count = 0
+        auto_stopping_count = 0
         if "runtime_sessions" in sections:
             reported = self._reported_runtime_sessions(snapshot)
             active_sessions = await self._repository.list_active_sessions_for_node(node.id)
             for tool_session in active_sessions:
-                if tool_session.runtime_backend != "native":
+                if tool_session.runtime_backend not in {"native", "docker_sandbox"}:
                     continue
                 runtime = reported.get(str(tool_session.id))
-                if runtime is None or runtime.get("active") is not True:
+                if runtime is None and tool_session.runtime_backend == "docker_sandbox":
+                    continue
+                if runtime is not None and runtime.get("active") is True:
+                    continue
+                if runtime is not None and runtime.get("exit_reason") == "process_exited":
+                    await self._enqueue_reconciled_session_stop(tool_session)
+                    auto_stopping_count += 1
+                else:
                     tool_session.status = "interrupted"
                     interrupted_count += 1
         await self._audit(
@@ -704,9 +712,39 @@ class NodeService:
                 "sections": sections,
                 "snapshot_keys": sorted(snapshot),
                 "interrupted_count": interrupted_count,
+                "auto_stopping_count": auto_stopping_count,
             },
         )
         await self._session.commit()
+
+    async def _enqueue_reconciled_session_stop(self, tool_session: Session) -> None:
+        task_id = f"stop_tool_session:{tool_session.id}"
+        existing = await self._repository.get_task_by_task_id(task_id)
+        if existing is None:
+            await self._repository.add_task(
+                NodeTask(
+                    node_id=tool_session.node_id,
+                    task_id=task_id,
+                    task_type="stop_tool_session",
+                    status="pending",
+                    payload={
+                        "session_id": str(tool_session.id),
+                        "tmux_session_name": tool_session.tmux_session_name,
+                        "sandbox_name": tool_session.container_id,
+                        "runtime_backend": tool_session.runtime_backend,
+                        "runtime_resource_id": tool_session.runtime_resource_id,
+                    },
+                    retry_count=0,
+                )
+            )
+        tool_session.status = "stopping"
+        await self._audit(
+            actor_user_id=None,
+            action="sessions.auto_stop",
+            target_type="session",
+            target_id=str(tool_session.id),
+            details={"task_id": task_id, "reason": "process_exited"},
+        )
 
     def _reported_runtime_sessions(
         self, snapshot: dict[str, object]
@@ -728,7 +766,7 @@ class NodeService:
                 continue
             session_id = item.get("session_id")
             backend = item.get("runtime_backend")
-            if isinstance(session_id, str) and backend == "native":
+            if isinstance(session_id, str) and backend in {"native", "docker_sandbox"}:
                 reported[session_id] = item
         return reported
 

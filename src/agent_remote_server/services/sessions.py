@@ -12,6 +12,7 @@ from agent_remote_server.models import (
     Session,
     ToolAccount,
     User,
+    Workspace,
 )
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.sessions import SessionRepository
@@ -19,6 +20,15 @@ from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTI
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
 ACTIVE_SESSION_STATUSES = {"starting", "running", "active"}
+SESSION_STATUSES = {
+    "starting",
+    "running",
+    "active",
+    "stopping",
+    "stopped",
+    "interrupted",
+    "failed",
+}
 
 
 class ToolSessionService:
@@ -33,16 +43,31 @@ class ToolSessionService:
         self._identity_repository = IdentityRepository(session)
         self._registry = ToolRegistry()
 
-    async def list_sessions(self, *, user: User, tool_type: str | None) -> list[Session]:
+    async def list_sessions(
+        self, *, user: User, tool_type: str | None, statuses: list[str] | None
+    ) -> list[tuple[Session, Workspace]]:
         """
         列出用户工具 session
 
         :param user (User): 当前用户
         :param tool_type (str): 工具类型
-        :return list: 工具 session 列表
+        :param statuses (list): session 状态过滤
+        :return list: 工具 session 与 workspace 列表
         """
 
-        return list(await self._repository.list_sessions_for_user(user.id, tool_type))
+        normalized_statuses = sorted(set(statuses or []))
+        invalid_statuses = set(normalized_statuses) - SESSION_STATUSES
+        if invalid_statuses:
+            raise ApiError(
+                code="SESSION_STATUS_INVALID",
+                message="Session status filter is invalid.",
+                status_code=422,
+            )
+        return list(
+            await self._repository.list_sessions_for_user(
+                user.id, tool_type, normalized_statuses or None
+            )
+        )
 
     async def get_current_project_session(
         self, *, user: User, tool_type: str, project_key: str

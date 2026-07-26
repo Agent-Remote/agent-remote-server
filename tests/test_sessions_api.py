@@ -6,11 +6,12 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import Node, Session, ToolAccount
+from agent_remote_server.models import Node, NodeTask, Session, ToolAccount
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -300,6 +301,78 @@ def test_create_session_failure_does_not_fail_tool_account(client: TestClient) -
     assert account_response.json()["data"]["status"] == "active"
 
 
+def test_list_sessions_includes_workspace_paths_and_filters_statuses(
+    client: TestClient,
+) -> None:
+    token = bootstrap(client)
+    node_id, _node_token = create_node(client, token, name="us-west-list", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:list")
+    account_id = create_account(client, token)
+    created = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:list",
+            "argv": [],
+        },
+    )
+    assert created.status_code == 200
+    starting_id = str(created.json()["data"]["id"])
+
+    async def seed_stopped_session() -> str:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            account = await session.get(ToolAccount, UUID(account_id))
+            assert account is not None
+            stopped = Session(
+                tool_type="claude",
+                user_id=account.user_id,
+                tool_account_id=account.id,
+                workspace_id=UUID(workspace_id),
+                node_id=UUID(node_id),
+                project_key="sha256:list-stopped",
+                status="stopped",
+                tmux_session_name="ar-claude-stopped",
+                container_id="agent-remote-claude-stopped",
+            )
+            session.add(stopped)
+            await session.commit()
+            return str(stopped.id)
+
+    stopped_id = asyncio.run(seed_stopped_session())
+    stopped_response = client.get(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        params={"tool_type": "claude", "status": "stopped"},
+    )
+    assert stopped_response.status_code == 200
+    stopped_items = stopped_response.json()["data"]["items"]
+    assert [item["id"] for item in stopped_items] == [stopped_id]
+    assert stopped_items[0]["workspace_local_path"] == "/tmp/project"
+    assert stopped_items[0]["workspace_remote_path"]
+
+    combined_response = client.get(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        params=[("tool_type", "claude"), ("status", "starting"), ("status", "stopped")],
+    )
+    assert combined_response.status_code == 200
+    combined_ids = {item["id"] for item in combined_response.json()["data"]["items"]}
+    assert combined_ids == {starting_id, stopped_id}
+
+    invalid_response = client.get(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        params={"status": "unknown"},
+    )
+    assert invalid_response.status_code == 422
+    assert invalid_response.json()["error"]["code"] == "SESSION_STATUS_INVALID"
+
+
 def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> None:
     token = bootstrap(client)
     first_node_id, _ = create_node(client, token, name="us-west-1", weight=10)
@@ -417,3 +490,104 @@ def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestCli
     )
     assert replacement.status_code == 200
     assert replacement.json()["data"]["replaces_session_id"] == session_id
+
+
+@pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
+def test_process_exit_runs_idempotent_stop_flow(client: TestClient, runtime_backend: str) -> None:
+    token = bootstrap(client)
+    node_id, node_token = create_node(client, token, name="us-west-exit", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:exit")
+    account_id = create_account(client, token)
+    created = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:exit",
+            "argv": [],
+        },
+    )
+    assert created.status_code == 200
+    session_id = str(created.json()["data"]["id"])
+    runtime_resource_id = f"agent-remote-session-exit-{runtime_backend}"
+    create_poll = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert create_poll.status_code == 200
+    create_task = create_poll.json()["data"]["tasks"][0]
+    assert create_task["task_type"] == "create_tool_session"
+    create_completed = client.post(
+        f"/api/v1/node-api/tasks/{create_task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "running", "session_id": session_id}},
+    )
+    assert create_completed.status_code == 200
+
+    async def make_native_running() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(session_id))
+            assert tool_session is not None
+            tool_session.status = "running"
+            tool_session.runtime_backend = runtime_backend
+            tool_session.runtime_resource_id = runtime_resource_id
+            await session.commit()
+
+    asyncio.run(make_native_running())
+    reconcile_payload = {
+        "node_id": node_id,
+        "sections": ["runtime_sessions"],
+        "snapshot": {
+            "sessions": [
+                {
+                    "session_id": session_id,
+                    "runtime_backend": runtime_backend,
+                    "runtime_resource_id": runtime_resource_id,
+                    "active": False,
+                    "exit_reason": "process_exited",
+                }
+            ]
+        },
+    }
+    for _ in range(2):
+        reconciled = client.post(
+            "/api/v1/node-api/reconcile",
+            headers=auth_header(node_token),
+            json=reconcile_payload,
+        )
+        assert reconciled.status_code == 200
+
+    stopping = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+    assert stopping.status_code == 200
+    assert stopping.json()["data"]["status"] == "stopping"
+
+    async def count_stop_tasks() -> int:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            return int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(NodeTask)
+                    .where(NodeTask.task_id == f"stop_tool_session:{session_id}")
+                )
+                or 0
+            )
+
+    assert asyncio.run(count_stop_tasks()) == 1
+    poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert poll_response.status_code == 200
+    stop_task = next(
+        task
+        for task in poll_response.json()["data"]["tasks"]
+        if task["task_id"] == f"stop_tool_session:{session_id}"
+    )
+    completed = client.post(
+        f"/api/v1/node-api/tasks/{stop_task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "stopped", "session_id": session_id}},
+    )
+    assert completed.status_code == 200
+    stopped = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+    assert stopped.status_code == 200
+    assert stopped.json()["data"]["status"] == "stopped"
