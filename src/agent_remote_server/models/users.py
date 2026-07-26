@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -30,6 +39,12 @@ class UserDevice(IdMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "user_devices"
+    __table_args__ = (
+        CheckConstraint(
+            "platform in ('windows', 'macos', 'linux')",
+            name="user_devices_platform_ck",
+        ),
+    )
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False

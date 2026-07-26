@@ -235,8 +235,8 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
         "/api/v1/devices/register",
         headers=auth_header(admin_token),
         json={
-            "name": "rem-macbook",
-            "platform": "macos",
+            "name": "honor-magicbook",
+            "platform": "windows",
             "ssh_public_key": ssh_public_key,
             "wireguard_public_key": wireguard_public_key,
         },
@@ -249,6 +249,7 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     assert registration["device_token"]["expires_in"] == 86_400
     assert registration["ssh_key_id"]
     assert registration["wireguard_peer_id"]
+    assert registration["device"]["platform"] == "windows"
 
     device_me = client.get("/api/v1/users/me", headers=auth_header(device_token))
     assert device_me.status_code == 200
@@ -321,6 +322,22 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
             assert wireguard_public_key not in details_text
 
     asyncio.run(inspect_state())
+
+
+def test_device_registration_rejects_unknown_platform(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+
+    response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "unsupported-device",
+            "platform": "freebsd",
+            "ssh_public_key": "ssh-ed25519 AAAAUNSUPPORTED test@example.com",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_device_activity_updates_last_seen_with_write_throttling(client: TestClient) -> None:

@@ -1,9 +1,12 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from agent_remote_server.schemas.auth import AuthTokenData
+
+DevicePlatform = Literal["windows", "macos", "linux"]
 
 
 class DeviceData(BaseModel):
@@ -26,7 +29,7 @@ class RegisterDeviceRequest(BaseModel):
     """
 
     name: str = Field(..., description="设备名称")
-    platform: str = Field(..., description="设备平台")
+    platform: DevicePlatform = Field(..., description="设备平台")
     ssh_public_key: str = Field(..., description="SSH 公钥")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
 

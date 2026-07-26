@@ -111,6 +111,14 @@ def test_connection_fields_migration_revision_identity() -> None:
     assert migration_globals["down_revision"] == "0003_node_control"
 
 
+def test_windows_device_platform_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0009_windows_device_platform.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0009_windows_device_platform"
+    assert migration_globals["down_revision"] == "0008_sync_session_active_status"
+
+
 async def test_repository_crud_round_trip() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
