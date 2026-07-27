@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5 - 2026-07-27
+
+- feat: add agent remote brand icon (cfc4203)
+
 ## v0.0.4-fix.18 - 2026-07-26
 
 - fix: support windows device registration (b516867)
