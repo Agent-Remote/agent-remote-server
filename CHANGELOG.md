@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.1 - 2026-07-28
+
+- fix: refresh device ssh key authorization (45f6a08)
+
 ## v0.0.5 - 2026-07-27
 
 - feat: add agent remote brand icon (cfc4203)
