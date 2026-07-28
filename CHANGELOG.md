@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.3 - 2026-07-28
+
+- fix: enforce generated python sync exclusions (5b0c344)
+
 ## v0.0.5-fix.2 - 2026-07-28
 
 - fix: enforce workspace git index isolation (f6f8d9b)
