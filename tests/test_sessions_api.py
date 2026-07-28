@@ -493,7 +493,9 @@ def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestCli
 
 
 @pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
-def test_process_exit_runs_idempotent_stop_flow(client: TestClient, runtime_backend: str) -> None:
+def test_process_exit_interrupts_and_runs_idempotent_cleanup(
+    client: TestClient, runtime_backend: str
+) -> None:
     token = bootstrap(client)
     node_id, node_token = create_node(client, token, name="us-west-exit", weight=10)
     device_id, device_token = register_device(client, token)
@@ -558,36 +560,36 @@ def test_process_exit_runs_idempotent_stop_flow(client: TestClient, runtime_back
         )
         assert reconciled.status_code == 200
 
-    stopping = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
-    assert stopping.status_code == 200
-    assert stopping.json()["data"]["status"] == "stopping"
+    interrupted = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+    assert interrupted.status_code == 200
+    assert interrupted.json()["data"]["status"] == "interrupted"
 
-    async def count_stop_tasks() -> int:
+    async def count_cleanup_tasks() -> int:
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             return int(
                 await session.scalar(
                     select(func.count())
                     .select_from(NodeTask)
-                    .where(NodeTask.task_id == f"stop_tool_session:{session_id}")
+                    .where(NodeTask.task_id == f"cleanup_tool_session:{session_id}")
                 )
                 or 0
             )
 
-    assert asyncio.run(count_stop_tasks()) == 1
+    assert asyncio.run(count_cleanup_tasks()) == 1
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
     assert poll_response.status_code == 200
-    stop_task = next(
+    cleanup_task = next(
         task
         for task in poll_response.json()["data"]["tasks"]
-        if task["task_id"] == f"stop_tool_session:{session_id}"
+        if task["task_id"] == f"cleanup_tool_session:{session_id}"
     )
     completed = client.post(
-        f"/api/v1/node-api/tasks/{stop_task['task_id']}/complete",
+        f"/api/v1/node-api/tasks/{cleanup_task['task_id']}/complete",
         headers=auth_header(node_token),
         json={"result": {"status": "stopped", "session_id": session_id}},
     )
     assert completed.status_code == 200
-    stopped = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
-    assert stopped.status_code == 200
-    assert stopped.json()["data"]["status"] == "stopped"
+    still_interrupted = client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+    assert still_interrupted.status_code == 200
+    assert still_interrupted.json()["data"]["status"] == "interrupted"

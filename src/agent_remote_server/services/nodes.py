@@ -685,7 +685,7 @@ class NodeService:
                 status_code=403,
             )
         interrupted_count = 0
-        auto_stopping_count = 0
+        cleanup_count = 0
         if "runtime_sessions" in sections:
             reported = self._reported_runtime_sessions(snapshot)
             active_sessions = await self._repository.list_active_sessions_for_node(node.id)
@@ -698,11 +698,11 @@ class NodeService:
                 if runtime is not None and runtime.get("active") is True:
                     continue
                 if runtime is not None and runtime.get("exit_reason") == "process_exited":
-                    await self._enqueue_reconciled_session_stop(tool_session)
-                    auto_stopping_count += 1
+                    await self._enqueue_reconciled_session_cleanup(tool_session)
+                    cleanup_count += 1
                 else:
                     tool_session.status = "interrupted"
-                    interrupted_count += 1
+                interrupted_count += 1
         await self._audit(
             actor_user_id=None,
             action="node_api.reconcile",
@@ -712,13 +712,13 @@ class NodeService:
                 "sections": sections,
                 "snapshot_keys": sorted(snapshot),
                 "interrupted_count": interrupted_count,
-                "auto_stopping_count": auto_stopping_count,
+                "cleanup_count": cleanup_count,
             },
         )
         await self._session.commit()
 
-    async def _enqueue_reconciled_session_stop(self, tool_session: Session) -> None:
-        task_id = f"stop_tool_session:{tool_session.id}"
+    async def _enqueue_reconciled_session_cleanup(self, tool_session: Session) -> None:
+        task_id = f"cleanup_tool_session:{tool_session.id}"
         existing = await self._repository.get_task_by_task_id(task_id)
         if existing is None:
             await self._repository.add_task(
@@ -733,14 +733,15 @@ class NodeService:
                         "sandbox_name": tool_session.container_id,
                         "runtime_backend": tool_session.runtime_backend,
                         "runtime_resource_id": tool_session.runtime_resource_id,
+                        "preserve_interrupted_status": True,
                     },
                     retry_count=0,
                 )
             )
-        tool_session.status = "stopping"
+        tool_session.status = "interrupted"
         await self._audit(
             actor_user_id=None,
-            action="sessions.auto_stop",
+            action="sessions.auto_cleanup",
             target_type="session",
             target_id=str(tool_session.id),
             details={"task_id": task_id, "reason": "process_exited"},
@@ -946,6 +947,9 @@ class NodeService:
             tool_session.status = "failed"
             return
         if task.task_type == "stop_tool_session":
+            if task.payload.get("preserve_interrupted_status") is True:
+                tool_session.status = "interrupted"
+                return
             tool_session.status = "stopped"
 
     async def _apply_sync_session_task_result(
@@ -999,6 +1003,9 @@ class NodeService:
         if tool_session is None:
             return
         if task.task_type == "stop_tool_session":
+            if task.payload.get("preserve_interrupted_status") is True:
+                tool_session.status = "interrupted"
+                return
             tool_session.status = "failed"
             return
         if task.task_type == "create_tool_session":

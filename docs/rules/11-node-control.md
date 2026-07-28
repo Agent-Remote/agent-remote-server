@@ -33,7 +33,7 @@
 - Reconciliation snapshots are node-owned status summaries.
 - Store section names and summary keys in audit logs, not full sensitive state.
 - Runtime session summaries contain only session IDs, backend names, neutral resource IDs, and active flags.
-- A node startup reconciliation may mark missing native sessions `interrupted`; it must not request command replay.
+- Reconciliation marks inactive native sessions `interrupted` and may enqueue idempotent runtime cleanup without changing that user-visible status; it must not request command replay.
 
 ## Runtime Tasks
 
