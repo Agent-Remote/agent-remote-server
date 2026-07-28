@@ -373,6 +373,78 @@ def test_list_sessions_includes_workspace_paths_and_filters_statuses(
     assert invalid_response.json()["error"]["code"] == "SESSION_STATUS_INVALID"
 
 
+def test_delete_stopped_session_and_bulk_delete_inactive_sessions(client: TestClient) -> None:
+    token = bootstrap(client)
+    node_id, _node_token = create_node(client, token, name="us-west-delete", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:delete")
+    account_id = create_account(client, token)
+    created = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "tool_account_id": account_id,
+            "workspace_id": workspace_id,
+            "project_key": "sha256:delete",
+            "argv": [],
+        },
+    )
+    assert created.status_code == 200
+    starting_id = str(created.json()["data"]["id"])
+
+    async def seed_inactive_sessions() -> tuple[str, str, str]:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            account = await session.get(ToolAccount, UUID(account_id))
+            assert account is not None
+            seeded = []
+            for status in ("stopped", "interrupted", "failed"):
+                tool_session = Session(
+                    tool_type="claude",
+                    user_id=account.user_id,
+                    tool_account_id=account.id,
+                    workspace_id=UUID(workspace_id),
+                    node_id=UUID(node_id),
+                    project_key=f"sha256:delete-{status}",
+                    status=status,
+                    tmux_session_name=f"ar-claude-delete-{status}",
+                    container_id=f"agent-remote-claude-delete-{status}",
+                )
+                session.add(tool_session)
+                seeded.append(tool_session)
+            await session.commit()
+            return str(seeded[0].id), str(seeded[1].id), str(seeded[2].id)
+
+    stopped_id, interrupted_id, failed_id = asyncio.run(seed_inactive_sessions())
+
+    protected = client.delete(f"/api/v1/sessions/{starting_id}", headers=auth_header(token))
+    assert protected.status_code == 409
+    assert protected.json()["error"]["code"] == "SESSION_DELETE_NOT_ALLOWED"
+
+    deleted = client.delete(f"/api/v1/sessions/{stopped_id}", headers=auth_header(token))
+    assert deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/sessions/{stopped_id}", headers=auth_header(token)).status_code == 404
+    )
+
+    bulk_deleted = client.delete("/api/v1/sessions", headers=auth_header(token))
+    assert bulk_deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/sessions/{interrupted_id}", headers=auth_header(token)).status_code
+        == 404
+    )
+    assert (
+        client.get(f"/api/v1/sessions/{failed_id}", headers=auth_header(token)).status_code == 200
+    )
+    assert (
+        client.get(f"/api/v1/sessions/{starting_id}", headers=auth_header(token)).status_code == 200
+    )
+
+    repeated = client.delete("/api/v1/sessions", headers=auth_header(token))
+    assert repeated.status_code == 200
+
+
 def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> None:
     token = bootstrap(client)
     first_node_id, _ = create_node(client, token, name="us-west-1", weight=10)

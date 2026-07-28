@@ -13,6 +13,7 @@ from agent_remote_server.api.deps import (
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import AuthToken, Session, User, Workspace
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.connections import AttachSessionData, AttachSessionResponse
 from agent_remote_server.schemas.sessions import (
     CreateSessionRequest,
@@ -123,6 +124,26 @@ async def create_session(
     return SessionResponse(data=session_data(tool_session), request_id=get_request_id())
 
 
+@router.delete("", response_model=EmptyResponse)
+async def delete_inactive_sessions(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除当前用户全部已停止和已中断工具 session
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return EmptyResponse: 空响应
+    """
+
+    await ToolSessionService(session, settings).delete_inactive_sessions(user=user)
+    return EmptyResponse(request_id=get_request_id())
+
+
 @router.get("/current-project", response_model=SessionResponse)
 async def get_current_project_session(
     settings: Annotated[Settings, Depends(get_settings)],
@@ -171,6 +192,28 @@ async def get_tool_session(
         user=user, session_id=session_id
     )
     return SessionResponse(data=session_data(tool_session), request_id=get_request_id())
+
+
+@router.delete("/{session_id}", response_model=EmptyResponse)
+async def delete_session(
+    session_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除已停止或已中断工具 session
+
+    :param session_id (UUID): session ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return EmptyResponse: 空响应
+    """
+
+    await ToolSessionService(session, settings).delete_session(user=user, session_id=session_id)
+    return EmptyResponse(request_id=get_request_id())
 
 
 @router.post("/{session_id}/stop", response_model=SessionResponse)

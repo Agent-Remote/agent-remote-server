@@ -73,6 +73,35 @@ class SessionRepository:
         result = await self._session.execute(statement.order_by(Session.updated_at.desc()))
         return result.tuples().all()
 
+    async def list_sessions_for_user_by_statuses(
+        self, user_id: UUID, statuses: set[str]
+    ) -> Sequence[Session]:
+        """
+        按状态列出用户工具 session
+
+        :param user_id (UUID): 用户 ID
+        :param statuses (set): session 状态集合
+
+        :return Sequence: 工具 session 列表
+        """
+
+        result = await self._session.scalars(
+            select(Session)
+            .where(Session.user_id == user_id)
+            .where(Session.status.in_(sorted(statuses)))
+            .order_by(Session.updated_at.desc())
+        )
+        return result.all()
+
+    async def delete_session(self, tool_session: Session) -> None:
+        """
+        删除工具 session
+
+        :param tool_session (Session): 工具 session 实体
+        """
+
+        await self._session.delete(tool_session)
+
     async def get_latest_project_session(
         self, *, user_id: UUID, tool_type: str, project_key: str
     ) -> Session | None:

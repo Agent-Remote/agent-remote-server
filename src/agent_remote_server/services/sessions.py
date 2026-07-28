@@ -20,6 +20,7 @@ from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTI
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
 ACTIVE_SESSION_STATUSES = {"starting", "running", "active"}
+DELETABLE_SESSION_STATUSES = {"stopped", "interrupted"}
 SESSION_STATUSES = {
     "starting",
     "running",
@@ -284,6 +285,62 @@ class ToolSessionService:
         )
         await self._session.commit()
         return tool_session
+
+    async def delete_session(self, *, user: User, session_id: UUID) -> None:
+        """
+        删除当前用户已停止或已中断的工具 session
+
+        :param user (User): 当前用户
+        :param session_id (UUID): 工具 session ID
+        """
+
+        tool_session = await self._require_user_session(user=user, session_id=session_id)
+        if tool_session.status not in DELETABLE_SESSION_STATUSES:
+            raise ApiError(
+                code="SESSION_DELETE_NOT_ALLOWED",
+                message="Only stopped or interrupted sessions can be deleted.",
+                status_code=409,
+            )
+        await self._audit(
+            actor_user_id=user.id,
+            action="sessions.delete",
+            target_type="session",
+            target_id=str(tool_session.id),
+            details={"status": tool_session.status},
+        )
+        await self._repository.delete_session(tool_session)
+        await self._session.commit()
+
+    async def delete_inactive_sessions(self, *, user: User) -> int:
+        """
+        删除当前用户全部已停止和已中断工具 session
+
+        :param user (User): 当前用户
+
+        :return int: 删除数量
+        """
+
+        sessions = list(
+            await self._repository.list_sessions_for_user_by_statuses(
+                user.id, DELETABLE_SESSION_STATUSES
+            )
+        )
+        if not sessions:
+            return 0
+        for tool_session in sessions:
+            await self._repository.delete_session(tool_session)
+        await self._audit(
+            actor_user_id=user.id,
+            action="sessions.bulk_delete",
+            target_type="session",
+            target_id=str(user.id),
+            details={
+                "deleted_count": len(sessions),
+                "statuses": sorted(DELETABLE_SESSION_STATUSES),
+            },
+        )
+        await self._session.commit()
+        return len(sessions)
 
     async def _require_user_session(self, *, user: User, session_id: UUID) -> Session:
         tool_session = await self._repository.get_session(session_id)
