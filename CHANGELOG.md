@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.4 - 2026-07-28
+
+- fix: keep alembic revision within schema limit (46e8bbd)
+
 ## v0.0.5-fix.3 - 2026-07-28
 
 - fix: enforce generated python sync exclusions (5b0c344)
