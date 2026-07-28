@@ -286,6 +286,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert attach["node_wireguard_ip"] == "10.42.0.10"
     assert attach["ssh_user"] == "agent-remote"
     assert attach["ssh_command"].startswith("ssh -o BatchMode=yes")
+    assert "StrictHostKeyChecking=accept-new" in attach["ssh_command"]
     assert "ConnectTimeout=10" in attach["ssh_command"]
     assert "ServerAliveCountMax=2" in attach["ssh_command"]
     assert attach["forward_ssh_agent"] is False
@@ -365,6 +366,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     forwarded_data = forwarded_attach.json()["data"]
     assert forwarded_data["forward_ssh_agent"] is True
     assert forwarded_data["ssh_command"].startswith("ssh -A -o BatchMode=yes")
+    assert "StrictHostKeyChecking=accept-new" in forwarded_data["ssh_command"]
 
     forwarded_verify = client.post(
         "/api/v1/node-api/attach/verify",

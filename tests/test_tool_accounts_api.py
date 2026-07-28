@@ -264,6 +264,7 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
     assert status["status"] == "binding_waiting_user_login"
     assert status["binding_session_id"] == "bind-test"
     assert status["connect_command"].startswith("ssh -o BatchMode=yes")
+    assert "StrictHostKeyChecking=accept-new" in status["connect_command"]
     assert f"agent-remote-attach --binding {account['id']}" in status["connect_command"]
 
     retry_response = client.post(
@@ -394,6 +395,7 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
     binding = start.json()["data"]
     assert binding["runtime_backend"] == "native"
     assert binding["connect_command"].startswith("ssh -o BatchMode=yes")
+    assert "StrictHostKeyChecking=accept-new" in binding["connect_command"]
     assert f"agent-remote-attach --binding {account['id']}" in binding["connect_command"]
 
     task_types: set[str] = set()

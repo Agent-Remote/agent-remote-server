@@ -901,7 +901,8 @@ class ToolAccountService:
         ssh_user = node.ssh_user or "agent-remote"
         ssh_port = node.ssh_port or 22
         return (
-            "ssh -o BatchMode=yes -o ConnectTimeout=10 "
+            "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "
+            "-o ConnectTimeout=10 "
             "-o ServerAliveInterval=10 -o ServerAliveCountMax=2 "
             f"-tt -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --binding {account.id}"

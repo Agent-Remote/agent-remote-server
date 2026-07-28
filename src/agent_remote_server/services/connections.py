@@ -195,7 +195,8 @@ class ConnectionService:
             task.lease_until = None
         forwarding_option = "-A " if forward_ssh_agent else ""
         ssh_command = (
-            f"ssh {forwarding_option}-o BatchMode=yes -o ConnectTimeout=10 "
+            f"ssh {forwarding_option}-o BatchMode=yes "
+            "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "
             "-o ServerAliveInterval=10 -o ServerAliveCountMax=2 "
             f"-tt -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --session {tool_session.id}"
