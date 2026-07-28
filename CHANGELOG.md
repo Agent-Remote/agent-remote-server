@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.2 - 2026-07-28
+
+- fix: enforce workspace git index isolation (f6f8d9b)
+
 ## v0.0.5-fix.1 - 2026-07-28
 
 - fix: refresh device ssh key authorization (45f6a08)
