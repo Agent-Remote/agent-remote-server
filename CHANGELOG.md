@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.5 - 2026-07-28
+
+- fix: preserve interrupted sessions after process exit (4319b4a)
+
 ## v0.0.5-fix.4 - 2026-07-28
 
 - fix: keep alembic revision within schema limit (46e8bbd)
