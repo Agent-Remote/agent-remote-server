@@ -234,6 +234,7 @@ async def attach_session(
             ssh_command=authorization.ssh_command,
             forward_ssh_agent=authorization.forward_ssh_agent,
             authorization_task_id=authorization.task_id,
+            authorization_task_status=authorization.task_status,
             expires_in=300,
         ),
         request_id=get_request_id(),

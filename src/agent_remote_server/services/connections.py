@@ -20,6 +20,7 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.connections import ConnectionRepository
 from agent_remote_server.repositories.identity import IdentityRepository
+from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class AttachAuthorization:
     ssh_command: str
     command_args: list[str]
     task_id: str
+    task_status: str
     forward_ssh_agent: bool
 
 
@@ -171,25 +173,11 @@ class ConnectionService:
         ssh_port = node.ssh_port or 22
         forward_ssh_agent = await self.allows_ssh_agent_forwarding(tool_session)
         command_args = ["agent-remote-attach", "--session", str(tool_session.id)]
-        task_id = f"sync_ssh_keys:v2:{node.id}:{device.id}:{ssh_keys[0].id}"
-        forced_command = f"agent-remote-attach --device {device.id}"
-        payload: dict[str, object] = {
-            "device_id": str(device.id),
-            "session_id": str(tool_session.id),
-            "ssh_user": ssh_user,
-            "authorized_keys_path": None,
-            "ssh_keys": [
-                {
-                    "id": str(ssh_key.id),
-                    "public_key": ssh_key.public_key,
-                    "forced_command": forced_command,
-                }
-                for ssh_key in ssh_keys
-            ],
-        }
+        task_id = ssh_key_sync_task_id(node_id=node.id, device_id=device.id, ssh_keys=ssh_keys)
+        payload = ssh_key_sync_payload(device_id=device.id, ssh_user=ssh_user, ssh_keys=ssh_keys)
         existing = await self._node_repository.get_task_by_task_id(task_id)
         if existing is None:
-            await self._node_repository.add_task(
+            task = await self._node_repository.add_task(
                 NodeTask(
                     node_id=node.id,
                     task_id=task_id,
@@ -199,13 +187,17 @@ class ConnectionService:
                     retry_count=0,
                 )
             )
-        elif existing.status in {"failed", "cancelled", "expired"}:
-            existing.status = "pending"
-            existing.payload = payload
-            existing.lease_until = None
+        else:
+            task = existing
+        if task.status in {"failed", "cancelled", "expired"}:
+            task.status = "pending"
+            task.payload = payload
+            task.lease_until = None
         forwarding_option = "-A " if forward_ssh_agent else ""
         ssh_command = (
-            f"ssh {forwarding_option}-tt -p {ssh_port} {ssh_user}@{ssh_host} "
+            f"ssh {forwarding_option}-o BatchMode=yes -o ConnectTimeout=10 "
+            "-o ServerAliveInterval=10 -o ServerAliveCountMax=2 "
+            f"-tt -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --session {tool_session.id}"
         )
         await self._audit(
@@ -224,6 +216,7 @@ class ConnectionService:
             ssh_command=ssh_command,
             command_args=command_args,
             task_id=task_id,
+            task_status=task.status,
             forward_ssh_agent=forward_ssh_agent,
         )
 

@@ -81,6 +81,7 @@ class AttachSessionData(BaseModel):
     ssh_command: str = Field(..., description="推荐 SSH 命令")
     forward_ssh_agent: bool = Field(..., description="是否允许转发当前设备 SSH agent")
     authorization_task_id: str = Field(..., description="SSH key 同步任务 ID")
+    authorization_task_status: str = Field(..., description="SSH key 同步任务状态")
     expires_in: int = Field(..., description="授权建议缓存秒数")
 
 

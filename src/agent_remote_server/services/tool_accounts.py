@@ -24,6 +24,7 @@ from agent_remote_server.schemas.tool_accounts import (
     ToolAccountConfigImportData,
     ToolAccountConfigImportFile,
 )
+from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
 ACTIVE_NODE_STATUSES = {"healthy", "degraded"}
@@ -696,7 +697,9 @@ class ToolAccountService:
                     message="Current device has no active SSH key.",
                     status_code=409,
                 )
-            ssh_task_id = f"sync_ssh_keys:{node.id}:{device.id}:{ssh_keys[0].id}"
+            ssh_task_id = ssh_key_sync_task_id(
+                node_id=node.id, device_id=device.id, ssh_keys=ssh_keys
+            )
             if await self._repository.get_task_by_task_id(ssh_task_id) is None:
                 await self._repository.add_task(
                     NodeTask(
@@ -704,19 +707,11 @@ class ToolAccountService:
                         task_id=ssh_task_id,
                         task_type="sync_ssh_keys",
                         status="pending",
-                        payload={
-                            "device_id": str(device.id),
-                            "ssh_user": node.ssh_user or "agent-remote",
-                            "authorized_keys_path": None,
-                            "ssh_keys": [
-                                {
-                                    "id": str(key.id),
-                                    "public_key": key.public_key,
-                                    "forced_command": f"agent-remote-attach --device {device.id}",
-                                }
-                                for key in ssh_keys
-                            ],
-                        },
+                        payload=ssh_key_sync_payload(
+                            device_id=device.id,
+                            ssh_user=node.ssh_user or "agent-remote",
+                            ssh_keys=ssh_keys,
+                        ),
                         retry_count=0,
                     )
                 )
@@ -906,7 +901,9 @@ class ToolAccountService:
         ssh_user = node.ssh_user or "agent-remote"
         ssh_port = node.ssh_port or 22
         return (
-            f"ssh -tt -p {ssh_port} {ssh_user}@{ssh_host} "
+            "ssh -o BatchMode=yes -o ConnectTimeout=10 "
+            "-o ServerAliveInterval=10 -o ServerAliveCountMax=2 "
+            f"-tt -p {ssh_port} {ssh_user}@{ssh_host} "
             f"agent-remote-attach --binding {account.id}"
         )
 

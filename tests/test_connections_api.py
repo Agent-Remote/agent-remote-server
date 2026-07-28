@@ -285,10 +285,14 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert attach["node_id"] == node_id
     assert attach["node_wireguard_ip"] == "10.42.0.10"
     assert attach["ssh_user"] == "agent-remote"
-    assert attach["ssh_command"].startswith("ssh -tt -p 22 ")
+    assert attach["ssh_command"].startswith("ssh -o BatchMode=yes")
+    assert "ConnectTimeout=10" in attach["ssh_command"]
+    assert "ServerAliveCountMax=2" in attach["ssh_command"]
     assert attach["forward_ssh_agent"] is False
     assert "agent-remote-attach --session" in attach["ssh_command"]
-    assert attach["authorization_task_id"].startswith("sync_ssh_keys:")
+    assert attach["authorization_task_id"].startswith("sync_ssh_keys:v3:")
+    assert attach["authorization_task_status"] == "pending"
+    assert len(attach["authorization_task_id"]) <= 128
 
     poll_response = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
     assert poll_response.status_code == 200
@@ -299,6 +303,26 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert tasks[0]["payload"]["ssh_keys"][0]["forced_command"] == (
         f"agent-remote-attach --device {device_id}"
     )
+
+    task_id = str(tasks[0]["task_id"])
+    start_response = client.post(
+        f"/api/v1/node-api/tasks/{task_id}/start", headers=auth_header(node_token)
+    )
+    assert start_response.status_code == 200
+    complete_response = client.post(
+        f"/api/v1/node-api/tasks/{task_id}/complete",
+        headers=auth_header(node_token),
+        json={"result": {"status": "synced"}},
+    )
+    assert complete_response.status_code == 200
+
+    ready_response = client.post(
+        f"/api/v1/sessions/{session_id}/attach", headers=auth_header(device_token)
+    )
+    assert ready_response.status_code == 200
+    ready = ready_response.json()["data"]
+    assert ready["authorization_task_id"] == task_id
+    assert ready["authorization_task_status"] == "succeeded"
 
     verify_response = client.post(
         "/api/v1/node-api/attach/verify",
@@ -340,7 +364,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert forwarded_attach.status_code == 200
     forwarded_data = forwarded_attach.json()["data"]
     assert forwarded_data["forward_ssh_agent"] is True
-    assert forwarded_data["ssh_command"].startswith("ssh -A -tt -p 22 ")
+    assert forwarded_data["ssh_command"].startswith("ssh -A -o BatchMode=yes")
 
     forwarded_verify = client.post(
         "/api/v1/node-api/attach/verify",
