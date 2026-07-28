@@ -1,6 +1,6 @@
 """exclude generated python state
 
-Revision ID: 0011_exclude_generated_python_state
+Revision ID: 0011_python_sync_excludes
 Revises: 0010_isolate_git_index
 Create Date: 2026-07-28 00:00:00.000000
 """
@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0011_exclude_generated_python_state"
+revision: str = "0011_python_sync_excludes"
 down_revision: str | None = "0010_isolate_git_index"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

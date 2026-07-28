@@ -119,6 +119,13 @@ def test_windows_device_platform_migration_revision_identity() -> None:
     assert migration_globals["down_revision"] == "0008_sync_session_active_status"
 
 
+def test_migration_revision_ids_fit_alembic_version_column() -> None:
+    for migration_path in Path("migrations/versions").glob("*.py"):
+        migration_globals = runpy.run_path(str(migration_path))
+        revision = migration_globals["revision"]
+        assert len(revision) <= 32, f"{migration_path} revision exceeds VARCHAR(32)"
+
+
 async def test_repository_crud_round_trip() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
