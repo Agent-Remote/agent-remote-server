@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.6 - 2026-07-28
+
+- feat: add tool session deletion (1e21e77)
+
 ## v0.0.5-fix.5 - 2026-07-28
 
 - fix: preserve interrupted sessions after process exit (4319b4a)
