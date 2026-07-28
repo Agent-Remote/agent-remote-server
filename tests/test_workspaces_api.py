@@ -252,7 +252,7 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     response = client.post(
         "/api/v1/sync-sessions",
         headers=auth_header(device_token),
-        json={"workspace_id": workspace["id"], "node_id": node_id},
+        json={"workspace_id": workspace["id"], "node_id": node_id, "exclude": []},
     )
     assert response.status_code == 200
     sync = response.json()["data"]
@@ -260,6 +260,7 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     assert sync["node_id"] == node_id
     assert sync["status"] == "starting"
     assert sync["conflict_status"] == "none"
+    assert sync["exclude"] == [".git/index"]
     assert sync["remote_endpoint"].startswith("agent-remote@10.42.0.10:22:/")
     assert sync["prepare_task_id"].startswith("prepare_workspace:")
 

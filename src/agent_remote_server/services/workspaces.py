@@ -20,6 +20,10 @@ from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.workspaces import WorkspaceRepository
 
 
+def _managed_sync_excludes(exclude: list[str]) -> list[str]:
+    return list(dict.fromkeys([*exclude, ".git/index"]))
+
+
 @dataclass(frozen=True)
 class SyncSessionResult:
     """
@@ -267,7 +271,7 @@ class WorkspaceService:
                 conflict_status="none",
                 sync_mode="two_way",
                 sync_git=sync_git,
-                exclude_patterns=exclude,
+                exclude_patterns=_managed_sync_excludes(exclude),
                 mutagen_session_id=None,
             )
         )

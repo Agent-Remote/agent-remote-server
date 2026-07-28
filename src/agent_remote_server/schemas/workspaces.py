@@ -23,6 +23,7 @@ def default_git_excludes() -> list[str]:
     return [
         ".git/**/*.lock",
         ".git/hooks",
+        ".git/index",
         ".git/worktrees",
         "node_modules",
         "target",
