@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.7 - 2026-07-28
+
+- fix: bootstrap ssh host verification (44609e4)
+
 ## v0.0.5-fix.6 - 2026-07-28
 
 - feat: add tool session deletion (1e21e77)
