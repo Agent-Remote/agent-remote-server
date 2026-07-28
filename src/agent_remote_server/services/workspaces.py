@@ -18,10 +18,11 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories.connections import ConnectionRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.workspaces import WorkspaceRepository
+from agent_remote_server.schemas.workspaces import default_git_excludes
 
 
 def _managed_sync_excludes(exclude: list[str]) -> list[str]:
-    return list(dict.fromkeys([*exclude, ".git/index"]))
+    return list(dict.fromkeys([*exclude, *default_git_excludes()]))
 
 
 @dataclass(frozen=True)

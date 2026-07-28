@@ -30,6 +30,14 @@ def default_git_excludes() -> list[str]:
         "dist",
         ".venv",
         "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".nox",
+        ".coverage",
+        ".coverage.*",
+        "htmlcov",
     ]
 
 

@@ -12,6 +12,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import Session, SyncSession, ToolAccount, UserDevice, Workspace
+from agent_remote_server.schemas.workspaces import default_git_excludes
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -260,7 +261,7 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
     assert sync["node_id"] == node_id
     assert sync["status"] == "starting"
     assert sync["conflict_status"] == "none"
-    assert sync["exclude"] == [".git/index"]
+    assert sync["exclude"] == default_git_excludes()
     assert sync["remote_endpoint"].startswith("agent-remote@10.42.0.10:22:/")
     assert sync["prepare_task_id"].startswith("prepare_workspace:")
 
