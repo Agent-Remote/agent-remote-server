@@ -23,7 +23,7 @@ def ssh_key_sync_task_id(*, node_id: UUID, device_id: UUID, ssh_keys: Sequence[S
         digest.update(ssh_key.public_key.encode())
         digest.update(b"\0")
     revision = digest.hexdigest()[:16]
-    return f"sync_ssh_keys:v3:{node_id}:{device_id}:{revision}"
+    return f"sync_ssh_keys:v4:{node_id}:{device_id}:{revision}"
 
 
 def ssh_key_sync_payload(
@@ -47,7 +47,9 @@ def ssh_key_sync_payload(
             {
                 "id": str(ssh_key.id),
                 "public_key": ssh_key.public_key,
-                "forced_command": f"agent-remote-attach --device {device_id}",
+                "forced_command": (
+                    f"agent-remote-attach --device {device_id} --ssh-key {ssh_key.id}"
+                ),
             }
             for ssh_key in ssh_keys
         ],

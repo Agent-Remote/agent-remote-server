@@ -35,6 +35,9 @@ The runtime control plane also provides:
 - A narrow task contract between the unprivileged node worker and the privileged Native Runtime helper.
 - Revisioned, device-scoped SSH key synchronization with attach readiness reporting.
 - Guarded deletion for retired resources: dependencies and lifecycle state are checked before records are removed.
+- Session-scoped port-forward grants with one-time Redis tokens, renewable leases, quotas, immediate resource revocation, lifecycle cleanup, and metadata-only audit events.
+
+Port forwarding is available only when the selected node explicitly advertises the capability for the session backend. The current release supports Native Runtime sessions only; Docker Sandbox requests fail closed. Application traffic flows directly between the device and node and never traverses this control plane.
 
 The web console can only delete failed sync sessions. Active local Mutagen sessions must be
 terminated on their owning device, so the control plane does not silently orphan them.
@@ -87,8 +90,20 @@ Environment variables:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `LOG_LEVEL`
+- `PORT_FORWARDING_ENABLED`
+- `PORT_FORWARD_MIN_PORT` / `PORT_FORWARD_MAX_PORT`
+- `PORT_FORWARD_MAX_PER_USER` / `PORT_FORWARD_MAX_PER_DEVICE` / `PORT_FORWARD_MAX_PER_SESSION`
+- `PORT_FORWARD_MAX_STREAMS`
+- `PORT_FORWARD_DEFAULT_TTL_SECONDS` / `PORT_FORWARD_MAX_TTL_SECONDS`
+- `PORT_FORWARD_CONNECTION_TOKEN_TTL_SECONDS` / `PORT_FORWARD_LEASE_SECONDS`
+- `PORT_FORWARD_CONTROL_PLANE_GRACE_SECONDS`
+- `PORT_FORWARD_BYTES_PER_SECOND`
+- `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
+- `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 
 See `.env.example`.
+
+The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
 
 ## Container
 

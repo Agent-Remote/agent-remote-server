@@ -10,6 +10,7 @@ from agent_remote_server.api import (
     network,
     node_api,
     nodes,
+    port_forwards,
     sessions,
     sync_sessions,
     tool_accounts,
@@ -28,9 +29,11 @@ api_router.include_router(workspaces.router)
 api_router.include_router(sync_sessions.router)
 api_router.include_router(tool_accounts.router)
 api_router.include_router(sessions.router)
+api_router.include_router(port_forwards.router)
 api_router.include_router(browser_sessions.router)
 api_router.include_router(developer_credentials.router)
 api_router.include_router(node_api.router)
+api_router.include_router(port_forwards.node_router)
 
 
 @api_router.get("/version", tags=["system"])

@@ -2,7 +2,7 @@ from agent_remote_server.models.audit import AuditLog
 from agent_remote_server.models.auth import AuthToken, CliLoginCode
 from agent_remote_server.models.network import WireGuardPeer
 from agent_remote_server.models.nodes import Node, NodeHeartbeat, NodeTask, NodeTaskResult
-from agent_remote_server.models.sessions import BrowserSession, Session, SessionEvent
+from agent_remote_server.models.sessions import BrowserSession, PortForward, Session, SessionEvent
 from agent_remote_server.models.tools import (
     DeveloperCredentialProfile,
     ToolAccount,
@@ -22,6 +22,7 @@ __all__ = [
     "NodeHeartbeat",
     "NodeTask",
     "NodeTaskResult",
+    "PortForward",
     "Session",
     "SessionEvent",
     "SshKey",

@@ -2,7 +2,16 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import JSON as JsonType
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -67,6 +76,64 @@ class SessionEvent(IdMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, nullable=False
     )
+
+
+class PortForward(IdMixin, TimestampMixin, Base):
+    """
+    Session 级受控端口转发
+    """
+
+    __tablename__ = "port_forwards"
+    __table_args__ = (
+        CheckConstraint("remote_port between 1 and 65535", name="port_forwards_remote_port_ck"),
+        CheckConstraint(
+            "requested_local_port between 1 and 65535",
+            name="port_forwards_local_port_ck",
+        ),
+        Index("port_forwards_user_status_idx", "user_id", "status", "created_at"),
+        Index("port_forwards_device_status_idx", "device_id", "status", "created_at"),
+        Index("port_forwards_session_status_idx", "session_id", "status", "created_at"),
+        Index("port_forwards_node_lease_idx", "node_id", "status", "lease_expires_at"),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False
+    )
+    ssh_key_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ssh_keys.id", ondelete="RESTRICT"), nullable=True
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[UUID] = mapped_column(
+        ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    remote_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_local_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_instance_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    policy_snapshot: Mapped[dict[str, object]] = mapped_column(
+        JsonType, nullable=False, default=dict
+    )
+    bytes_up: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    bytes_down: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    connection_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    connection_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    generation_bytes_up: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    generation_bytes_down: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    generation_connection_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    last_connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class BrowserSession(IdMixin, TimestampMixin, Base):

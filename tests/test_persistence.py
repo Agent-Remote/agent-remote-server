@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "node_heartbeats",
     "node_task_results",
     "node_tasks",
+    "port_forwards",
     "nodes",
     "session_events",
     "sessions",

@@ -10,6 +10,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.db import create_session_factory
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, Node, User
+from agent_remote_server.port_forward_tokens import PortForwardTokenStore
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import hash_token
 from agent_remote_server.services.nodes import NodeService
@@ -28,6 +29,18 @@ def get_settings(request: Request) -> Settings:
     """
 
     return request.app.state.settings
+
+
+def get_port_forward_token_store(request: Request) -> PortForwardTokenStore:
+    """
+    获取一次性端口转发 token store
+
+    :param request (Request): 当前请求对象
+
+    :return PortForwardTokenStore: token store
+    """
+
+    return request.app.state.port_forward_token_store
 
 
 async def get_session(

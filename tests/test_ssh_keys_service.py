@@ -32,5 +32,5 @@ def test_ssh_key_sync_task_revision_tracks_key_set() -> None:
 
     assert first_revision == reordered_revision
     assert first_revision != rotated_revision
-    assert first_revision.startswith("sync_ssh_keys:v3:")
+    assert first_revision.startswith("sync_ssh_keys:v4:")
     assert len(first_revision) <= 128

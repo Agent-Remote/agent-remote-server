@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -13,6 +14,8 @@ from agent_remote_server.db import create_engine, create_session_factory
 from agent_remote_server.errors import ApiError, api_error_handler
 from agent_remote_server.logging import configure_logging
 from agent_remote_server.middleware.request_id import RequestIdMiddleware
+from agent_remote_server.port_forward_cleanup import run_port_forward_cleanup
+from agent_remote_server.port_forward_tokens import create_port_forward_token_store
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,9 +32,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(current_app: FastAPI) -> AsyncIterator[None]:
+        cleanup_stop = asyncio.Event()
+        cleanup_task = asyncio.create_task(run_port_forward_cleanup(current_app, cleanup_stop))
         try:
             yield
         finally:
+            cleanup_stop.set()
+            await cleanup_task
+            await current_app.state.port_forward_token_store.close()
             await current_app.state.database_engine.dispose()
 
     app = FastAPI(
@@ -45,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = app_settings
     app.state.database_engine = create_engine(app_settings)
     app.state.session_factory = create_session_factory(app_settings, app.state.database_engine)
+    app.state.port_forward_token_store = create_port_forward_token_store(app_settings)
 
     app.add_middleware(
         CORSMiddleware,

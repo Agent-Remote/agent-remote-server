@@ -25,6 +25,7 @@ from agent_remote_server.schemas.tool_accounts import (
     ToolAccountConfigImportFile,
     ToolAccountConfigImportStatusData,
 )
+from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
@@ -205,6 +206,13 @@ class ToolAccountService:
         if status is not None:
             self._validate_manual_status(status)
             account.status = status
+            if status != "active":
+                await revoke_port_forwards(
+                    self._session,
+                    reason="tool_account_revoked",
+                    actor_user_id=user.id,
+                    tool_account_id=account.id,
+                )
         if region_code is not None:
             account.region_code = region_code
         if timezone is not None:
@@ -235,6 +243,12 @@ class ToolAccountService:
 
         account = await self._require_account(user=user, account_id=account_id)
         account.status = "disabled"
+        await revoke_port_forwards(
+            self._session,
+            reason="tool_account_revoked",
+            actor_user_id=user.id,
+            tool_account_id=account.id,
+        )
         await self._audit(
             actor_user_id=user.id,
             action="tool_accounts.disable",

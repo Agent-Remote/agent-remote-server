@@ -11,6 +11,32 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agent_remote
+          POSTGRES_PASSWORD: agent_remote
+          POSTGRES_DB: agent_remote_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_remote -d agent_remote_integration"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      AGENT_REMOTE_INTEGRATION_DATABASE_URL: postgresql+asyncpg://agent_remote:agent_remote@127.0.0.1:5432/agent_remote_integration
+      AGENT_REMOTE_INTEGRATION_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v7.0.0
       - uses: astral-sh/setup-uv@v8.3.1

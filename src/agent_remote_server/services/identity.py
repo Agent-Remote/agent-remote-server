@@ -29,6 +29,7 @@ from agent_remote_server.security import (
     verify_password,
     verify_totp_code,
 )
+from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 
 
 @dataclass(frozen=True)
@@ -403,6 +404,13 @@ class IdentityService:
             user.display_name = display_name
         if status is not None:
             user.status = status
+            if status != "active":
+                await revoke_port_forwards(
+                    self._session,
+                    reason="user_revoked",
+                    actor_user_id=actor.id,
+                    user_id=user.id,
+                )
         await self._audit(
             actor_user_id=actor.id,
             action="users.update",
@@ -425,6 +433,12 @@ class IdentityService:
 
         user = await self._require_user(user_id)
         user.status = "disabled"
+        await revoke_port_forwards(
+            self._session,
+            reason="user_revoked",
+            actor_user_id=actor.id,
+            user_id=user.id,
+        )
         await self._audit(
             actor_user_id=actor.id,
             action="users.disable",
@@ -582,6 +596,12 @@ class IdentityService:
             peer.revoked_at = revoked_at
         for token in await self._repository.list_tokens_for_device(device.id):
             self._revoke_token(token)
+        await revoke_port_forwards(
+            self._session,
+            reason="device_revoked",
+            actor_user_id=actor.id,
+            device_id=device.id,
+        )
         await self._audit(
             actor_user_id=actor.id,
             action="devices.revoke",

@@ -35,6 +35,9 @@ Runtime 控制平面还提供：
 - 非特权 node worker 与特权 Native Runtime helper 之间的窄任务契约。
 - 带修订版本的设备级 SSH key 同步，以及 attach 就绪状态上报。
 - 为退役资源提供受保护的删除能力，删除前校验生命周期状态和关联记录。
+- Session 级端口转发授权，包含 Redis 一次性 token、可续租 lease、配额、资源即时撤销、生命周期清理和仅元数据审计事件。
+
+只有所选 Node 为 session backend 明确上报 capability 时，控制面才允许创建端口转发。当前发布仅支持 Native Runtime session；Docker Sandbox 请求会 fail closed。应用数据直接在设备与 Node 之间传输，不经过控制面。
 
 管理前端只能删除失败的同步会话。活跃的本地 Mutagen 会话必须在所属设备上终止，控制面不会静默遗留运行中的同步进程。
 
@@ -86,8 +89,20 @@ curl http://localhost:8000/readyz
 - `DATABASE_URL`
 - `REDIS_URL`
 - `LOG_LEVEL`
+- `PORT_FORWARDING_ENABLED`
+- `PORT_FORWARD_MIN_PORT` / `PORT_FORWARD_MAX_PORT`
+- `PORT_FORWARD_MAX_PER_USER` / `PORT_FORWARD_MAX_PER_DEVICE` / `PORT_FORWARD_MAX_PER_SESSION`
+- `PORT_FORWARD_MAX_STREAMS`
+- `PORT_FORWARD_DEFAULT_TTL_SECONDS` / `PORT_FORWARD_MAX_TTL_SECONDS`
+- `PORT_FORWARD_CONNECTION_TOKEN_TTL_SECONDS` / `PORT_FORWARD_LEASE_SECONDS`
+- `PORT_FORWARD_CONTROL_PLANE_GRACE_SECONDS`
+- `PORT_FORWARD_BYTES_PER_SECOND`
+- `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
+- `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 
 见 `.env.example`。
+
+用户 API 在 `/api/v1/port-forwards` 下提供创建、列表、详情、重连和停止操作；Node API 提供 redeem、renew 和 release。Connection token 只返回一次并带 `Cache-Control: no-store`，仅作为短期 Redis 值保存，客户端不得记录日志或持久化。
 
 ## 容器
 

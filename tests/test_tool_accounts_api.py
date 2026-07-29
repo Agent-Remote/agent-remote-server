@@ -410,7 +410,8 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
         if tasks[0]["task_type"] == "sync_ssh_keys":
             forced_commands.extend(key["forced_command"] for key in tasks[0]["payload"]["ssh_keys"])
     assert task_types == {"create_binding_session", "sync_ssh_keys"}
-    assert forced_commands == [f"agent-remote-attach --device {device_id}"]
+    assert len(forced_commands) == 1
+    assert forced_commands[0].startswith(f"agent-remote-attach --device {device_id} --ssh-key ")
 
 
 def test_tool_account_verifier_can_retry_after_failure(client: TestClient) -> None:

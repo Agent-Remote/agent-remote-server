@@ -291,7 +291,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert "ServerAliveCountMax=2" in attach["ssh_command"]
     assert attach["forward_ssh_agent"] is False
     assert "agent-remote-attach --session" in attach["ssh_command"]
-    assert attach["authorization_task_id"].startswith("sync_ssh_keys:v3:")
+    assert attach["authorization_task_id"].startswith("sync_ssh_keys:v4:")
     assert attach["authorization_task_status"] == "pending"
     assert len(attach["authorization_task_id"]) <= 128
 
@@ -302,7 +302,8 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
     assert tasks[0]["task_type"] == "sync_ssh_keys"
     assert tasks[0]["payload"]["device_id"] == device_id
     assert tasks[0]["payload"]["ssh_keys"][0]["forced_command"] == (
-        f"agent-remote-attach --device {device_id}"
+        f"agent-remote-attach --device {device_id} --ssh-key "
+        f"{tasks[0]['payload']['ssh_keys'][0]['id']}"
     )
 
     task_id = str(tasks[0]["task_id"])

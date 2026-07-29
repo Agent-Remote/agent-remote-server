@@ -16,6 +16,7 @@ from agent_remote_server.models import (
 )
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.sessions import SessionRepository
+from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTIVE_NODE_STATUSES
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
@@ -276,6 +277,12 @@ class ToolSessionService:
                 )
             )
         tool_session.status = "stopping"
+        await revoke_port_forwards(
+            self._session,
+            reason="session_not_running",
+            actor_user_id=user.id,
+            session_id=tool_session.id,
+        )
         await self._audit(
             actor_user_id=user.id,
             action="sessions.stop",

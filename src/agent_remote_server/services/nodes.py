@@ -23,6 +23,7 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import create_opaque_token, hash_token
+from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 
 RUNTIME_BACKENDS = {"docker_sandbox", "native"}
 
@@ -362,6 +363,13 @@ class NodeService:
             node.name = name
         if status is not None:
             node.status = status
+            if status not in {"healthy", "degraded", "active"}:
+                await revoke_port_forwards(
+                    self._session,
+                    reason="node_revoked",
+                    actor_user_id=actor.id,
+                    node_id=node.id,
+                )
         if tags is not None:
             node.tags = tags
         if weight is not None:

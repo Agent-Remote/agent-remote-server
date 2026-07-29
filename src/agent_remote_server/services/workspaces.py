@@ -547,7 +547,9 @@ class WorkspaceService:
                 {
                     "id": str(ssh_key.id),
                     "public_key": ssh_key.public_key,
-                    "forced_command": f"agent-remote-attach --device {workspace.device_id}",
+                    "forced_command": (
+                        f"agent-remote-attach --device {workspace.device_id} --ssh-key {ssh_key.id}"
+                    ),
                 }
                 for ssh_key in ssh_keys
             ],
