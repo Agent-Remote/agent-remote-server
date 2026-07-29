@@ -2,6 +2,12 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.6 - 2026-07-29
+
+- feat: add session port forwarding control plane (c7e56b0)
+- refactor: validate config import paths explicitly (396994d)
+- test: cover config import status parsing (156e6ca)
+
 ## v0.0.5-fix.8 - 2026-07-29
 
 - feat: expose imports and device versions (c4c53bd)
