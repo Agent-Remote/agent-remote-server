@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.0.5-fix.8 - 2026-07-29
+
+- feat: expose imports and device versions (c4c53bd)
+- ci: add codecov reporting (552af15)
+
 ## v0.0.5-fix.7 - 2026-07-28
 
 - fix: bootstrap ssh host verification (44609e4)
