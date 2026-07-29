@@ -12,6 +12,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
 from agent_remote_server.models import Node, ToolAccount
+from agent_remote_server.services.tool_accounts import ToolAccountService
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -649,6 +650,18 @@ def test_tool_account_config_import_reports_sanitized_failure(client: TestClient
     assert payload["error"] == "permission denied"
     assert "private_detail" not in response.text
     assert "content_base64" not in response.text
+
+
+def test_config_import_status_helpers_filter_untrusted_result_shapes() -> None:
+    service = object.__new__(ToolAccountService)
+
+    assert service._config_import_paths(None) == []
+    assert service._config_import_paths([None, {"path": 3}, {"path": "/tmp/private"}]) == []
+    assert service._config_import_paths(
+        [{"path": "~/.claude/settings.json"}, {"path": "~/.claude/history.jsonl"}]
+    ) == ["~/.claude/settings.json", "~/.claude/history.jsonl"]
+    assert service._string_list(None) == []
+    assert service._string_list(["written", 3, None]) == ["written"]
 
 
 def test_runtime_migration_commits_only_after_task_success(client: TestClient) -> None:
