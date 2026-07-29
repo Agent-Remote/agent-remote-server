@@ -590,7 +590,9 @@ class ToolAccountService:
             if not isinstance(item, dict):
                 continue
             path = item.get("path")
-            if isinstance(path, str) and path.startswith("~/.claude/"):
+            if not isinstance(path, str):
+                continue
+            if path.startswith("~/.claude/"):
                 paths.append(path)
         return paths
 
