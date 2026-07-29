@@ -18,6 +18,7 @@ class DeviceData(BaseModel):
     user_id: UUID = Field(..., description="用户 ID")
     name: str = Field(..., description="设备名称")
     platform: str = Field(..., description="设备平台")
+    cli_version: str | None = Field(default=None, description="agent-remote CLI 版本")
     status: str = Field(..., description="设备状态")
     last_seen_at: datetime | None = Field(default=None, description="最后在线时间")
     created_at: datetime = Field(..., description="创建时间")
@@ -30,6 +31,9 @@ class RegisterDeviceRequest(BaseModel):
 
     name: str = Field(..., description="设备名称")
     platform: DevicePlatform = Field(..., description="设备平台")
+    cli_version: str | None = Field(
+        default=None, max_length=64, description="agent-remote CLI 版本"
+    )
     ssh_public_key: str = Field(..., description="SSH 公钥")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
 

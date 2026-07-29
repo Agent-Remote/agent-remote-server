@@ -4,7 +4,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.models import Node, NodeTask, Session, ToolAccount, ToolAccountProfile
+from agent_remote_server.models import (
+    Node,
+    NodeTask,
+    NodeTaskResult,
+    Session,
+    ToolAccount,
+    ToolAccountProfile,
+)
 
 
 class ToolAccountRepository:
@@ -188,3 +195,16 @@ class ToolAccountRepository:
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))
+
+    async def get_task_result(self, task_id: str) -> NodeTaskResult | None:
+        """
+        按 task_id 读取节点任务结果
+
+        :param task_id (str): 节点任务 ID
+
+        :return NodeTaskResult: 节点任务结果
+        """
+
+        return await self._session.scalar(
+            select(NodeTaskResult).where(NodeTaskResult.task_id == task_id)
+        )

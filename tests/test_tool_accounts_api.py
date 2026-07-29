@@ -559,6 +559,97 @@ def test_tool_account_config_import_creates_node_task(client: TestClient) -> Non
     assert task["payload"]["tool_account_id"] == account["id"]
     assert task["payload"]["files"][0]["path"] == "~/.claude/settings.json"
 
+    pending_response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports/{task['task_id']}",
+        headers=auth_header(token),
+    )
+    assert pending_response.status_code == 200
+    pending = pending_response.json()["data"]
+    assert pending["status"] == "leased"
+    assert pending["requested_paths"] == ["~/.claude/settings.json"]
+    assert pending["files_written"] == []
+    assert pending["file_count"] == 1
+    assert "content_base64" not in pending_response.text
+
+    complete_response = client.post(
+        f"/api/v1/node-api/tasks/{task['task_id']}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "status": "imported",
+                "files_written": ["~/.claude/settings.json"],
+                "files_written_count": 1,
+            }
+        },
+    )
+    assert complete_response.status_code == 200
+
+    completed_response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports/{task['task_id']}",
+        headers=auth_header(token),
+    )
+    assert completed_response.status_code == 200
+    completed = completed_response.json()["data"]
+    assert completed["status"] == "succeeded"
+    assert completed["files_written"] == ["~/.claude/settings.json"]
+    assert completed["finished_at"] is not None
+
+    latest_response = client.get(
+        "/api/v1/tool-accounts/config-imports/latest",
+        headers=auth_header(token),
+    )
+    assert latest_response.status_code == 200
+    assert latest_response.json()["data"]["items"] == [completed]
+
+    missing_response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports/not-this-task",
+        headers=auth_header(token),
+    )
+    assert missing_response.status_code == 404
+
+
+def test_tool_account_config_import_reports_sanitized_failure(client: TestClient) -> None:
+    token = bootstrap(client)
+    _node_id, node_token = create_and_register_node(client, token)
+    account = create_tool_account(client, token)
+    content = base64.b64encode(b"{}\n").decode("ascii")
+    created = client.post(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports",
+        headers=auth_header(token),
+        json={
+            "tool_type": "claude",
+            "include": ["~/.claude/settings.json"],
+            "files": [
+                {
+                    "path": "~/.claude/settings.json",
+                    "content_base64": content,
+                    "mode": 384,
+                }
+            ],
+            "include_resume_history": False,
+            "dry_run": False,
+        },
+    )
+    task_id = created.json()["data"]["task_id"]
+    client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    failed = client.post(
+        f"/api/v1/node-api/tasks/{task_id}/fail",
+        headers=auth_header(node_token),
+        json={"error": {"message": "permission denied", "private_detail": "hidden"}},
+    )
+    assert failed.status_code == 200
+
+    response = client.get(
+        f"/api/v1/tool-accounts/{account['id']}/config-imports/{task_id}",
+        headers=auth_header(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["status"] == "failed"
+    assert payload["error"] == "permission denied"
+    assert "private_detail" not in response.text
+    assert "content_base64" not in response.text
+
 
 def test_runtime_migration_commits_only_after_task_success(client: TestClient) -> None:
     token = bootstrap(client)

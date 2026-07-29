@@ -492,6 +492,7 @@ class IdentityService:
         user: User,
         name: str,
         platform: str,
+        cli_version: str | None,
         ssh_public_key: str,
         wireguard_public_key: str | None,
     ) -> DeviceRegistrationResult:
@@ -501,6 +502,7 @@ class IdentityService:
         :param user (User): 当前用户
         :param name (str): 设备名称
         :param platform (str): 设备平台
+        :param cli_version (str): agent-remote CLI 版本
         :param ssh_public_key (str): SSH 公钥
         :param wireguard_public_key (str): WireGuard 公钥
 
@@ -512,6 +514,7 @@ class IdentityService:
                 user_id=user.id,
                 name=name,
                 platform=platform,
+                cli_version=cli_version,
                 status="active",
                 last_seen_at=self._now(),
             )
@@ -545,6 +548,7 @@ class IdentityService:
             target_id=str(device.id),
             details={
                 "platform": platform,
+                "cli_version": cli_version,
                 "ssh_key_id": str(ssh_key.id),
                 "wireguard_peer_id": str(wireguard_peer.id) if wireguard_peer else None,
             },

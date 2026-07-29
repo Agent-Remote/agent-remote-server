@@ -23,6 +23,7 @@ from agent_remote_server.schemas.tool_accounts import (
     RuntimeMigrationData,
     ToolAccountConfigImportData,
     ToolAccountConfigImportFile,
+    ToolAccountConfigImportStatusData,
 )
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
@@ -460,6 +461,7 @@ class ToolAccountService:
                         "user_id": str(user.id),
                         "account_remote_path": account_remote_path,
                         "runtime_backend": account.runtime_backend,
+                        "include_resume_history": include_resume_history,
                         "files": accepted_files,
                     },
                     retry_count=0,
@@ -499,6 +501,103 @@ class ToolAccountService:
             imported_file_count=imported_file_count,
             dry_run=dry_run,
         )
+
+    async def get_config_import_status(
+        self, *, user: User, account_id: UUID, task_id: str
+    ) -> ToolAccountConfigImportStatusData:
+        """
+        读取当前用户工具账户的配置导入状态
+
+        :param user (User): 当前用户
+        :param account_id (UUID): 工具账户 ID
+        :param task_id (str): 节点导入任务 ID
+
+        :return ToolAccountConfigImportStatusData: 配置导入状态
+        """
+
+        account = await self.get_account(user=user, account_id=account_id)
+        task = await self._repository.get_task_by_task_id(task_id)
+        if task is None or not self._is_account_config_import_task(task, account):
+            raise ApiError(
+                code="COMMON_NOT_FOUND",
+                message="Config import task was not found.",
+                status_code=404,
+            )
+        return await self._config_import_status(account, task)
+
+    async def list_latest_config_imports(
+        self, *, user: User
+    ) -> list[ToolAccountConfigImportStatusData]:
+        """
+        列出当前用户各工具账户最近一次配置导入状态
+
+        :param user (User): 当前用户
+
+        :return list: 最近配置导入状态列表
+        """
+
+        statuses: list[ToolAccountConfigImportStatusData] = []
+        for account in await self.list_accounts(user=user):
+            profile = await self._repository.get_profile(account.id)
+            task_id = (
+                self._optional_text(profile.profile_json, "last_config_import_task_id")
+                if profile is not None
+                else None
+            )
+            if task_id is None:
+                continue
+            task = await self._repository.get_task_by_task_id(task_id)
+            if task is None or not self._is_account_config_import_task(task, account):
+                continue
+            statuses.append(await self._config_import_status(account, task))
+        return statuses
+
+    def _is_account_config_import_task(self, task: NodeTask, account: ToolAccount) -> bool:
+        if task.task_type != "import_tool_account_config":
+            return False
+        return task.payload.get("tool_account_id") == str(account.id)
+
+    async def _config_import_status(
+        self, account: ToolAccount, task: NodeTask
+    ) -> ToolAccountConfigImportStatusData:
+        result = await self._repository.get_task_result(task.task_id)
+        requested_paths = self._config_import_paths(task.payload.get("files"))
+        result_data = result.result if result is not None and result.result is not None else {}
+        files_written = self._string_list(result_data.get("files_written"))
+        error_data = result.error if result is not None and result.error is not None else {}
+        error = self._optional_text(error_data, "message") or self._optional_text(
+            error_data, "error"
+        )
+        return ToolAccountConfigImportStatusData(
+            tool_account_id=account.id,
+            task_id=task.task_id,
+            status=task.status,
+            include_resume_history=task.payload.get("include_resume_history") is True,
+            requested_paths=requested_paths,
+            files_written=files_written,
+            file_count=len(files_written) if task.status == "succeeded" else len(requested_paths),
+            error=error[:500] if error is not None else None,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            finished_at=result.finished_at if result is not None else None,
+        )
+
+    def _config_import_paths(self, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        paths: list[str] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            if isinstance(path, str) and path.startswith("~/.claude/"):
+                paths.append(path)
+        return paths
+
+    def _string_list(self, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str)]
 
     def _classify_config_import_paths(
         self,

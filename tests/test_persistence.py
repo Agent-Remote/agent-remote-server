@@ -119,6 +119,14 @@ def test_windows_device_platform_migration_revision_identity() -> None:
     assert migration_globals["down_revision"] == "0008_sync_session_active_status"
 
 
+def test_device_cli_version_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0012_device_cli_version.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0012_device_cli_version"
+    assert migration_globals["down_revision"] == "0011_python_sync_excludes"
+
+
 def test_migration_revision_ids_fit_alembic_version_column() -> None:
     for migration_path in Path("migrations/versions").glob("*.py"):
         migration_globals = runpy.run_path(str(migration_path))

@@ -31,6 +31,7 @@ def _device_data(device: UserDevice) -> DeviceData:
         user_id=device.user_id,
         name=device.name,
         platform=device.platform,
+        cli_version=device.cli_version,
         status=device.status,
         last_seen_at=device.last_seen_at,
         created_at=device.created_at,
@@ -83,6 +84,7 @@ async def register_device(
         user=user,
         name=payload.name,
         platform=payload.platform,
+        cli_version=payload.cli_version,
         ssh_public_key=payload.ssh_public_key,
         wireguard_public_key=payload.wireguard_public_key,
     )

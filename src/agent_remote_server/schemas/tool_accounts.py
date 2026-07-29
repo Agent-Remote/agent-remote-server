@@ -181,3 +181,50 @@ class ToolAccountConfigImportResponse(BaseModel):
 
     data: ToolAccountConfigImportData = Field(..., description="配置导入数据")
     request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class ToolAccountConfigImportStatusData(BaseModel):
+    """
+    工具账户配置导入任务状态
+    """
+
+    tool_account_id: UUID = Field(..., description="工具账户 ID")
+    task_id: str = Field(..., description="节点导入任务 ID")
+    status: str = Field(..., description="导入任务状态")
+    include_resume_history: bool = Field(..., description="是否包含 resume 历史")
+    requested_paths: list[str] = Field(default_factory=list, description="请求导入的路径")
+    files_written: list[str] = Field(default_factory=list, description="实际写入的路径")
+    file_count: int = Field(..., description="导入文件数量")
+    error: str | None = Field(default=None, description="脱敏错误摘要")
+    created_at: datetime = Field(..., description="任务创建时间")
+    updated_at: datetime = Field(..., description="任务更新时间")
+    finished_at: datetime | None = Field(default=None, description="任务完成时间")
+
+
+class ToolAccountConfigImportStatusResponse(BaseModel):
+    """
+    工具账户配置导入状态响应
+    """
+
+    data: ToolAccountConfigImportStatusData = Field(..., description="配置导入状态")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class ToolAccountConfigImportStatusListData(BaseModel):
+    """
+    最近配置导入状态列表
+    """
+
+    items: list[ToolAccountConfigImportStatusData] = Field(
+        default_factory=list, description="最近配置导入状态列表"
+    )
+    next_cursor: str | None = Field(default=None, description="下一页游标")
+
+
+class ToolAccountConfigImportStatusListResponse(BaseModel):
+    """
+    最近配置导入状态列表响应
+    """
+
+    data: ToolAccountConfigImportStatusListData = Field(..., description="配置导入状态列表")
+    request_id: str | None = Field(default=None, description="请求 ID")

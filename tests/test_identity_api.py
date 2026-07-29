@@ -237,6 +237,7 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
         json={
             "name": "honor-magicbook",
             "platform": "windows",
+            "cli_version": "0.0.5-fix.7",
             "ssh_public_key": ssh_public_key,
             "wireguard_public_key": wireguard_public_key,
         },
@@ -250,6 +251,11 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     assert registration["ssh_key_id"]
     assert registration["wireguard_peer_id"]
     assert registration["device"]["platform"] == "windows"
+    assert registration["device"]["cli_version"] == "0.0.5-fix.7"
+
+    list_response = client.get("/api/v1/devices", headers=auth_header(admin_token))
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["items"][0]["cli_version"] == "0.0.5-fix.7"
 
     device_me = client.get("/api/v1/users/me", headers=auth_header(device_token))
     assert device_me.status_code == 200

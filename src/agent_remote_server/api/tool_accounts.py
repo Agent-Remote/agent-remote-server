@@ -27,6 +27,9 @@ from agent_remote_server.schemas.tool_accounts import (
     RuntimeMigrationResponse,
     ToolAccountConfigImportRequest,
     ToolAccountConfigImportResponse,
+    ToolAccountConfigImportStatusListData,
+    ToolAccountConfigImportStatusListResponse,
+    ToolAccountConfigImportStatusResponse,
     ToolAccountData,
     ToolAccountListData,
     ToolAccountListResponse,
@@ -37,6 +40,29 @@ from agent_remote_server.services.developer_credentials import DeveloperCredenti
 from agent_remote_server.services.tool_accounts import ToolAccountService
 
 router = APIRouter(prefix="/tool-accounts", tags=["tool-accounts"])
+
+
+@router.get("/config-imports/latest", response_model=ToolAccountConfigImportStatusListResponse)
+async def list_latest_tool_account_config_imports(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> ToolAccountConfigImportStatusListResponse:
+    """
+    列出当前用户各工具账户最近一次配置导入状态
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return ToolAccountConfigImportStatusListResponse: 最近配置导入状态列表
+    """
+
+    items = await ToolAccountService(session, settings).list_latest_config_imports(user=user)
+    return ToolAccountConfigImportStatusListResponse(
+        data=ToolAccountConfigImportStatusListData(items=items),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/{tool_account_id}/runtime-migration", response_model=RuntimeMigrationResponse)
@@ -352,6 +378,37 @@ async def create_tool_account_config_import(
         dry_run=payload.dry_run,
     )
     return ToolAccountConfigImportResponse(data=result, request_id=get_request_id())
+
+
+@router.get(
+    "/{tool_account_id}/config-imports/{task_id}",
+    response_model=ToolAccountConfigImportStatusResponse,
+)
+async def get_tool_account_config_import_status(
+    tool_account_id: UUID,
+    task_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> ToolAccountConfigImportStatusResponse:
+    """
+    读取工具账户配置导入任务状态
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param task_id (str): 节点导入任务 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return ToolAccountConfigImportStatusResponse: 配置导入任务状态
+    """
+
+    data = await ToolAccountService(session, settings).get_config_import_status(
+        user=user,
+        account_id=tool_account_id,
+        task_id=task_id,
+    )
+    return ToolAccountConfigImportStatusResponse(data=data, request_id=get_request_id())
 
 
 @router.post(
