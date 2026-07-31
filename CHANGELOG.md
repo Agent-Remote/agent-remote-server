@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.4 - 2026-07-31
+
+- Release metadata update.
+
 ## v0.1.3 - 2026-07-31
 
 - fix: commit prepared release script (a2c07ac)
