@@ -97,7 +97,7 @@ class ToolSessionService:
         读取当前用户工具 session
 
         :param user (User): 当前用户
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
         :return Session: 工具 session 实体
         """
 
@@ -120,7 +120,7 @@ class ToolSessionService:
         :param user (User): 当前用户
         :param tool_type (str): 工具类型
         :param tool_account_id (UUID): 工具账户 ID
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         :param project_key (str): 项目 key
         :param argv (list): 工具 CLI 透传参数
         :param replaces_session_id (UUID | None): 被替代的中断会话 ID
@@ -168,6 +168,11 @@ class ToolSessionService:
         if account.runtime_backend is None:
             account.runtime_backend = node.default_runtime_backend
         runtime_backend = account.runtime_backend
+        device_control_protocol_version = self._device_control_protocol_version(
+            node,
+            tool_type=template.tool_type,
+            runtime_backend=runtime_backend,
+        )
         profile = await self._repository.get_account_profile(account.id)
         developer_profile = await self._repository.get_developer_credential_profile_for_account(
             account.id
@@ -195,6 +200,7 @@ class ToolSessionService:
                 container_id=None,
                 runtime_backend=runtime_backend,
                 runtime_resource_id=None,
+                device_control_protocol_version=device_control_protocol_version,
                 replaces_session_id=replaced_session.id if replaced_session is not None else None,
             )
         )
@@ -231,6 +237,11 @@ class ToolSessionService:
                     "template": self._runtime_payload(template, argv),
                     "runtime_backend": runtime_backend,
                     "runtime_policy": node.runtime_policy,
+                    "device_control": (
+                        {"protocol_version": device_control_protocol_version}
+                        if device_control_protocol_version is not None
+                        else None
+                    ),
                 },
                 retry_count=0,
             )
@@ -432,6 +443,32 @@ class ToolSessionService:
             "command": command,
             "verifier": template.verifier,
         }
+
+    def _device_control_protocol_version(
+        self,
+        node: Node,
+        *,
+        tool_type: str,
+        runtime_backend: str,
+    ) -> int | None:
+        if not self._settings.device_control_enabled or tool_type != "claude":
+            return None
+        capability = node.runtime_capabilities.get("device_control")
+        if not isinstance(capability, dict) or capability.get("supported") is not True:
+            return None
+        protocols = capability.get("protocol_versions")
+        platforms = capability.get("platforms")
+        backends = capability.get("backends")
+        if (
+            isinstance(protocols, list)
+            and 1 in protocols
+            and isinstance(platforms, list)
+            and "macos" in platforms
+            and isinstance(backends, list)
+            and runtime_backend in backends
+        ):
+            return 1
+        return None
 
     def _tmux_session_name(self, tool_session: Session) -> str:
         return f"ar-{tool_session.tool_type}-{str(tool_session.id).replace('-', '')[:24]}"

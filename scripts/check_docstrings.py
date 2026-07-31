@@ -8,6 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "agent_remote_server"
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+DOCSTRING_DIRECTIVES = (":param ", ":return ", ":raises ")
 
 
 def has_chinese(text: str | None) -> bool:
@@ -79,6 +80,24 @@ def field_description(node: ast.AST) -> str | None:
     return None
 
 
+def non_chinese_directives(docstring: str | None) -> list[str]:
+    """
+    返回说明文本不是中文的文档指令
+
+    :param docstring (str | None): 待检查的文档字符串
+
+    :return list: 缺少中文说明的文档指令
+    """
+
+    if docstring is None:
+        return []
+    return [
+        line.strip()
+        for line in docstring.splitlines()
+        if line.strip().startswith(DOCSTRING_DIRECTIVES) and not has_chinese(line)
+    ]
+
+
 def check_file(path: Path) -> list[str]:
     """
     检查单个 Python 文件的文档规范
@@ -114,14 +133,17 @@ def check_file(path: Path) -> list[str]:
                             "needs Field(..., description='中文描述')"
                         )
 
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and public_name(node.name)
-            and not has_chinese(ast.get_docstring(node))
-        ):
-            errors.append(
-                f"{path}:{node.lineno}: public function '{node.name}' needs a Chinese docstring"
-            )
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and public_name(node.name):
+            docstring = ast.get_docstring(node)
+            if not has_chinese(docstring):
+                errors.append(
+                    f"{path}:{node.lineno}: public function '{node.name}' needs a Chinese docstring"
+                )
+            for directive in non_chinese_directives(docstring):
+                errors.append(
+                    f"{path}:{node.lineno}: public function '{node.name}' has a docstring "
+                    f"directive without a Chinese description: {directive}"
+                )
 
     return errors
 

@@ -32,7 +32,7 @@ class WorkspaceRepository:
         """
         按 ID 读取 workspace
 
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
 
         :return Workspace: workspace 实体
         """
@@ -43,7 +43,7 @@ class WorkspaceRepository:
         """
         判断 workspace 是否仍有同步或工具 session
 
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         :return bool: 是否存在关联 session
         """
 
@@ -157,7 +157,7 @@ class WorkspaceRepository:
         """
         读取 workspace 当前同步 session
 
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
 
         :return SyncSession: 同步 session 实体
         """

@@ -2,6 +2,13 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.0 - 2026-07-31
+
+- feat: add device session lifecycle, approval, lease, and revocation APIs
+- feat: relay encrypted device control traffic with bounded fail-closed limits
+- feat: validate signed release evidence and retain device records for bounded periods
+- ci: avoid duplicate tag validation (a92cb94)
+
 ## v0.0.6 - 2026-07-29
 
 - feat: add session port forwarding control plane (c7e56b0)
@@ -137,4 +144,3 @@ All notable changes to this repository are recorded here.
 - ci: allow manual release dispatch (bc4ead3)
 - chore: release v0.0.2 (0fcb80c)
 - ci: add multi-arch release versioning (11b3309)
-

@@ -32,6 +32,12 @@
 - SSH private keys and WireGuard private keys must never be accepted by user-facing APIs.
 - An active device token may idempotently enroll or rotate that device's WireGuard public key.
 - WireGuard enrollment audit records may contain peer IDs and allocation state, but not public key bodies.
+- A device token may approve, lock, renew, reconnect, or device-stop only a device-control
+  session whose `device_id` exactly matches the token's `user_device_id`.
+- User tokens cannot replace local device approval. Device tokens cannot create a remote
+  control request or change its user, tool session, node, platform, or expiry policy.
+- Administrators may list all zero-content device-session metadata and force-stop a session, but
+  cannot submit or replace local application approval.
 
 ## TOTP
 
@@ -52,3 +58,5 @@ Audit logs must not include:
 - Private keys.
 - Tool account login state.
 - Browser cookies or browser profiles.
+- Device-control application identifiers or digests, screenshots, input, clipboard data,
+  window titles, coordinates, images, certificates, or connection secrets.

@@ -100,8 +100,22 @@ Environment variables:
 - `PORT_FORWARD_BYTES_PER_SECOND`
 - `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
+- `DEVICE_CONTROL_ENABLED`
+- `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
+- `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
+- `DEVICE_SESSION_RETENTION_DAYS`
+- `DEVICE_SESSION_AUDIT_RETENTION_DAYS`
 
 See `.env.example`.
+
+The manifest schema and canonical Ed25519 signing payload are documented in
+`docs/device-control-release-evidence.md`.
+
+Device control defaults to disabled. When `AGENT_REMOTE_ENV=production`, enabling it requires a
+non-expired release-evidence manifest bound to the exact server version and signed by the pinned
+Base64-encoded Ed25519 public key. Operators must also choose explicit non-zero terminal-session
+and device-session-audit retention periods; audit retention cannot be shorter than session
+retention. Development may explicitly enable the capability only for non-sensitive test data.
 
 The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
 

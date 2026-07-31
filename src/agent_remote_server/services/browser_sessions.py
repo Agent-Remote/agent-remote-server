@@ -89,7 +89,7 @@ class BrowserSessionService:
         :param target_url (str): 初始 URL
         :param region_code (str): 地区代码
         :param timezone (str): 时区
-        :param locale (str): locale
+        :param locale (str): 区域设置
         :param ttl_seconds (int): TTL 秒数
         :return BrowserSession: 浏览器 session 实体
         """

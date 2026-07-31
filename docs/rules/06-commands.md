@@ -26,7 +26,7 @@ Expanded commands:
 UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run ruff check .
 UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run mypy
-UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run pytest
+UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run pytest --cov=agent_remote_server --cov-report=term --cov-fail-under=70
 UV_CACHE_DIR=/Users/rem/Documents/Git/agent-remote-server/.uv-cache uv run python scripts/check_docstrings.py
 ```
 
@@ -50,4 +50,3 @@ docker compose config
 docker compose build server
 docker compose up --build
 ```
-

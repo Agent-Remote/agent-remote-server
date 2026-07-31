@@ -9,7 +9,6 @@ cd "$repo_root"
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
-uv run pytest
+uv run pytest --cov=agent_remote_server --cov-report=term --cov-fail-under=70
 uv run python scripts/check_docstrings.py
 git diff --check
-

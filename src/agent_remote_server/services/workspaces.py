@@ -127,7 +127,7 @@ class WorkspaceService:
         读取用户 workspace
 
         :param user (User): 当前用户
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
 
         :return Workspace: workspace 实体
         """
@@ -148,7 +148,7 @@ class WorkspaceService:
         更新 workspace 元数据
 
         :param user (User): 当前用户
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         :param local_start_path (str): 本地启动路径
         :param display_name (str): 显示名称
         :param sync_git (bool): 是否同步 .git 目录
@@ -181,7 +181,7 @@ class WorkspaceService:
         删除没有同步或工具 session 的 workspace
 
         :param user (User): 当前用户
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         """
 
         workspace = await self._require_workspace(user=user, workspace_id=workspace_id)
@@ -232,7 +232,7 @@ class WorkspaceService:
         创建或复用同步 session
 
         :param user (User): 当前用户
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         :param node_id (UUID): 节点 ID
         :param local_path (str): 本地路径
         :param sync_mode (str): 同步模式

@@ -183,7 +183,7 @@ class SessionRepository:
         """
         读取 workspace
 
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
         :return Workspace: workspace 实体
         """
 

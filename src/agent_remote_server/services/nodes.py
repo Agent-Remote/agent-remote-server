@@ -92,7 +92,7 @@ class NodeService:
         :param runtime_policy (dict): 运行时策略
         :param wireguard_ip (str): WireGuard 地址
         :param wireguard_public_key (str): WireGuard 公钥
-        :param wireguard_endpoint (str): WireGuard endpoint
+        :param wireguard_endpoint (str): WireGuard 端点
         :param ssh_host (str): SSH 主机
         :param ssh_port (int): SSH 端口
         :param ssh_user (str): SSH 用户
@@ -339,7 +339,7 @@ class NodeService:
         :param runtime_policy (dict): 运行时策略
         :param wireguard_ip (str): WireGuard 地址
         :param wireguard_public_key (str): WireGuard 公钥
-        :param wireguard_endpoint (str): WireGuard endpoint
+        :param wireguard_endpoint (str): WireGuard 端点
         :param ssh_host (str): SSH 主机
         :param ssh_port (int): SSH 端口
         :param ssh_user (str): SSH 用户

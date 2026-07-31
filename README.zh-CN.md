@@ -99,8 +99,20 @@ curl http://localhost:8000/readyz
 - `PORT_FORWARD_BYTES_PER_SECOND`
 - `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
+- `DEVICE_CONTROL_ENABLED`
+- `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
+- `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
+- `DEVICE_SESSION_RETENTION_DAYS`
+- `DEVICE_SESSION_AUDIT_RETENTION_DAYS`
 
 见 `.env.example`。
+
+清单 schema 和 Ed25519 规范签名载荷见 `docs/device-control-release-evidence.md`。
+
+设备控制默认关闭。`AGENT_REMOTE_ENV=production` 时，启用该功能必须提供未过期、绑定当前服务端
+精确版本并由固定 Ed25519 公钥验证通过的发布证据清单；公钥使用 Base64 编码。开发环境只能为
+不含敏感数据的测试显式启用该能力。生产部署还必须显式选择非零的终态 session 和设备 session
+审计保留天数，且审计保留期不得短于 session 保留期。
 
 用户 API 在 `/api/v1/port-forwards` 下提供创建、列表、详情、重连和停止操作；Node API 提供 redeem、renew 和 release。Connection token 只返回一次并带 `Cache-Control: no-store`，仅作为短期 Redis 值保存，客户端不得记录日志或持久化。
 

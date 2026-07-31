@@ -333,7 +333,7 @@ class PortForwardService:
         :param node (Node): 当前 Node
         :param forward_id (UUID): 端口转发 ID
         :param device_id (UUID): forced-command 设备 ID
-        :param ssh_key_id (UUID): forced-command SSH key ID
+        :param ssh_key_id (UUID): 强制命令 SSH 密钥 ID
         :param connect_token (str): 一次性连接 token
 
         :return RedeemedPortForward: Node 授权结果

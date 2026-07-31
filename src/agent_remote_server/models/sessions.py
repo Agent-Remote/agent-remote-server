@@ -11,10 +11,15 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
+from agent_remote_server.device_control_limits import (
+    MAX_ACTIVE_DEVICE_SESSION_GENERATION,
+    MAX_DEVICE_SESSION_GENERATION,
+)
 from agent_remote_server.models.mixins import IdMixin, TimestampMixin, _utc_now
 
 
@@ -52,6 +57,7 @@ class Session(IdMixin, TimestampMixin, Base):
         String(32), nullable=False, default="docker_sandbox"
     )
     runtime_resource_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    device_control_protocol_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     replaces_session_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
     )
@@ -134,6 +140,88 @@ class PortForward(IdMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class DeviceSession(IdMixin, TimestampMixin, Base):
+    """
+    本地设备 GUI 控制会话
+    """
+
+    __tablename__ = "device_sessions"
+    __table_args__ = (
+        CheckConstraint("platform = 'macos'", name="device_sessions_platform_ck"),
+        CheckConstraint(
+            f"generation between 1 and {MAX_DEVICE_SESSION_GENERATION}",
+            name="device_sessions_generation_ck",
+        ),
+        CheckConstraint(
+            f"generation <= {MAX_ACTIVE_DEVICE_SESSION_GENERATION} or "
+            "status in ('stopped', 'denied', 'expired', 'failed')",
+            name="device_sessions_active_generation_ck",
+        ),
+        Index("device_sessions_user_status_idx", "user_id", "status", "created_at"),
+        Index("device_sessions_device_status_idx", "device_id", "status", "created_at"),
+        Index("device_sessions_tool_uidx", "tool_session_id", unique=True),
+        Index("device_sessions_lease_idx", "status", "lease_until"),
+        Index(
+            "device_sessions_machine_lock_uidx",
+            "device_id",
+            unique=True,
+            sqlite_where=text("lock_acquired_at IS NOT NULL"),
+            postgresql_where=text("lock_acquired_at IS NOT NULL"),
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[UUID] = mapped_column(
+        ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, default="macos")
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lock_acquired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class DeviceSessionApproval(IdMixin, Base):
+    """
+    设备会话本机应用审批摘要
+    """
+
+    __tablename__ = "device_session_approvals"
+    __table_args__ = (
+        Index(
+            "device_session_approvals_session_app_uidx",
+            "device_session_id",
+            "application_digest",
+            unique=True,
+        ),
+    )
+
+    device_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("device_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    application_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    control_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    approval_result: Mapped[str] = mapped_column(String(32), nullable=False)
+    clipboard_allowed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    audit_correlation_id: Mapped[UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, nullable=False
+    )
 
 
 class BrowserSession(IdMixin, TimestampMixin, Base):

@@ -60,3 +60,49 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - The control plane accepts and stores only the device public key; private key generation and storage remain local to the CLI.
 - Re-enrollment keeps the existing peer ID and interface address so local repair does not change routing unexpectedly.
 - WireGuard public key bodies must not be written to audit details or logs.
+
+## Local Device Control Sessions
+
+- `device_sessions` binds one macOS device to exactly one user-owned remote tool session and
+  its assigned node. The client cannot override any member of that binding.
+- A user token may request or stop control. Only the bound device token may report the local
+  connection, submit local application approval, acquire the machine lock, renew the lease,
+  reconnect, or invoke device-side stop.
+- Reconnect and current-action abort increment the generation and clear the old lease while
+  retaining an acquired machine lock. Only explicit session end, confirmed remote-session
+  failure, or lease expiry releases the lock. Stop increments the generation and clears both.
+- Generation is a positive signed 64-bit value. Non-terminal sessions are capped at
+  `9223372036854775806`, reserving `9223372036854775807` for a final stop transition; an
+  exhausted generation is rejected before state, audit, or Node-task mutation.
+- The control plane stores lifecycle and audit metadata only. Application approvals contain a
+  SHA-256 stable-identifier digest, control level, result, and clipboard boolean; GUI content,
+  input, coordinates, titles, images, certificates, and plaintext relay payloads are forbidden.
+- Relay and one-time connection material are separate short-lived infrastructure concerns and
+  must not be added to the business session row.
+- The bound device and assigned node register one ephemeral SPKI digest per generation. Redis
+  exchanges each role's opposite-peer pin, shared 256-bit exporter context, and one-time relay
+  ticket exactly once; none of these values enter SQL or structured logs.
+- The device relay consumes role-bound tickets atomically, pairs only opposite roles with the
+  same complete session binding and generation, accepts binary frames only, and enforces explicit
+  per-frame, per-direction byte-rate, peer-wait, and connection-lifetime limits. It never parses
+  or persists the nested TLS byte stream.
+- Creation requires the assigned node's latest independent capability report to explicitly
+  support protocol version 1, `platform=macos`, and the tool session's pinned runtime backend.
+  A missing, stale, malformed, or incompatible report is denied rather than inferred.
+- Creation and every generation change enqueue an idempotent `activate_device_control` task for
+  the bound node. Terminal stop enqueues `deactivate_device_control`; these task payloads contain
+  only binding and runtime location metadata, never relay tickets, keys, pins, or exporter data.
+- A tool session records `device_control_protocol_version` only when its original Node creation
+  task included the managed MCP configuration. Device-control creation requires this persisted
+  fact and never infers injection from a later heartbeat.
+- `device_control_enabled` defaults to false. Deployment operators may enable it only after the
+  signing, notarization, outbound allowlist, compatibility, and security-review gates pass.
+  Production startup additionally requires a non-expired Ed25519-signed release-evidence manifest
+  bound to the exact server version. The manifest pins the server, Node, application, proxy, SBOM, provenance,
+  security-test, independent-review, signing/notarization, outbound-policy, local-Claude-isolation,
+  stop/revocation, and compatibility evidence digests. Development may explicitly enable the
+  capability without this production-only evidence gate for non-sensitive test data.
+- Production device control requires explicit non-zero retention periods for terminal device-session
+  metadata and device-session audit metadata. A bounded background service deletes only terminal
+  sessions older than the configured stop-time cutoff and audit rows whose target type is
+  `device_session`; it never deletes active sessions or general identity audit records.

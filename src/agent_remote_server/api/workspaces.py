@@ -118,7 +118,7 @@ async def get_workspace(
     """
     读取 workspace
 
-    :param workspace_id (UUID): workspace ID
+    :param workspace_id (UUID): 工作区 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
@@ -143,7 +143,7 @@ async def update_workspace(
     """
     更新 workspace
 
-    :param workspace_id (UUID): workspace ID
+    :param workspace_id (UUID): 工作区 ID
     :param payload (UpdateWorkspaceRequest): 更新请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
@@ -175,7 +175,7 @@ async def delete_workspace(
     """
     删除无 session 引用的 workspace
 
-    :param workspace_id (UUID): workspace ID
+    :param workspace_id (UUID): 工作区 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户

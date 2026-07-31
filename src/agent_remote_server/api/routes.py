@@ -6,6 +6,7 @@ from agent_remote_server.api import (
     auth,
     browser_sessions,
     developer_credentials,
+    device_sessions,
     devices,
     network,
     node_api,
@@ -23,6 +24,8 @@ api_router.include_router(audit_logs.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(devices.router)
+api_router.include_router(device_sessions.router)
+api_router.include_router(device_sessions.node_router)
 api_router.include_router(network.router)
 api_router.include_router(nodes.router)
 api_router.include_router(workspaces.router)

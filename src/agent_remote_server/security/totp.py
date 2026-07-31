@@ -10,7 +10,7 @@ def generate_totp_secret() -> str:
     """
     生成 TOTP secret
 
-    :return str: Base32 secret
+    :return str: Base32 密钥
     """
 
     return b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
@@ -20,7 +20,7 @@ def generate_totp_code(secret: str, *, at_time: datetime | None = None) -> str:
     """
     生成 TOTP 验证码
 
-    :param secret (str): Base32 secret
+    :param secret (str): Base32 密钥
     :param at_time (datetime): 可选时间
 
     :return str: 六位验证码
@@ -40,7 +40,7 @@ def verify_totp_code(secret: str, code: str, *, at_time: datetime | None = None)
     """
     校验 TOTP 验证码
 
-    :param secret (str): Base32 secret
+    :param secret (str): Base32 密钥
     :param code (str): 用户输入验证码
     :param at_time (datetime): 可选时间
 

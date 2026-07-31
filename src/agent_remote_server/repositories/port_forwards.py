@@ -121,7 +121,7 @@ class PortForwardRepository:
 
         :param user_id (UUID): 用户 ID
         :param device_id (UUID): 设备 ID
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
 
         :return int: 转发数量
         """
@@ -141,7 +141,7 @@ class PortForwardRepository:
         """
         读取工具 session
 
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
 
         :return Session: session 实体
         """
@@ -220,7 +220,7 @@ class PortForwardRepository:
         读取设备指定的活跃 SSH key
 
         :param device_id (UUID): 设备 ID
-        :param ssh_key_id (UUID): SSH key ID
+        :param ssh_key_id (UUID): SSH 密钥 ID
 
         :return SshKey: 活跃 SSH key
         """

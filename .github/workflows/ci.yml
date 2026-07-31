@@ -45,11 +45,29 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-emit-project --no-hashes \
+            --output-file "$RUNNER_TEMP/server-requirements.txt"
+          uvx --from pip-audit==2.9.0 pip-audit \
+            --requirement "$RUNNER_TEMP/server-requirements.txt" \
+            --format json \
+            --output pip-audit.json
+      - name: Upload dependency vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: agent-remote-server-pip-audit
+          path: pip-audit.json
+          if-no-files-found: error
+      - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy
-      - run: uv run pytest
       - name: Generate coverage report
-        run: uv run pytest --cov=agent_remote_server --cov-report=xml:coverage.xml
+        run: uv run pytest --cov=agent_remote_server --cov-report=xml:coverage.xml --cov-fail-under=70
+      - name: Enforce documentation contracts
+        run: uv run python scripts/check_docstrings.py
+      - run: git diff --check
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7.0.0
         with:

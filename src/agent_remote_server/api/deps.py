@@ -8,6 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
 from agent_remote_server.db import create_session_factory
+from agent_remote_server.device_control_release import (
+    DeviceControlReleaseEvidence,
+    DeviceControlReleaseEvidenceError,
+    ensure_device_control_release_evidence_current,
+)
+from agent_remote_server.device_relay_store import DeviceRelayStore
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, Node, User
 from agent_remote_server.port_forward_tokens import PortForwardTokenStore
@@ -37,10 +43,54 @@ def get_port_forward_token_store(request: Request) -> PortForwardTokenStore:
 
     :param request (Request): 当前请求对象
 
-    :return PortForwardTokenStore: token store
+    :return PortForwardTokenStore: 端口转发令牌存储
     """
 
     return request.app.state.port_forward_token_store
+
+
+def get_device_relay_store(request: Request) -> DeviceRelayStore:
+    """
+    获取设备中继短期状态存储
+
+    :param request (Request): 当前请求对象
+
+    :return DeviceRelayStore: 设备中继短期状态存储
+    """
+
+    return request.app.state.device_relay_store
+
+
+def require_current_device_control_release(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    """
+    拒绝缺少当前有效生产发布证据的设备控制推进操作
+
+    :param request (Request): 当前请求对象
+    :param settings (Settings): 应用配置
+
+    :raises ApiError: 生产发布证据缺失、尚未生效或已经过期
+    """
+
+    evidence: DeviceControlReleaseEvidence | None = getattr(
+        request.app.state,
+        "device_control_release_evidence",
+        None,
+    )
+    try:
+        ensure_device_control_release_evidence_current(
+            environment=settings.environment,
+            enabled=settings.device_control_enabled,
+            evidence=evidence,
+        )
+    except DeviceControlReleaseEvidenceError as exc:
+        raise ApiError(
+            code="DEVICE_CONTROL_RELEASE_EVIDENCE_EXPIRED",
+            message="Device control release approval is unavailable or expired.",
+            status_code=503,
+        ) from exc
 
 
 async def get_session(

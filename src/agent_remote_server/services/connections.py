@@ -145,7 +145,7 @@ class ConnectionService:
 
         :param user (User): 当前用户
         :param token (AuthToken): 当前 token
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
 
         :return AttachAuthorization: attach 授权
         """
@@ -249,7 +249,7 @@ class ConnectionService:
 
         :param node (Node): 当前节点
         :param node_id (UUID): 请求节点 ID
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
         :param device_id (UUID): 设备 ID
 
         :return Session: 可 attach 的 session

@@ -297,7 +297,7 @@ class IdentityService:
         """
         CLI 轮询完成登录
 
-        :param device_code (str): device_code
+        :param device_code (str): 设备代码
 
         :return TokenIssue: 登录令牌
         """

@@ -180,7 +180,7 @@ async def get_tool_session(
     """
     读取工具运行 session
 
-    :param session_id (UUID): session ID
+    :param session_id (UUID): 工具会话 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
@@ -204,7 +204,7 @@ async def delete_session(
     """
     删除已停止或已中断工具 session
 
-    :param session_id (UUID): session ID
+    :param session_id (UUID): 工具会话 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
@@ -226,7 +226,7 @@ async def stop_session(
     """
     停止工具运行 session
 
-    :param session_id (UUID): session ID
+    :param session_id (UUID): 工具会话 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
@@ -251,7 +251,7 @@ async def attach_session(
     """
     创建当前设备的 SSH attach 授权
 
-    :param session_id (UUID): session ID
+    :param session_id (UUID): 工具会话 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户

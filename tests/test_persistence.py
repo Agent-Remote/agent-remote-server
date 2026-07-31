@@ -15,6 +15,8 @@ EXPECTED_TABLES = {
     "browser_sessions",
     "cli_login_codes",
     "developer_credential_profiles",
+    "device_session_approvals",
+    "device_sessions",
     "node_heartbeats",
     "node_task_results",
     "node_tasks",
@@ -44,6 +46,12 @@ EXPECTED_INDEXES = {
     "cli_login_codes_status_idx",
     "cli_login_codes_user_code_uidx",
     "developer_credential_profiles_user_idx",
+    "device_session_approvals_session_app_uidx",
+    "device_sessions_device_status_idx",
+    "device_sessions_lease_idx",
+    "device_sessions_machine_lock_uidx",
+    "device_sessions_tool_uidx",
+    "device_sessions_user_status_idx",
     "node_heartbeats_node_created_idx",
     "nodes_node_token_hash_uidx",
     "nodes_registration_token_hash_uidx",
@@ -126,6 +134,22 @@ def test_device_cli_version_migration_revision_identity() -> None:
 
     assert migration_globals["revision"] == "0012_device_cli_version"
     assert migration_globals["down_revision"] == "0011_python_sync_excludes"
+
+
+def test_device_sessions_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0014_device_sessions.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0014_device_sessions"
+    assert migration_globals["down_revision"] == "0013_session_port_forwards"
+
+
+def test_session_device_control_migration_revision_identity() -> None:
+    migration_path = Path("migrations/versions/0015_session_device_control.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0015_session_device_control"
+    assert migration_globals["down_revision"] == "0014_device_sessions"
 
 
 def test_migration_revision_ids_fit_alembic_version_column() -> None:

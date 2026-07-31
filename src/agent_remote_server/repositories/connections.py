@@ -88,7 +88,7 @@ class ConnectionRepository:
 
         :param device_id (UUID): 设备 ID
 
-        :return WireGuardPeer: WireGuard peer
+        :return WireGuardPeer: WireGuard 对等节点
         """
 
         return await self._session.scalar(
@@ -136,7 +136,7 @@ class ConnectionRepository:
         """
         读取工具 session
 
-        :param session_id (UUID): session ID
+        :param session_id (UUID): 工具会话 ID
 
         :return Session: session 实体
         """
@@ -185,7 +185,7 @@ class ConnectionRepository:
         """
         读取阻止进入 session 的同步 session
 
-        :param workspace_id (UUID): workspace ID
+        :param workspace_id (UUID): 工作区 ID
 
         :return SyncSession: 同步 session 实体
         """

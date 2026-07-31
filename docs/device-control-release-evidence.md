@@ -1,0 +1,56 @@
+# Device Control Release Evidence
+
+Production device control remains disabled unless server startup verifies a release-evidence
+manifest. The manifest is an approval record for exact external evidence; it does not perform or
+replace notarization, outbound-policy activation, isolation observation, compatibility testing, or
+independent security review.
+
+## Manifest
+
+Schema version 1 contains exactly these fields:
+
+- `schema_version`: integer `1`.
+- `release_version`: exact `agent-remote-server` version.
+- `issued_at` and `expires_at`: timezone-aware timestamps with a lifetime of at most 30 days.
+- `server_sha256`, `node_sha256`, `application_sha256`, and `proxy_sha256`: exact release artifact
+  digests.
+- `sbom_sha256` and `provenance_sha256`: SBOM and build-provenance evidence digests.
+- `security_tests_sha256`, `security_review_sha256`, `signing_notarization_sha256`,
+  `outbound_policy_sha256`, `local_claude_isolation_sha256`, `stop_revocation_sha256`, and
+  `compatibility_sha256`: release-gate evidence digests.
+- `ci_run_url`: HTTPS URL for the release run that assembled the evidence.
+- `signature`: Base64-encoded Ed25519 signature.
+
+Every digest is 64 lowercase hexadecimal characters. Unknown or missing fields are rejected.
+
+## Signature
+
+The signed bytes are UTF-8 JSON after removing `signature`, sorting keys, emitting ASCII escapes,
+rejecting non-finite numbers, and using `,` and `:` without surrounding whitespace. Deployment
+configuration pins the raw 32-byte Ed25519 public key as Base64 in
+`DEVICE_CONTROL_RELEASE_PUBLIC_KEY`; the private key stays outside the server and repository.
+
+Set `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH` to the manifest path. With
+`AGENT_REMOTE_ENV=production` and `DEVICE_CONTROL_ENABLED=true`, any missing configuration,
+malformed manifest, version mismatch, invalid signature, future issue time, excessive lifetime, or
+expiry stops application creation. Development can explicitly enable the capability without this
+manifest only for synthetic, non-sensitive testing.
+
+Create a manifest from an owner-only unsigned draft and an owner-only PKCS#8 Ed25519 private key:
+
+```sh
+uv run python scripts/create_device_control_release_evidence.py \
+  --draft release-evidence-draft.json \
+  --private-key /secure/release-evidence-key.pem \
+  --output release-evidence.json
+```
+
+The command refuses symbolic links, group/world-readable inputs, oversized inputs, non-Ed25519
+keys, signed drafts, and existing output paths. It verifies the completed manifest with the same
+runtime verifier before succeeding. The private key must remain in the release environment and
+must never be copied into a server image, deployment manifest, artifact, log, or repository.
+
+The server release workflow publishes an immutable OCI image digest together with a downloadable
+SPDX SBOM, GitHub build-provenance bundle, release metadata, and SHA-256 checksum file. Use the
+exact deployed image digest as `server_sha256` after removing its `sha256:` prefix; use the
+downloaded SBOM and provenance file digests for their corresponding evidence fields.

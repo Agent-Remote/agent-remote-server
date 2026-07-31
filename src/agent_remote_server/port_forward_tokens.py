@@ -146,7 +146,7 @@ def create_port_forward_token_store(settings: Settings) -> RedisPortForwardToken
 
     :param settings (Settings): 应用配置
 
-    :return RedisPortForwardTokenStore: Redis token store
+    :return RedisPortForwardTokenStore: Redis 令牌存储
     """
 
     redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)

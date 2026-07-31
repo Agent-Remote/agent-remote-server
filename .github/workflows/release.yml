@@ -14,12 +14,18 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
+      - uses: astral-sh/setup-uv@v8.3.1
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.13"
       - name: Resolve release version
         id: version
         env:
@@ -28,7 +34,26 @@ jobs:
           set -euo pipefail
           version="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
           version="${version#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "invalid semantic version: $version" >&2
+            exit 2
+          fi
+          test "$GITHUB_REF" = "refs/tags/v${version}"
+          source_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml | head -n 1)
+          normalized_source_version="${source_version/+fix./-fix.}"
+          test "$normalized_source_version" = "$version"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Audit locked production dependencies
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          uv export --frozen --no-dev --no-emit-project --no-hashes \
+            --output-file "$RUNNER_TEMP/server-requirements.txt"
+          uvx --from pip-audit==2.9.0 pip-audit \
+            --requirement "$RUNNER_TEMP/server-requirements.txt" \
+            --format json \
+            --output "agent-remote-server-${VERSION}.pip-audit.json"
       - name: Resolve image name
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
@@ -48,6 +73,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
       - uses: docker/build-push-action@v7.3.0
+        id: build
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -56,8 +82,96 @@ jobs:
             AGENT_REMOTE_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - uses: sigstore/cosign-installer@v4.0.0
+      - name: Sign and verify server vulnerability report
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          report="agent-remote-server-${VERSION}.pip-audit.json"
+          cosign sign-blob --yes --bundle "$report.sigstore.json" "$report"
+          cosign verify-blob \
+            --bundle "$report.sigstore.json" \
+            --certificate-identity \
+              "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$report"
+      - name: Sign and verify immutable server image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign verify \
+            --certificate-identity \
+              "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${DIGEST}"
+      - name: Generate downloadable server SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: agent-remote-server-${{ steps.version.outputs.version }}.spdx.json
+      - name: Sign and verify downloadable server SBOM
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sbom="agent-remote-server-${VERSION}.spdx.json"
+          cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
+          cosign verify-blob \
+            --bundle "$sbom.sigstore.json" \
+            --certificate-identity \
+              "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$sbom"
+      - name: Attest immutable server image
+        id: provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Assemble downloadable server release evidence
+        env:
+          BUNDLE_PATH: ${{ steps.provenance.outputs.bundle-path }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE_PATH" "agent-remote-server-${VERSION}.provenance.jsonl"
+          jq -n \
+            --arg image "$IMAGE" \
+            --arg digest "$DIGEST" \
+            --arg version "$VERSION" \
+            --arg run_url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{schema_version:1,image:$image,digest:$digest,version:$version,ci_run_url:$run_url}' \
+            > "agent-remote-server-${VERSION}.json"
+          sha256sum \
+            "agent-remote-server-${VERSION}.json" \
+            "agent-remote-server-${VERSION}.pip-audit.json" \
+            "agent-remote-server-${VERSION}.pip-audit.json.sigstore.json" \
+            "agent-remote-server-${VERSION}.spdx.json" \
+            "agent-remote-server-${VERSION}.spdx.json.sigstore.json" \
+            "agent-remote-server-${VERSION}.provenance.jsonl" \
+            > "agent-remote-server-${VERSION}.sha256"
+          sha256sum --check "agent-remote-server-${VERSION}.sha256"
       - uses: softprops/action-gh-release@v3.0.1
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: agent-remote-server v${{ steps.version.outputs.version }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            agent-remote-server-${{ steps.version.outputs.version }}.json
+            agent-remote-server-${{ steps.version.outputs.version }}.pip-audit.json
+            agent-remote-server-${{ steps.version.outputs.version }}.pip-audit.json.sigstore.json
+            agent-remote-server-${{ steps.version.outputs.version }}.spdx.json
+            agent-remote-server-${{ steps.version.outputs.version }}.spdx.json.sigstore.json
+            agent-remote-server-${{ steps.version.outputs.version }}.provenance.jsonl
+            agent-remote-server-${{ steps.version.outputs.version }}.sha256

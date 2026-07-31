@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -344,3 +345,26 @@ class IdentityRepository:
         self._session.add(audit_log)
         await self._session.flush()
         return audit_log
+
+    async def delete_device_session_audits_before(self, cutoff: datetime, *, limit: int) -> int:
+        """
+        删除保留期外的设备控制会话审计元数据
+
+        :param cutoff (datetime): 审计创建时间截止点
+        :param limit (int): 单次最大删除数量
+
+        :return int: 已删除审计数量
+        """
+
+        result = await self._session.scalars(
+            select(AuditLog)
+            .where(AuditLog.target_type == "device_session")
+            .where(AuditLog.created_at < cutoff)
+            .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+            .limit(limit)
+        )
+        audit_logs = list(result.all())
+        for audit_log in audit_logs:
+            await self._session.delete(audit_log)
+        await self._session.flush()
+        return len(audit_logs)

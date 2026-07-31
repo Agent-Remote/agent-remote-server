@@ -101,7 +101,7 @@ def create_node(client: TestClient, token: str, *, name: str, weight: int) -> tu
         json={
             "node_id": node_id,
             "registration_token": node["registration_token"],
-            "version": "0.0.6",
+            "version": "0.1.0",
         },
     )
     assert register.status_code == 200
@@ -230,6 +230,7 @@ def test_create_session_polls_create_tool_session_task(client: TestClient) -> No
     assert task["payload"]["argv"] == ["--model", "opus"]
     assert task["payload"]["template"]["command"] == ["claude", "--model", "opus"]
     assert task["payload"]["timezone"] == "America/Los_Angeles"
+    assert task["payload"]["device_control"] is None
 
     complete_response = client.post(
         f"/api/v1/node-api/tasks/{task['task_id']}/complete",
