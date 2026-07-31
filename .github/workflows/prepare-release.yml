@@ -54,9 +54,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add pyproject.toml uv.lock Dockerfile src/agent_remote_server/__init__.py tests/test_*.py CHANGELOG.md
+            git add pyproject.toml uv.lock Dockerfile src/agent_remote_server/__init__.py \
+              tests/test_*.py CHANGELOG.md scripts/prepare-release.sh
             git commit -m "chore: release v${version}"
           fi
+          git diff --exit-code
           git tag "v${version}"
           git push origin HEAD:${GITHUB_REF_NAME}
           git push origin "v${version}"
