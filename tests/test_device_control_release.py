@@ -31,7 +31,12 @@ def create_signed_evidence(
 
     private_key = Ed25519PrivateKey.generate()
     manifest = DeviceControlReleaseEvidence(
-        schema_version=1,
+        schema_version=2,
+        release_profile="community-local-trust",
+        production_ready=True,
+        apple_notarized=False,
+        public_distribution=False,
+        manual_trust_required=True,
         release_version=release_version,
         issued_at=issued_at or expires_at - timedelta(days=1),
         expires_at=expires_at,
@@ -41,13 +46,10 @@ def create_signed_evidence(
         proxy_sha256=_DIGEST,
         sbom_sha256=_DIGEST,
         provenance_sha256=_DIGEST,
-        security_tests_sha256=_DIGEST,
-        security_review_sha256=_DIGEST,
         signing_notarization_sha256=_DIGEST,
-        outbound_policy_sha256=_DIGEST,
-        local_claude_isolation_sha256=_DIGEST,
-        stop_revocation_sha256=_DIGEST,
-        compatibility_sha256=_DIGEST,
+        community_signing_sha256=_DIGEST,
+        automated_release_checks_sha256=_DIGEST,
+        risk_acceptance_sha256=_DIGEST,
         ci_run_url="https://ci.example.test/runs/123",
         signature="pending",
     )
@@ -80,6 +82,36 @@ def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
     )
 
     assert evidence.release_version == __version__
+    assert evidence.release_profile == "community-local-trust"
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"apple_notarized": True}, "community local-trust"),
+        ({"public_distribution": True}, "community local-trust"),
+        ({"manual_trust_required": False}, "community local-trust"),
+        ({"production_ready": False}, "not production ready"),
+        ({"release_profile": "apple-developer-id"}, "community local-trust"),
+        ({"security_review_sha256": _DIGEST}, "community local-trust"),
+    ],
+)
+def test_community_release_evidence_rejects_conflicting_trust_claims(
+    tmp_path: Path,
+    changes: dict[str, object],
+    message: str,
+) -> None:
+    """Community 清单不得伪装成 Apple 公证或公开可信分发。"""
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    evidence_path = tmp_path / "release-evidence.json"
+    create_signed_evidence(evidence_path, expires_at=now + timedelta(days=1))
+    content = json.loads(evidence_path.read_text(encoding="utf-8"))
+    content.update(changes)
+    content["signature"] = "pending"
+
+    with pytest.raises(ValueError, match=message):
+        DeviceControlReleaseEvidence.model_validate(content)
 
 
 def test_release_evidence_rejects_tampering(tmp_path: Path) -> None:
@@ -89,7 +121,7 @@ def test_release_evidence_rejects_tampering(tmp_path: Path) -> None:
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, expires_at=now + timedelta(days=1))
     content = json.loads(evidence_path.read_text(encoding="utf-8"))
-    content["outbound_policy_sha256"] = "b" * 64
+    content["community_signing_sha256"] = "b" * 64
     evidence_path.write_text(json.dumps(content), encoding="utf-8")
 
     with pytest.raises(DeviceControlReleaseEvidenceError, match="signature is invalid"):
@@ -119,8 +151,8 @@ def test_release_evidence_rejects_symlinks_and_duplicate_fields(tmp_path: Path) 
     content = evidence_path.read_text(encoding="utf-8")
     evidence_path.write_text(
         content.replace(
-            '"schema_version": 1',
-            '"schema_version": 1, "schema_version": 1',
+            '"schema_version": 2',
+            '"schema_version": 2, "schema_version": 2',
             1,
         ),
         encoding="utf-8",
@@ -281,7 +313,12 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence = DeviceControlReleaseEvidence(
-        schema_version=1,
+        schema_version=2,
+        release_profile="community-local-trust",
+        production_ready=True,
+        apple_notarized=False,
+        public_distribution=False,
+        manual_trust_required=True,
         release_version=__version__,
         issued_at=now - timedelta(days=2),
         expires_at=now - timedelta(seconds=1),
@@ -291,13 +328,10 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
         proxy_sha256=_DIGEST,
         sbom_sha256=_DIGEST,
         provenance_sha256=_DIGEST,
-        security_tests_sha256=_DIGEST,
-        security_review_sha256=_DIGEST,
         signing_notarization_sha256=_DIGEST,
-        outbound_policy_sha256=_DIGEST,
-        local_claude_isolation_sha256=_DIGEST,
-        stop_revocation_sha256=_DIGEST,
-        compatibility_sha256=_DIGEST,
+        community_signing_sha256=_DIGEST,
+        automated_release_checks_sha256=_DIGEST,
+        risk_acceptance_sha256=_DIGEST,
         ci_run_url="https://ci.example.test/runs/expired",
         signature="test-only",
     )

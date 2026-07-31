@@ -23,6 +23,13 @@ Schema version 1 contains exactly these fields:
 
 Every digest is 64 lowercase hexadecimal characters. Unknown or missing fields are rejected.
 
+Schema version 2 is restricted to the reduced `community-local-trust` production profile. It must
+declare `production_ready=true`, `apple_notarized=false`, `public_distribution=false`, and
+`manual_trust_required=true`. It also pins `community_signing_sha256`,
+`automated_release_checks_sha256`, and `risk_acceptance_sha256`. Conflicting trust claims are
+rejected, so a self-signed build cannot be represented as Apple notarized. Schema version 1 remains
+restricted to `apple-developer-id` and its strict external gates.
+
 ## Signature
 
 The signed bytes are UTF-8 JSON after removing `signature`, sorting keys, emitting ASCII escapes,

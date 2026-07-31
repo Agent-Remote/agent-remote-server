@@ -96,11 +96,15 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   task included the managed MCP configuration. Device-control creation requires this persisted
   fact and never infers injection from a later heartbeat.
 - `device_control_enabled` defaults to false. Deployment operators may enable it only after the
-  signing, notarization, outbound allowlist, compatibility, and security-review gates pass.
+  selected release profile's fixed gates pass. `apple-developer-id` requires signing,
+  notarization, outbound allowlist, compatibility, and security review. The reduced
+  `community-local-trust` profile requires explicit risk acceptance, project self-signing,
+  official-runner automation, manual installation trust, and application-enforced egress.
   Production startup additionally requires a non-expired Ed25519-signed release-evidence manifest
   bound to the exact server version. The manifest pins the server, Node, application, proxy, SBOM, provenance,
-  security-test, independent-review, signing/notarization, outbound-policy, local-Claude-isolation,
-  stop/revocation, and compatibility evidence digests. Development may explicitly enable the
+  security-test, review or risk-acceptance, signing, outbound-policy, local-Claude-isolation,
+  stop/revocation, and compatibility evidence digests. Schema 2 additionally pins community
+  signing, official-runner automation, and risk-acceptance digests. Development may explicitly enable the
   capability without this production-only evidence gate for non-sensitive test data.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal

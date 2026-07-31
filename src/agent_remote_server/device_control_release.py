@@ -5,11 +5,11 @@ import os
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent_remote_server import __version__
 
@@ -81,24 +81,54 @@ class DeviceControlReleaseEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(..., description="发布证据清单格式版本")
+    release_profile: Literal["apple-developer-id", "community-local-trust"] = Field(
+        default="apple-developer-id", description="设备应用发布信任配置"
+    )
+    production_ready: bool = Field(default=True, description="是否通过所选配置的生产门禁")
+    apple_notarized: bool = Field(default=True, description="设备应用是否已通过 Apple 公证")
+    public_distribution: bool = Field(default=True, description="是否支持无人工信任的公开分发")
+    manual_trust_required: bool = Field(
+        default=False, description="安装时是否需要管理员人工建立信任"
+    )
     release_version: str = Field(..., description="证据绑定的服务端发布版本")
     issued_at: datetime = Field(..., description="发布证据签发时间")
     expires_at: datetime = Field(..., description="发布证据失效时间")
     server_sha256: str = Field(..., description="服务端发布制品摘要")
     node_sha256: str = Field(..., description="Node 发布制品摘要")
-    application_sha256: str = Field(..., description="签名公证后的 macOS 应用制品摘要")
+    application_sha256: str = Field(..., description="所选发布配置验证后的 macOS 应用制品摘要")
     proxy_sha256: str = Field(..., description="远端 MCP 代理制品摘要")
     sbom_sha256: str = Field(..., description="软件物料清单摘要")
     provenance_sha256: str = Field(..., description="构建来源证明摘要")
-    security_tests_sha256: str = Field(..., description="安全测试与跨租户端到端测试证据摘要")
-    security_review_sha256: str = Field(..., description="独立安全评审与复测证据摘要")
-    signing_notarization_sha256: str = Field(..., description="应用签名和 Apple 公证证据摘要")
-    outbound_policy_sha256: str = Field(..., description="系统出站允许列表激活证据摘要")
-    local_claude_isolation_sha256: str = Field(
-        ..., description="本地 Claude 文件与网络隔离证据摘要"
+    security_tests_sha256: str | None = Field(
+        default=None, description="Apple 配置的安全测试与跨租户端到端测试证据摘要"
     )
-    stop_revocation_sha256: str = Field(..., description="全局停止、撤销和故障关闭演练证据摘要")
-    compatibility_sha256: str = Field(..., description="当前 Claude Code 与 MCP 兼容性证据摘要")
+    security_review_sha256: str | None = Field(
+        default=None, description="Apple 配置的独立安全评审与复测证据摘要"
+    )
+    signing_notarization_sha256: str = Field(
+        ..., description="严格签名公证或 Community 自签名证据摘要"
+    )
+    outbound_policy_sha256: str | None = Field(
+        default=None, description="Apple 配置的系统出站允许列表激活证据摘要"
+    )
+    local_claude_isolation_sha256: str | None = Field(
+        default=None, description="Apple 配置的本地 Claude 文件与网络隔离证据摘要"
+    )
+    stop_revocation_sha256: str | None = Field(
+        default=None, description="Apple 配置的全局停止、撤销和故障关闭演练证据摘要"
+    )
+    compatibility_sha256: str | None = Field(
+        default=None, description="Apple 配置的当前 Claude Code 与 MCP 兼容性证据摘要"
+    )
+    community_signing_sha256: str | None = Field(
+        default=None, description="Community 自签名身份与嵌套签名证据摘要"
+    )
+    automated_release_checks_sha256: str | None = Field(
+        default=None, description="Community 自动化发布检查汇总证据摘要"
+    )
+    risk_acceptance_sha256: str | None = Field(
+        default=None, description="部署方接受 Community 剩余风险的记录摘要"
+    )
     ci_run_url: str = Field(..., description="生成发布证据的持续集成运行地址")
     signature: str = Field(..., description="清单规范载荷的 Ed25519 签名")
 
@@ -115,9 +145,55 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 格式版本不受支持
         """
 
-        if value != 1:
+        if value not in {1, 2}:
             raise ValueError("unsupported device control release evidence schema version")
         return value
+
+    @model_validator(mode="after")
+    def validate_release_profile(self) -> "DeviceControlReleaseEvidence":
+        """
+        校验发布配置与 Apple 信任状态不存在矛盾
+
+        :return DeviceControlReleaseEvidence: 已通过配置一致性校验的发布证据
+
+        :raises ValueError: 配置版本或信任声明不符合固定契约
+        """
+
+        strict_gate_digests = (
+            self.security_tests_sha256,
+            self.security_review_sha256,
+            self.outbound_policy_sha256,
+            self.local_claude_isolation_sha256,
+            self.stop_revocation_sha256,
+            self.compatibility_sha256,
+        )
+        if not self.production_ready:
+            raise ValueError("device control release evidence is not production ready")
+        if self.schema_version == 1:
+            if (
+                self.release_profile != "apple-developer-id"
+                or not self.apple_notarized
+                or not self.public_distribution
+                or self.manual_trust_required
+                or self.community_signing_sha256 is not None
+                or self.automated_release_checks_sha256 is not None
+                or self.risk_acceptance_sha256 is not None
+                or any(digest is None for digest in strict_gate_digests)
+            ):
+                raise ValueError("schema version 1 requires the Apple release profile")
+            return self
+        if (
+            self.release_profile != "community-local-trust"
+            or self.apple_notarized
+            or self.public_distribution
+            or not self.manual_trust_required
+            or self.community_signing_sha256 is None
+            or self.automated_release_checks_sha256 is None
+            or self.risk_acceptance_sha256 is None
+            or any(digest is not None for digest in strict_gate_digests)
+        ):
+            raise ValueError("schema version 2 requires the community local-trust profile")
+        return self
 
     @field_validator(
         "application_sha256",
@@ -133,9 +209,12 @@ class DeviceControlReleaseEvidence(BaseModel):
         "local_claude_isolation_sha256",
         "stop_revocation_sha256",
         "compatibility_sha256",
+        "community_signing_sha256",
+        "automated_release_checks_sha256",
+        "risk_acceptance_sha256",
     )
     @classmethod
-    def validate_sha256(cls, value: str) -> str:
+    def validate_sha256(cls, value: str | None) -> str | None:
         """
         校验证据摘要使用小写 SHA-256 十六进制格式
 
@@ -146,6 +225,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 摘要格式不符合要求
         """
 
+        if value is None:
+            return None
         if len(value) != _SHA256_HEX_LENGTH or any(
             character not in "0123456789abcdef" for character in value
         ):
