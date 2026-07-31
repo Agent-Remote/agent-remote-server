@@ -2,6 +2,13 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.3 - 2026-07-31
+
+- fix: commit prepared release script (a2c07ac)
+- feat: support community release evidence profile (b5449fa)
+- feat: add secure device control plane (7f9c4e0)
+- ci: avoid duplicate tag validation (a92cb94)
+
 ## v0.1.0 - 2026-07-31
 
 - feat: add device session lifecycle, approval, lease, and revocation APIs
