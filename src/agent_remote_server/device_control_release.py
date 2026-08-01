@@ -16,6 +16,12 @@ from agent_remote_server import __version__
 _SHA256_HEX_LENGTH = 64
 _MAXIMUM_MANIFEST_BYTES = 65_536
 _MAXIMUM_EVIDENCE_LIFETIME_DAYS = 30
+_SUPPORTED_NODE_TARGETS = {
+    "linux-amd64-glibc",
+    "linux-arm64-glibc",
+    "linux-amd64-musl",
+    "linux-arm64-musl",
+}
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -94,9 +100,15 @@ class DeviceControlReleaseEvidence(BaseModel):
     issued_at: datetime = Field(..., description="发布证据签发时间")
     expires_at: datetime = Field(..., description="发布证据失效时间")
     server_sha256: str = Field(..., description="服务端发布制品摘要")
-    node_sha256: str = Field(..., description="Node 发布制品摘要")
+    node_sha256: str | None = Field(default=None, description="旧版单 Node 发布制品摘要")
     application_sha256: str = Field(..., description="所选发布配置验证后的 macOS 应用制品摘要")
-    proxy_sha256: str = Field(..., description="远端 MCP 代理制品摘要")
+    proxy_sha256: str | None = Field(default=None, description="旧版单远端 MCP 代理制品摘要")
+    node_artifacts_sha256: dict[str, str] | None = Field(
+        default=None, description="按 Linux target 索引的 Node 发布制品摘要"
+    )
+    proxy_artifacts_sha256: dict[str, str] | None = Field(
+        default=None, description="按 Linux target 索引的远端 MCP 代理制品摘要"
+    )
     sbom_sha256: str = Field(..., description="软件物料清单摘要")
     provenance_sha256: str = Field(..., description="构建来源证明摘要")
     security_tests_sha256: str | None = Field(
@@ -145,7 +157,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 格式版本不受支持
         """
 
-        if value not in {1, 2}:
+        if value not in {1, 2, 3}:
             raise ValueError("unsupported device control release evidence schema version")
         return value
 
@@ -178,10 +190,28 @@ class DeviceControlReleaseEvidence(BaseModel):
                 or self.community_signing_sha256 is not None
                 or self.automated_release_checks_sha256 is not None
                 or self.risk_acceptance_sha256 is not None
+                or self.node_sha256 is None
+                or self.proxy_sha256 is None
+                or self.node_artifacts_sha256 is not None
+                or self.proxy_artifacts_sha256 is not None
                 or any(digest is None for digest in strict_gate_digests)
             ):
                 raise ValueError("schema version 1 requires the Apple release profile")
             return self
+        if self.schema_version == 2 and (
+            self.node_sha256 is None
+            or self.proxy_sha256 is None
+            or self.node_artifacts_sha256 is not None
+            or self.proxy_artifacts_sha256 is not None
+        ):
+            raise ValueError("schema version 2 requires one Node release target")
+        if self.schema_version == 3 and (
+            self.node_sha256 is not None
+            or self.proxy_sha256 is not None
+            or self.node_artifacts_sha256 is None
+            or self.proxy_artifacts_sha256 is None
+        ):
+            raise ValueError("schema version 3 requires every Node release target")
         if (
             self.release_profile != "community-local-trust"
             or self.apple_notarized
@@ -192,8 +222,33 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.risk_acceptance_sha256 is None
             or any(digest is not None for digest in strict_gate_digests)
         ):
-            raise ValueError("schema version 2 requires the community local-trust profile")
+            raise ValueError("community local-trust schemas require the reduced-trust profile")
         return self
+
+    @field_validator("node_artifacts_sha256", "proxy_artifacts_sha256")
+    @classmethod
+    def validate_target_digests(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        """
+        校验多架构发布制品摘要覆盖全部受支持 Node target
+
+        :param value (dict[str, str]): target 到制品摘要的映射
+
+        :return dict[str, str]: 已通过校验的制品摘要映射
+
+        :raises ValueError: target 集合或摘要格式不符合固定契约
+        """
+
+        if value is None:
+            return None
+        if set(value) != _SUPPORTED_NODE_TARGETS:
+            raise ValueError("release evidence must cover every supported Node target")
+        if any(
+            len(digest) != _SHA256_HEX_LENGTH
+            or any(character not in "0123456789abcdef" for character in digest)
+            for digest in value.values()
+        ):
+            raise ValueError("release evidence digest must be lowercase SHA-256 hexadecimal")
+        return value
 
     @field_validator(
         "application_sha256",

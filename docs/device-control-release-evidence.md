@@ -30,6 +30,12 @@ declare `production_ready=true`, `apple_notarized=false`, `public_distribution=f
 rejected, so a self-signed build cannot be represented as Apple notarized. Schema version 1 remains
 restricted to `apple-developer-id` and its strict external gates.
 
+Schema version 3 keeps the same `community-local-trust` claims and replaces the single
+`node_sha256` and `proxy_sha256` values with `node_artifacts_sha256` and
+`proxy_artifacts_sha256` mappings. Both mappings must cover `linux-amd64-glibc`,
+`linux-arm64-glibc`, `linux-amd64-musl`, and `linux-arm64-musl`, allowing one signed manifest to
+authorize a mixed-architecture Node fleet.
+
 ## Signature
 
 The signed bytes are UTF-8 JSON after removing `signature`, sorting keys, emitting ASCII escapes,

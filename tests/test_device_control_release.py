@@ -26,12 +26,27 @@ def create_signed_evidence(
     expires_at: datetime,
     issued_at: datetime | None = None,
     release_version: str = __version__,
+    schema_version: int = 2,
 ) -> str:
     """创建使用临时密钥签名的测试发布证据。"""
 
     private_key = Ed25519PrivateKey.generate()
+    target_digests = {
+        "linux-amd64-glibc": "a" * 64,
+        "linux-arm64-glibc": "b" * 64,
+        "linux-amd64-musl": "c" * 64,
+        "linux-arm64-musl": "d" * 64,
+    }
+    release_artifacts = (
+        {
+            "node_artifacts_sha256": target_digests,
+            "proxy_artifacts_sha256": target_digests,
+        }
+        if schema_version == 3
+        else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
+    )
     manifest = DeviceControlReleaseEvidence(
-        schema_version=2,
+        schema_version=schema_version,
         release_profile="community-local-trust",
         production_ready=True,
         apple_notarized=False,
@@ -41,9 +56,7 @@ def create_signed_evidence(
         issued_at=issued_at or expires_at - timedelta(days=1),
         expires_at=expires_at,
         server_sha256=_DIGEST,
-        node_sha256=_DIGEST,
         application_sha256=_DIGEST,
-        proxy_sha256=_DIGEST,
         sbom_sha256=_DIGEST,
         provenance_sha256=_DIGEST,
         signing_notarization_sha256=_DIGEST,
@@ -52,6 +65,7 @@ def create_signed_evidence(
         risk_acceptance_sha256=_DIGEST,
         ci_run_url="https://ci.example.test/runs/123",
         signature="pending",
+        **release_artifacts,
     )
     signature = private_key.sign(manifest.signing_payload())
     signed_manifest = manifest.model_copy(
@@ -83,6 +97,62 @@ def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
 
     assert evidence.release_version == __version__
     assert evidence.release_profile == "community-local-trust"
+
+
+def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> None:
+    """Schema 3 签名清单应同时绑定并验签全部 Node 与 Proxy 架构制品。"""
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        expires_at=now + timedelta(days=1),
+        schema_version=3,
+    )
+
+    evidence = verify_device_control_release_evidence(
+        evidence_path=str(evidence_path),
+        public_key_base64=public_key,
+        now=now,
+    )
+
+    expected_targets = {
+        "linux-amd64-glibc",
+        "linux-arm64-glibc",
+        "linux-amd64-musl",
+        "linux-arm64-musl",
+    }
+    assert set(evidence.node_artifacts_sha256 or {}) == expected_targets
+    assert set(evidence.proxy_artifacts_sha256 or {}) == expected_targets
+
+
+def test_multi_arch_release_evidence_rejects_missing_target() -> None:
+    """Schema 3 缺少任一受支持 Node target 时必须拒绝。"""
+
+    with pytest.raises(ValueError, match="every supported Node target"):
+        DeviceControlReleaseEvidence(
+            schema_version=3,
+            release_profile="community-local-trust",
+            production_ready=True,
+            apple_notarized=False,
+            public_distribution=False,
+            manual_trust_required=True,
+            release_version=__version__,
+            issued_at=datetime(2026, 7, 31, tzinfo=UTC),
+            expires_at=datetime(2026, 8, 1, tzinfo=UTC),
+            server_sha256=_DIGEST,
+            application_sha256=_DIGEST,
+            node_artifacts_sha256={"linux-amd64-glibc": _DIGEST},
+            proxy_artifacts_sha256={"linux-amd64-glibc": _DIGEST},
+            sbom_sha256=_DIGEST,
+            provenance_sha256=_DIGEST,
+            signing_notarization_sha256=_DIGEST,
+            community_signing_sha256=_DIGEST,
+            automated_release_checks_sha256=_DIGEST,
+            risk_acceptance_sha256=_DIGEST,
+            ci_run_url="https://ci.example.test/runs/incomplete",
+            signature="pending",
+        )
 
 
 @pytest.mark.parametrize(

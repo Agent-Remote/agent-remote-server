@@ -104,7 +104,8 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   bound to the exact server version. The manifest pins the server, Node, application, proxy, SBOM, provenance,
   security-test, review or risk-acceptance, signing, outbound-policy, local-Claude-isolation,
   stop/revocation, and compatibility evidence digests. Schema 2 additionally pins community
-  signing, official-runner automation, and risk-acceptance digests. Development may explicitly enable the
+  signing, official-runner automation, and risk-acceptance digests. Schema 3 binds every supported
+  Linux Node and proxy target in one community manifest. Development may explicitly enable the
   capability without this production-only evidence gate for non-sensitive test data.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal
