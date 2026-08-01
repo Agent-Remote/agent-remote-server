@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.7 - 2026-08-01
+
+- feat: support multi-architecture release evidence (68daf3e)
+- fix: remove revoked device ssh keys from nodes (2457516)
+
 ## v0.1.6 - 2026-08-01
 
 - fix: reuse devices and delete paused syncs (11b1730)
