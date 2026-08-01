@@ -13,7 +13,14 @@ from sqlalchemy import select
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import AuditLog, AuthToken, SshKey, UserDevice, WireGuardPeer
+from agent_remote_server.models import (
+    AuditLog,
+    AuthToken,
+    NodeTask,
+    SshKey,
+    UserDevice,
+    WireGuardPeer,
+)
 from agent_remote_server.security import hash_token
 from agent_remote_server.security.totp import generate_totp_code
 
@@ -467,3 +474,50 @@ def test_device_delete_requires_revoke(client: TestClient) -> None:
         client.get(f"/api/v1/devices/{device_id}", headers=auth_header(admin_token)).status_code
         == 404
     )
+
+
+def test_device_revoke_enqueues_ssh_key_removal_for_every_node(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    device_response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "cleanup-device",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAACLEANUP test@example.com",
+        },
+    )
+    assert device_response.status_code == 200
+    device_id = device_response.json()["data"]["device"]["id"]
+
+    node_ids = []
+    for index in range(2):
+        response = client.post(
+            "/api/v1/nodes",
+            headers=auth_header(admin_token),
+            json={
+                "name": f"cleanup-node-{index}",
+                "region_code": "US",
+                "ssh_host": f"10.77.0.{index + 1}",
+                "ssh_port": 22,
+                "ssh_user": "agent-remote",
+            },
+        )
+        assert response.status_code == 200
+        node_ids.append(response.json()["data"]["node"]["id"])
+
+    revoked = client.post(f"/api/v1/devices/{device_id}/disable", headers=auth_header(admin_token))
+    assert revoked.status_code == 200
+
+    async def load_tasks() -> list[NodeTask]:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            return list(
+                (await session.scalars(select(NodeTask).order_by(NodeTask.created_at))).all()
+            )
+
+    tasks = asyncio.run(load_tasks())
+    assert {str(task.node_id) for task in tasks} == set(node_ids)
+    assert all(task.task_type == "sync_ssh_keys" for task in tasks)
+    assert all(task.payload["device_id"] == device_id for task in tasks)
+    assert all(task.payload["ssh_keys"] == [] for task in tasks)

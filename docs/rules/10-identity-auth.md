@@ -30,7 +30,9 @@
 - A CLI login may reuse only an active device owned by the authenticated user. Reuse rotates the
   device token and ensures the submitted SSH public key is active without creating another device.
 - Device tokens must be device-scoped.
-- Revoking a device must make device tokens, SSH keys, and WireGuard peers unusable.
+- Revoking a device must make device tokens, SSH keys, and WireGuard peers unusable. Revocation
+  queues a device-scoped empty SSH key synchronization task for every node so stale
+  `authorized_keys` blocks are removed even when the same public key was registered again.
 - SSH private keys and WireGuard private keys must never be accepted by user-facing APIs.
 - An active device token may idempotently enroll or rotate that device's WireGuard public key.
 - WireGuard enrollment audit records may contain peer IDs and allocation state, but not public key bodies.

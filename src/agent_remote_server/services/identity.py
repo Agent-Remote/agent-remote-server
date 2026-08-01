@@ -13,12 +13,13 @@ from agent_remote_server.models import (
     AuditLog,
     AuthToken,
     CliLoginCode,
+    NodeTask,
     SshKey,
     User,
     UserDevice,
     WireGuardPeer,
 )
-from agent_remote_server.repositories import IdentityRepository
+from agent_remote_server.repositories import IdentityRepository, NodeRepository
 from agent_remote_server.security import (
     create_opaque_token,
     decrypt_text,
@@ -30,6 +31,7 @@ from agent_remote_server.security import (
     verify_totp_code,
 )
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
+from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ class IdentityService:
         self._session = session
         self._settings = settings
         self._repository = IdentityRepository(session)
+        self._node_repository = NodeRepository(session)
 
     async def bootstrap_required(self) -> bool:
         """
@@ -644,6 +647,23 @@ class IdentityService:
             peer.revoked_at = revoked_at
         for token in await self._repository.list_tokens_for_device(device.id):
             self._revoke_token(token)
+        for node in await self._node_repository.list_nodes():
+            task_id = ssh_key_sync_task_id(node_id=node.id, device_id=device.id, ssh_keys=[])
+            if await self._node_repository.get_task_by_task_id(task_id) is None:
+                await self._node_repository.add_task(
+                    NodeTask(
+                        node_id=node.id,
+                        task_id=task_id,
+                        task_type="sync_ssh_keys",
+                        status="pending",
+                        payload=ssh_key_sync_payload(
+                            device_id=device.id,
+                            ssh_user=node.ssh_user or "agent-remote",
+                            ssh_keys=[],
+                        ),
+                        retry_count=0,
+                    )
+                )
         await revoke_port_forwards(
             self._session,
             reason="device_revoked",
