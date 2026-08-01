@@ -256,7 +256,7 @@ async def delete_sync_session(
     user: Annotated[User, Depends(get_current_user)],
 ) -> EmptyResponse:
     """
-    删除失败且未运行的同步 session
+    删除失败或已暂停的同步 session
 
     :param sync_session_id (UUID): 同步 session ID
     :param settings (Settings): 应用配置

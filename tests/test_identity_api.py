@@ -346,6 +346,48 @@ def test_device_registration_rejects_unknown_platform(client: TestClient) -> Non
     assert response.status_code == 422
 
 
+def test_device_login_reuses_registration_and_repairs_ssh_key(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    first_response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "rem-macbook",
+            "platform": "macos",
+            "cli_version": "0.0.6",
+            "ssh_public_key": "ssh-ed25519 AAAAOLD rem@test",
+            "wireguard_public_key": "original-wireguard-key",
+        },
+    )
+    assert first_response.status_code == 200
+    first = first_response.json()["data"]
+
+    login_response = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "rem-macbook",
+            "platform": "macos",
+            "cli_version": "0.1.5",
+            "ssh_public_key": "ssh-ed25519 AAAANEW rem@test",
+            "existing_device_id": first["device"]["id"],
+        },
+    )
+    assert login_response.status_code == 200
+    login = login_response.json()["data"]
+    assert login["device"]["id"] == first["device"]["id"]
+    assert login["device"]["cli_version"] == "0.1.5"
+    assert login["ssh_key_id"] != first["ssh_key_id"]
+    assert login["wireguard_peer_id"] == first["wireguard_peer_id"]
+
+    devices = client.get("/api/v1/devices", headers=auth_header(admin_token))
+    assert len(devices.json()["data"]["items"]) == 1
+    old_token = first["device_token"]["access_token"]
+    assert client.get("/api/v1/users/me", headers=auth_header(old_token)).status_code == 401
+    new_token = login["device_token"]["access_token"]
+    assert client.get("/api/v1/users/me", headers=auth_header(new_token)).status_code == 200
+
+
 def test_device_activity_updates_last_seen_with_write_throttling(client: TestClient) -> None:
     admin_token = bootstrap(client)
     register_response = client.post(

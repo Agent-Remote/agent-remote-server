@@ -39,7 +39,8 @@ Runtime 控制平面还提供：
 
 只有所选 Node 为 session backend 明确上报 capability 时，控制面才允许创建端口转发。当前发布仅支持 Native Runtime session；Docker Sandbox 请求会 fail closed。应用数据直接在设备与 Node 之间传输，不经过控制面。
 
-管理前端只能删除失败的同步会话。活跃的本地 Mutagen 会话必须在所属设备上终止，控制面不会静默遗留运行中的同步进程。
+管理前端可以删除失败或已暂停的同步会话。活跃的本地 Mutagen 会话必须先在所属设备上暂停，
+控制面不会静默遗留运行中的同步进程。
 
 ## 要求
 

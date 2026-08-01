@@ -317,17 +317,17 @@ class WorkspaceService:
 
     async def delete_sync_session(self, *, user: User, sync_session_id: UUID) -> None:
         """
-        删除未创建本地 Mutagen 资源的失败同步 session
+        删除失败或已暂停的同步 session
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步 session ID
         """
 
         sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
-        if sync_session.status != "failed":
+        if sync_session.status not in {"failed", "paused"}:
             raise ApiError(
-                code="SYNC_SESSION_DELETE_REQUIRES_FAILED",
-                message="Only failed sync sessions can be deleted from the web console.",
+                code="SYNC_SESSION_DELETE_REQUIRES_INACTIVE",
+                message="Pause the sync session before deleting it from the web console.",
                 status_code=409,
             )
         await self._audit(

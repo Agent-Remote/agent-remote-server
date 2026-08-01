@@ -509,6 +509,7 @@ class IdentityService:
         cli_version: str | None,
         ssh_public_key: str,
         wireguard_public_key: str | None,
+        existing_device_id: UUID | None = None,
     ) -> DeviceRegistrationResult:
         """
         注册用户设备
@@ -519,30 +520,73 @@ class IdentityService:
         :param cli_version (str): agent-remote CLI 版本
         :param ssh_public_key (str): SSH 公钥
         :param wireguard_public_key (str): WireGuard 公钥
+        :param existing_device_id (UUID | None): 需要复用的现有设备 ID
 
         :return DeviceRegistrationResult: 注册结果
         """
 
-        device = await self._repository.add_device(
-            UserDevice(
-                user_id=user.id,
-                name=name,
-                platform=platform,
-                cli_version=cli_version,
-                status="active",
-                last_seen_at=self._now(),
+        reused = existing_device_id is not None
+        if existing_device_id is None:
+            device = await self._repository.add_device(
+                UserDevice(
+                    user_id=user.id,
+                    name=name,
+                    platform=platform,
+                    cli_version=cli_version,
+                    status="active",
+                    last_seen_at=self._now(),
+                )
             )
+        else:
+            existing_device = await self._repository.get_device(existing_device_id)
+            if existing_device is None or existing_device.user_id != user.id:
+                raise ApiError(
+                    code="COMMON_NOT_FOUND", message="Device was not found.", status_code=404
+                )
+            if existing_device.status != "active":
+                raise ApiError(
+                    code="DEVICE_REUSE_REQUIRES_ACTIVE",
+                    message=(
+                        "The existing device is not active. Remove the local login before "
+                        "registering a new device."
+                    ),
+                    status_code=409,
+                )
+            device = existing_device
+            device.name = name
+            device.platform = platform
+            device.cli_version = cli_version
+            device.last_seen_at = self._now()
+
+        fingerprint = self._fingerprint(ssh_public_key)
+        ssh_keys = list(await self._repository.list_ssh_keys_for_device(device.id))
+        ssh_key = next(
+            (
+                item
+                for item in ssh_keys
+                if item.status == "active" and item.fingerprint == fingerprint
+            ),
+            None,
         )
-        ssh_key = await self._repository.add_ssh_key(
-            SshKey(
-                user_device_id=device.id,
-                public_key=ssh_public_key,
-                fingerprint=self._fingerprint(ssh_public_key),
-                status="active",
+        if ssh_key is None:
+            ssh_key = await self._repository.add_ssh_key(
+                SshKey(
+                    user_device_id=device.id,
+                    public_key=ssh_public_key,
+                    fingerprint=fingerprint,
+                    status="active",
+                )
             )
-        )
-        wireguard_peer = None
-        if wireguard_public_key:
+
+        active_peers = [
+            peer
+            for peer in await self._repository.list_wireguard_peers_for_device(device.id)
+            if peer.status == "active"
+        ]
+        wireguard_peer = active_peers[0] if active_peers else None
+        if wireguard_peer is not None and wireguard_public_key:
+            wireguard_peer.public_key = wireguard_public_key
+        elif wireguard_peer is None and wireguard_public_key:
             wireguard_peer = await self._repository.add_wireguard_peer(
                 WireGuardPeer(
                     peer_type="device",
@@ -554,10 +598,13 @@ class IdentityService:
                     status="active",
                 )
             )
+        if reused:
+            for token in await self._repository.list_tokens_for_device(device.id):
+                self._revoke_token(token)
         token_issue = await self._issue_token(user=user, device=device, token_type="device")
         await self._audit(
             actor_user_id=user.id,
-            action="devices.register",
+            action="devices.login" if reused else "devices.register",
             target_type="user_device",
             target_id=str(device.id),
             details={
@@ -565,6 +612,7 @@ class IdentityService:
                 "cli_version": cli_version,
                 "ssh_key_id": str(ssh_key.id),
                 "wireguard_peer_id": str(wireguard_peer.id) if wireguard_peer else None,
+                "reused": reused,
             },
         )
         await self._session.commit()

@@ -36,6 +36,7 @@ class RegisterDeviceRequest(BaseModel):
     )
     ssh_public_key: str = Field(..., description="SSH 公钥")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
+    existing_device_id: UUID | None = Field(default=None, description="重新登录时复用的现有设备 ID")
 
 
 class DeviceRegistrationData(BaseModel):

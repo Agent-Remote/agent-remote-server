@@ -199,7 +199,7 @@ def test_workspace_create_is_device_bound_and_idempotent(client: TestClient) -> 
     assert user_token_response.json()["error"]["code"] == "DEVICE_REQUIRED"
 
 
-def test_workspace_and_failed_sync_session_can_be_deleted(client: TestClient) -> None:
+def test_workspace_and_inactive_sync_session_can_be_deleted(client: TestClient) -> None:
     admin_token = bootstrap(client)
     node_id, _ = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -221,15 +221,15 @@ def test_workspace_and_failed_sync_session_can_be_deleted(client: TestClient) ->
     )
     assert blocked_sync.status_code == 409
 
-    async def fail_sync() -> None:
+    async def pause_sync() -> None:
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             sync = await session.get(SyncSession, UUID(sync_id))
             assert sync is not None
-            sync.status = "failed"
+            sync.status = "paused"
             await session.commit()
 
-    asyncio.run(fail_sync())
+    asyncio.run(pause_sync())
     assert (
         client.delete(
             f"/api/v1/sync-sessions/{sync_id}", headers=auth_header(device_token)

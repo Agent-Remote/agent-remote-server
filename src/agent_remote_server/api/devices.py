@@ -87,6 +87,7 @@ async def register_device(
         cli_version=payload.cli_version,
         ssh_public_key=payload.ssh_public_key,
         wireguard_public_key=payload.wireguard_public_key,
+        existing_device_id=payload.existing_device_id,
     )
     return DeviceRegistrationResponse(
         data=DeviceRegistrationData(

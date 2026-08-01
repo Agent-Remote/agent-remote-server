@@ -39,8 +39,8 @@ The runtime control plane also provides:
 
 Port forwarding is available only when the selected node explicitly advertises the capability for the session backend. The current release supports Native Runtime sessions only; Docker Sandbox requests fail closed. Application traffic flows directly between the device and node and never traverses this control plane.
 
-The web console can only delete failed sync sessions. Active local Mutagen sessions must be
-terminated on their owning device, so the control plane does not silently orphan them.
+The web console can delete failed or paused sync sessions. Active local Mutagen sessions must be
+paused on their owning device first, so the control plane does not silently orphan a running sync.
 
 ## Requirements
 

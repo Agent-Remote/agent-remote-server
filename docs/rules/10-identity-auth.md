@@ -27,6 +27,8 @@
 ## Devices And Keys
 
 - Device registration is tied to the authenticated user.
+- A CLI login may reuse only an active device owned by the authenticated user. Reuse rotates the
+  device token and ensures the submitted SSH public key is active without creating another device.
 - Device tokens must be device-scoped.
 - Revoking a device must make device tokens, SSH keys, and WireGuard peers unusable.
 - SSH private keys and WireGuard private keys must never be accepted by user-facing APIs.
