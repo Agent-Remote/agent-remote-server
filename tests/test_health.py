@@ -5,7 +5,11 @@ from agent_remote_server.main import create_app
 
 
 def make_client() -> TestClient:
-    settings = Settings(secret_key="test-secret", log_level="CRITICAL")
+    settings = Settings(
+        secret_key="test-secret",
+        log_level="CRITICAL",
+        database_url="sqlite+aiosqlite://",
+    )
     return TestClient(create_app(settings))
 
 
