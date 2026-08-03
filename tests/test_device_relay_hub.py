@@ -1,15 +1,24 @@
 import asyncio
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import WebSocket
 
 from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_relay_revocation import DeviceRelayRevocationPublisher
 from agent_remote_server.device_relay_store import (
     DeviceRelayBinding,
     DeviceRelayRole,
     DeviceRelayTicketClaims,
 )
+
+
+class _RecordingRevocationBus:
+    def __init__(self) -> None:
+        self.events: list[tuple[UUID, int]] = []
+
+    async def publish(self, device_session_id: UUID, generation: int) -> None:
+        self.events.append((device_session_id, generation))
 
 
 class _FakeWebSocket:
@@ -79,6 +88,24 @@ async def test_device_relay_hub_expires_both_peers_after_the_connection_limit() 
 
     assert 1008 in device.close_codes
     assert 1008 in proxy.close_codes
+
+
+async def test_device_relay_hub_broadcasts_local_close_but_not_remote_close() -> None:
+    """验证本地撤销会广播，其他 worker 的通知不会形成消息回环。"""
+
+    bus = _RecordingRevocationBus()
+    hub = DeviceRelayHub(
+        maximum_frame_bytes=16,
+        pair_timeout_seconds=1,
+        maximum_bytes_per_second=16,
+        maximum_connection_seconds=1,
+        revocation_bus=cast(DeviceRelayRevocationPublisher, bus),
+    )
+    binding = _binding()
+    await hub.close_binding(binding.device_session_id, binding.generation)
+    assert bus.events == [(binding.device_session_id, binding.generation)]
+    await hub.close_binding_remote(binding.device_session_id, binding.generation)
+    assert bus.events == [(binding.device_session_id, binding.generation)]
 
 
 def _binding() -> DeviceRelayBinding:

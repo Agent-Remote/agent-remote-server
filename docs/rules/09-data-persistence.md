@@ -23,6 +23,12 @@ Runtime selection persistence:
   lifecycle state, generation, bounded lease, expiry, machine-lock time, and stop metadata.
   Generation uses `BIGINT`; database checks enforce the shared signed 64-bit protocol limit and
   reserve its maximum value for terminal state only.
+- Partial unique indexes allow only one non-terminal `device_sessions` row per
+  `tool_session_id` and one per `device_id`. Terminal records remain available for audit and
+  retention and do not occupy either live binding slot.
+- `device_sessions.tool_session_reference_id` preserves the original Claude session UUID for
+  terminal history. The relational `tool_session_id` uses `ON DELETE SET NULL`, so deleting an
+  inactive tool session cannot cascade-delete device binding history before retention cleanup.
 - `device_session_approvals` stores only the application stable-identifier SHA-256 digest,
   approved control level, result, clipboard boolean, and audit correlation ID.
 - `sessions.device_control_protocol_version` records only whether the managed MCP configuration
@@ -31,6 +37,9 @@ Runtime selection persistence:
   cleanup only after their configured stop-time cutoff. Device-session audit rows use an independent
   retention period that cannot be shorter than session retention. Both periods default to disabled;
   production device control requires operators to choose explicit non-zero values.
+- Device and Node deletion must not cascade-delete retained DeviceSession history. They remain
+  undeletable while any retained binding references them; tool-session deletion instead nulls the
+  relational foreign key while preserving `tool_session_reference_id`.
 - Migration task metadata and backup paths are non-secret operational metadata; account login state remains node-local.
 
 ## Repository Layer
@@ -41,14 +50,15 @@ Runtime selection persistence:
 
 ## Redis
 
-Redis is required by the broader project. The current skeleton only checks connectivity.
+Redis is required by the broader project and carries short-lived distributed coordination.
 
-Future feature work uses Redis for:
+Redis is used for:
 
 - Task lease coordination.
 - Distributed locks.
 - Polling throttles.
 - Short-lived task state.
+- Device relay key exchange, one-time tickets, and cross-worker binding revocation notifications.
 
 ## Secrets
 

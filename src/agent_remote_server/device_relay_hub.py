@@ -4,7 +4,12 @@ from uuid import UUID
 
 from fastapi import WebSocket
 
+from agent_remote_server.device_relay_revocation import DeviceRelayRevocationPublisher
 from agent_remote_server.device_relay_store import DeviceRelayRole, DeviceRelayTicketClaims
+
+
+class _RelayBindingClosed(Exception):
+    """当前 relay binding 已被控制面撤销。"""
 
 
 @dataclass
@@ -26,6 +31,7 @@ class DeviceRelayHub:
         pair_timeout_seconds: int,
         maximum_bytes_per_second: int,
         maximum_connection_seconds: float,
+        revocation_bus: DeviceRelayRevocationPublisher | None = None,
     ) -> None:
         """
         初始化设备密文中继中心
@@ -40,6 +46,7 @@ class DeviceRelayHub:
         self._pair_timeout_seconds = pair_timeout_seconds
         self._maximum_bytes_per_second = maximum_bytes_per_second
         self._maximum_connection_seconds = maximum_connection_seconds
+        self._revocation_bus = revocation_bus
         self._pairs: dict[tuple[UUID, int], dict[DeviceRelayRole, _RelayEndpoint]] = {}
         self._lock = asyncio.Lock()
 
@@ -82,10 +89,46 @@ class DeviceRelayHub:
             except TimeoutError:
                 await websocket.close(code=1008)
                 await peer.close(code=1008)
-        except TimeoutError:
+        except (TimeoutError, _RelayBindingClosed):
             await websocket.close(code=1008)
         finally:
             await self._remove(key, endpoint)
+
+    async def close_binding(
+        self,
+        device_session_id: UUID,
+        generation: int,
+        *,
+        code: int = 1008,
+        publish: bool = True,
+    ) -> None:
+        """
+        主动关闭指定 device session generation 的两端 relay
+
+        :param device_session_id (UUID): 设备控制会话 ID
+        :param generation (int): 被撤销的连接代次
+        :param code (int): WebSocket 关闭码
+        """
+
+        key = (device_session_id, generation)
+        async with self._lock:
+            pair = self._pairs.pop(key, None)
+            endpoints = list(pair.values()) if pair is not None else []
+            for endpoint in endpoints:
+                if not endpoint.peer.done():
+                    endpoint.peer.set_exception(_RelayBindingClosed())
+        if endpoints:
+            await asyncio.gather(
+                *(endpoint.websocket.close(code=code) for endpoint in endpoints),
+                return_exceptions=True,
+            )
+        if publish and self._revocation_bus is not None:
+            await self._revocation_bus.publish(device_session_id, generation)
+
+    async def close_binding_remote(self, device_session_id: UUID, generation: int) -> None:
+        """响应其他 worker 的撤销通知，只关闭本地 relay 且不再次广播。"""
+
+        await self.close_binding(device_session_id, generation, publish=False)
 
     async def _forward(self, source: WebSocket, destination: WebSocket) -> None:
         loop = asyncio.get_running_loop()

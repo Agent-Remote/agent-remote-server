@@ -38,10 +38,17 @@
 - WireGuard enrollment audit records may contain peer IDs and allocation state, but not public key bodies.
 - A device token may approve, lock, renew, reconnect, or device-stop only a device-control
   session whose `device_id` exactly matches the token's `user_device_id`.
-- User tokens cannot replace local device approval. Device tokens cannot create a remote
-  control request or change its user, tool session, node, platform, or expiry policy.
+- An active macOS device token may list the owning user's compatible running Claude sessions and
+  claim one for its own device. Claim derives the user and device from the credential, validates
+  the selected session again under transaction locks, and cannot change node, platform, runtime,
+  generation, or expiry policy.
+- User tokens cannot replace local device approval. The legacy user-token endpoint that accepts
+  both `device_id` and `tool_session_id` is not a normal binding path and must remain disabled or
+  explicitly restricted to audited migration compatibility.
 - Administrators may list all zero-content device-session metadata and force-stop a session, but
   cannot submit or replace local application approval.
+- Revoking a device also revokes all of its non-terminal device-control bindings before the
+  transaction commits and closes their relay pairs after commit.
 
 ## TOTP
 

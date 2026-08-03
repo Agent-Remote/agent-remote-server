@@ -376,6 +376,151 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
     asyncio.run(verify_persistence())
 
 
+def test_device_can_list_candidates_and_rebind_a_running_claude_session(
+    client: TestClient,
+) -> None:
+    """验证 Device APP 主动选择、幂等 claim 和跨设备 rebind。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client, token, project_key="sha256:device-claim-rebind"
+    )
+    first_device_id, first_device_token = register_device(client, token)
+    second_device_id, second_device_token = register_device(client, token)
+
+    candidates = client.get(
+        "/api/v1/device-sessions/candidates",
+        headers=auth_header(first_device_token),
+    )
+    assert candidates.status_code == 200
+    candidate = next(
+        item
+        for item in candidates.json()["data"]["items"]
+        if item["tool_session_id"] == tool_session_id
+    )
+    assert candidate["tool_type"] == "claude"
+    assert candidate["current_device_id"] is None
+    assert candidate["controllable"] is True
+    assert "workspace_local_path" not in candidates.text
+    assert "relay_ticket" not in candidates.text
+
+    first_claim = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(first_device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert first_claim.status_code == 200
+    first_device_session_id = first_claim.json()["data"]["id"]
+
+    idempotent_claim = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(first_device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert idempotent_claim.status_code == 200
+    assert idempotent_claim.json()["data"]["id"] == first_device_session_id
+
+    second_claim = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(second_device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert second_claim.status_code == 200
+    second_device_session_id = second_claim.json()["data"]["id"]
+    assert second_device_session_id != first_device_session_id
+
+    async def verify_rebind() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            old = await session.get(DeviceSession, UUID(first_device_session_id))
+            current = await session.get(DeviceSession, UUID(second_device_session_id))
+            assert old is not None and current is not None
+            assert old.status == "stopped"
+            assert old.stop_reason == "rebound"
+            assert old.device_id == UUID(first_device_id)
+            assert current.status == "pending_device"
+            assert current.device_id == UUID(second_device_id)
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            assert tool_session.status == "running"
+            live = list(
+                await session.scalars(
+                    select(DeviceSession).where(
+                        DeviceSession.tool_session_id == UUID(tool_session_id),
+                        DeviceSession.status.in_(
+                            {"pending_device", "pending_user_approval", "active"}
+                        ),
+                    )
+                )
+            )
+            assert [item.id for item in live] == [current.id]
+            task_ids = set((await session.scalars(select(NodeTask.task_id))).all())
+            assert f"deactivate_device_control:{first_device_session_id}:2" in task_ids
+
+    asyncio.run(verify_rebind())
+
+
+def test_device_claiming_another_claude_rebounds_its_current_binding(
+    client: TestClient,
+) -> None:
+    """一台设备切换 Claude session 时必须终止旧绑定且不停止任一 Claude。"""
+
+    token = bootstrap(client)
+    first_tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:device-switch-first",
+    )
+    second_tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:device-switch-second",
+    )
+    device_id, device_token = register_device(client, token)
+    first = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": first_tool_session_id},
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": second_tool_session_id},
+    )
+    assert second.status_code == 200
+
+    async def verify_switch() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            old = await session.get(DeviceSession, UUID(first.json()["data"]["id"]))
+            current = await session.get(DeviceSession, UUID(second.json()["data"]["id"]))
+            assert old is not None and current is not None
+            assert old.status == "stopped"
+            assert old.stop_reason == "rebound"
+            assert current.status == "pending_device"
+            assert current.device_id == UUID(device_id)
+            live_for_device = list(
+                await session.scalars(
+                    select(DeviceSession).where(
+                        DeviceSession.device_id == UUID(device_id),
+                        DeviceSession.status.not_in({"stopped", "denied", "expired", "failed"}),
+                    )
+                )
+            )
+            assert [item.id for item in live_for_device] == [current.id]
+            tool_sessions = list(
+                await session.scalars(
+                    select(Session).where(
+                        Session.id.in_({UUID(first_tool_session_id), UUID(second_tool_session_id)})
+                    )
+                )
+            )
+            assert {item.status for item in tool_sessions} == {"running"}
+
+    asyncio.run(verify_switch())
+
+
 def test_device_session_generation_exhaustion_has_no_partial_mutation(
     client: TestClient,
 ) -> None:
@@ -456,6 +601,88 @@ def test_device_session_generation_exhaustion_has_no_partial_mutation(
     assert (
         f"deactivate_device_control:{device_session_id}:{MAX_DEVICE_SESSION_GENERATION}" in task_ids
     )
+
+
+def test_tool_session_delete_preserves_terminal_device_binding_history(
+    client: TestClient,
+) -> None:
+    """删除远端会话不能绕过 DeviceSession 的独立 retention。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:preserve-device-binding-history",
+    )
+    _device_id, device_token = register_device(client, token)
+    claimed = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert claimed.status_code == 200
+    device_session_id = claimed.json()["data"]["id"]
+    stopped = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/stop",
+        headers=auth_header(device_token),
+        json={"reason": "session_end"},
+    )
+    assert stopped.status_code == 200
+
+    async def mark_tool_session_stopped() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            tool_session.status = "stopped"
+            await session.commit()
+
+    asyncio.run(mark_tool_session_stopped())
+    deleted = client.delete(
+        f"/api/v1/sessions/{tool_session_id}",
+        headers=auth_header(token),
+    )
+    assert deleted.status_code == 200
+
+    async def load_binding() -> DeviceSession | None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            return await session.get(DeviceSession, UUID(device_session_id))
+
+    history = asyncio.run(load_binding())
+    assert history is not None
+    assert history.binding_tool_session_id == UUID(tool_session_id)
+    assert history.status == "stopped"
+
+
+def test_device_delete_is_blocked_by_retained_binding_history(client: TestClient) -> None:
+    """设备撤销后仍不能通过父表级联删除受 retention 管理的绑定历史。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:device-delete-binding-history",
+    )
+    device_id, device_token = register_device(client, token)
+    claimed = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert claimed.status_code == 200
+
+    revoked = client.post(
+        f"/api/v1/devices/{device_id}/disable",
+        headers=auth_header(token),
+    )
+    assert revoked.status_code == 200
+    deleted = client.delete(
+        f"/api/v1/devices/{device_id}",
+        headers=auth_header(token),
+    )
+    assert deleted.status_code == 409
+    assert deleted.json()["error"]["code"] == "DEVICE_DELETE_BINDING_HISTORY"
 
 
 def test_device_session_rejects_inactive_tool_session_and_device_token_create(
@@ -755,6 +982,14 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     assert login.status_code == 200
     user_token = str(login.json()["data"]["access_token"])
 
+    legacy_create = client.post(
+        "/api/v1/device-sessions",
+        headers=auth_header(user_token),
+        json={"device_id": str(uuid4()), "tool_session_id": str(uuid4())},
+    )
+    assert legacy_create.status_code == 403
+    assert legacy_create.json()["error"]["code"] == "DEVICE_CONTROL_LEGACY_CREATE_RESTRICTED"
+
     forbidden_policy = client.get("/api/v1/device-sessions/policy", headers=auth_header(user_token))
     assert forbidden_policy.status_code == 403
     policy = client.get("/api/v1/device-sessions/policy", headers=auth_header(admin_token))
@@ -800,6 +1035,15 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     assert stopped.status_code == 200
     assert stopped.json()["data"]["status"] == "stopped"
     assert stopped.json()["data"]["lock_acquired_at"] is None
+
+    async def read_tool_session_status() -> str:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            return tool_session.status
+
+    assert asyncio.run(read_tool_session_status()) == "running"
 
     async def read_admin_audit() -> AuditLog:
         app = cast(FastAPI, client.app)
@@ -1139,7 +1383,7 @@ async def test_device_session_service_complete_state_machine() -> None:
                 id=uuid4(),
                 username="service-user",
                 display_name="Service User",
-                role="user",
+                role="admin",
                 status="active",
                 password_hash="hashed",
                 totp_enabled=False,
@@ -1280,7 +1524,7 @@ async def test_device_session_service_rejects_wrong_binding_and_expired_lease() 
                 id=uuid4(),
                 username="negative-user",
                 display_name="Negative User",
-                role="user",
+                role="admin",
                 status="active",
                 password_hash="hashed",
                 totp_enabled=False,

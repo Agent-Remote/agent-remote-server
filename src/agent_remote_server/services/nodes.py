@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -23,6 +24,10 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import create_opaque_token, hash_token
+from agent_remote_server.services.device_sessions import (
+    DeviceSessionService,
+    RevokedDeviceBinding,
+)
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 
 RUNTIME_BACKENDS = {"docker_sandbox", "native"}
@@ -53,11 +58,17 @@ class NodeService:
     节点管理和节点任务服务
     """
 
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        relay_hub: DeviceRelayHub | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
         self._repository = NodeRepository(session)
         self._identity_repository = IdentityRepository(session)
+        self._relay_hub = relay_hub
 
     async def create_node(
         self,
@@ -694,6 +705,7 @@ class NodeService:
             )
         interrupted_count = 0
         cleanup_count = 0
+        revoked_bindings: list[RevokedDeviceBinding] = []
         if "runtime_sessions" in sections:
             reported = self._reported_runtime_sessions(snapshot)
             active_sessions = await self._repository.list_active_sessions_for_node(node.id)
@@ -705,6 +717,15 @@ class NodeService:
                     continue
                 if runtime is not None and runtime.get("active") is True:
                     continue
+                device_stop = await DeviceSessionService(
+                    self._session, self._settings, self._relay_hub
+                ).stop_for_tool_session(
+                    tool_session_id=tool_session.id,
+                    reason="node_reconcile",
+                    audit_action="device_session.node_reconcile",
+                    commit=False,
+                )
+                revoked_bindings.extend(device_stop.revoked_bindings)
                 if runtime is not None and runtime.get("exit_reason") == "process_exited":
                     await self._enqueue_reconciled_session_cleanup(tool_session)
                     cleanup_count += 1
@@ -724,6 +745,9 @@ class NodeService:
             },
         )
         await self._session.commit()
+        await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).close_revoked_bindings(revoked_bindings)
 
     async def _enqueue_reconciled_session_cleanup(self, tool_session: Session) -> None:
         task_id = f"cleanup_tool_session:{tool_session.id}"

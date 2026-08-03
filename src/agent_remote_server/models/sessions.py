@@ -161,7 +161,20 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
         ),
         Index("device_sessions_user_status_idx", "user_id", "status", "created_at"),
         Index("device_sessions_device_status_idx", "device_id", "status", "created_at"),
-        Index("device_sessions_tool_uidx", "tool_session_id", unique=True),
+        Index(
+            "device_sessions_tool_uidx",
+            "tool_session_id",
+            unique=True,
+            sqlite_where=text("status NOT IN ('stopped', 'denied', 'expired', 'failed')"),
+            postgresql_where=text("status NOT IN ('stopped', 'denied', 'expired', 'failed')"),
+        ),
+        Index(
+            "device_sessions_device_live_uidx",
+            "device_id",
+            unique=True,
+            sqlite_where=text("status NOT IN ('stopped', 'denied', 'expired', 'failed')"),
+            postgresql_where=text("status NOT IN ('stopped', 'denied', 'expired', 'failed')"),
+        ),
         Index("device_sessions_lease_idx", "status", "lease_until"),
         Index(
             "device_sessions_machine_lock_uidx",
@@ -178,9 +191,10 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
     device_id: Mapped[UUID] = mapped_column(
         ForeignKey("user_devices.id", ondelete="CASCADE"), nullable=False
     )
-    tool_session_id: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    tool_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
     )
+    tool_session_reference_id: Mapped[UUID] = mapped_column(nullable=False)
     node_id: Mapped[UUID] = mapped_column(
         ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
     )
@@ -194,6 +208,15 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
     )
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    @property
+    def binding_tool_session_id(self) -> UUID:
+        """返回历史保留后仍稳定的远端工具 session 引用。"""
+
+        value = self.tool_session_reference_id or self.tool_session_id
+        if value is None:
+            raise RuntimeError("device session is missing its tool-session reference")
+        return value
 
 
 class DeviceSessionApproval(IdMixin, Base):

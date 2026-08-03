@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.models import (
     BrowserSession,
+    DeviceSession,
     Node,
     NodeHeartbeat,
     NodeTask,
@@ -83,6 +84,7 @@ class NodeRepository:
             select(SyncSession.id).where(SyncSession.node_id == node_id).limit(1),
             select(Session.id).where(Session.node_id == node_id).limit(1),
             select(BrowserSession.id).where(BrowserSession.node_id == node_id).limit(1),
+            select(DeviceSession.id).where(DeviceSession.node_id == node_id).limit(1),
         )
         for statement in statements:
             if await self._session.scalar(statement) is not None:

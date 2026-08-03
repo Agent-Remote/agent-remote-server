@@ -63,11 +63,18 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 
 ## Local Device Control Sessions
 
-- `device_sessions` binds one macOS device to exactly one user-owned remote tool session and
-  its assigned node. The client cannot override any member of that binding.
-- A user token may request or stop control. Only the bound device token may report the local
-  connection, submit local application approval, acquire the machine lock, renew the lease,
-  reconnect, or invoke device-side stop.
+- `device_sessions` binds one macOS device to exactly one user-owned remote Claude session and
+  its assigned node. The server is the only binding source of truth; every runtime operation
+  matches user, device, tool session, device session, node, and generation.
+- The Device APP uses its device token to list minimal running Claude candidates and atomically
+  claim one candidate for itself. The server derives user and device identity from the token;
+  the request cannot override either identity.
+- At most one non-terminal binding may exist for a tool session and, in the first release, for a
+  device. Claiming stops conflicting bindings with reason `rebound`, preserves their audit
+  history, and creates a new `pending_device` record that requires fresh local approval.
+- Only the bound device token may report the local connection, submit local application
+  approval, acquire the machine lock, renew the lease, reconnect, or invoke device-side stop.
+  The owning user and an administrator may end control, but cannot replace local approval.
 - Reconnect and current-action abort increment the generation and clear the old lease while
   retaining an acquired machine lock. Only explicit session end, confirmed remote-session
   failure, or lease expiry releases the lock. Stop increments the generation and clears both.
@@ -111,3 +118,8 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   metadata and device-session audit metadata. A bounded background service deletes only terminal
   sessions older than the configured stop-time cutoff and audit rows whose target type is
   `device_session`; it never deletes active sessions or general identity audit records.
+- App end, Web stop, device revoke, lease expiry, tool-session stop, and Node reconciliation all
+  use the same revocation service. Ending device control leaves the remote Claude session
+  running; stopping or losing the remote Claude session also revokes its live device binding.
+- Database revocation closes already established relay pairs through cross-worker Redis
+  notification. A local in-memory close alone is insufficient for multi-worker deployment.

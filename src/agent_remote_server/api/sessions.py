@@ -7,11 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.api.deps import (
     get_current_token,
     get_current_user,
+    get_device_relay_hub,
     get_session,
     get_settings,
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.models import AuthToken, Session, User, Workspace
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.connections import AttachSessionData, AttachSessionResponse
@@ -129,6 +131,7 @@ async def delete_inactive_sessions(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> EmptyResponse:
     """
     删除当前用户全部已停止和已中断工具 session
@@ -140,7 +143,7 @@ async def delete_inactive_sessions(
     :return EmptyResponse: 空响应
     """
 
-    await ToolSessionService(session, settings).delete_inactive_sessions(user=user)
+    await ToolSessionService(session, settings, relay_hub).delete_inactive_sessions(user=user)
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -200,6 +203,7 @@ async def delete_session(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> EmptyResponse:
     """
     删除已停止或已中断工具 session
@@ -212,7 +216,9 @@ async def delete_session(
     :return EmptyResponse: 空响应
     """
 
-    await ToolSessionService(session, settings).delete_session(user=user, session_id=session_id)
+    await ToolSessionService(session, settings, relay_hub).delete_session(
+        user=user, session_id=session_id
+    )
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -222,6 +228,7 @@ async def stop_session(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> SessionResponse:
     """
     停止工具运行 session
@@ -234,7 +241,7 @@ async def stop_session(
     :return SessionResponse: session 响应
     """
 
-    tool_session = await ToolSessionService(session, settings).stop_session(
+    tool_session = await ToolSessionService(session, settings, relay_hub).stop_session(
         user=user, session_id=session_id
     )
     return SessionResponse(data=session_data(tool_session), request_id=get_request_id())

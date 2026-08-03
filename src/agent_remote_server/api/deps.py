@@ -13,6 +13,7 @@ from agent_remote_server.device_control_release import (
     DeviceControlReleaseEvidenceError,
     ensure_device_control_release_evidence_current,
 )
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.device_relay_store import DeviceRelayStore
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, Node, User
@@ -59,6 +60,18 @@ def get_device_relay_store(request: Request) -> DeviceRelayStore:
     """
 
     return request.app.state.device_relay_store
+
+
+def get_device_relay_hub(request: Request) -> DeviceRelayHub:
+    """
+    获取设备密文 relay 的进程内连接中心
+
+    :param request (Request): 当前请求
+
+    :return DeviceRelayHub: 设备密文 relay 连接中心
+    """
+
+    return request.app.state.device_relay_hub
 
 
 def require_current_device_control_release(

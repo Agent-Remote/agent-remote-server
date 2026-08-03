@@ -9,6 +9,7 @@ from agent_remote_server.api.deps import (
     get_current_node,
     get_current_token,
     get_current_user,
+    get_device_relay_hub,
     get_device_relay_store,
     get_session,
     get_settings,
@@ -30,11 +31,14 @@ from agent_remote_server.repositories.device_sessions import DeviceSessionReposi
 from agent_remote_server.schemas.device_sessions import (
     AbortDeviceActionRequest,
     ApproveDeviceSessionRequest,
+    ClaimDeviceSessionRequest,
     CreateDeviceSessionRequest,
     DeviceControlPolicyData,
     DeviceControlPolicyResponse,
     DeviceRelayMaterialData,
     DeviceRelayMaterialResponse,
+    DeviceSessionCandidateListData,
+    DeviceSessionCandidateListResponse,
     DeviceSessionData,
     DeviceSessionListData,
     DeviceSessionListResponse,
@@ -99,7 +103,7 @@ def _data(device_session: DeviceSession) -> DeviceSessionData:
         id=device_session.id,
         user_id=device_session.user_id,
         device_id=device_session.device_id,
-        tool_session_id=device_session.tool_session_id,
+        tool_session_id=device_session.binding_tool_session_id,
         node_id=device_session.node_id,
         platform="macos",
         status=cast(DeviceSessionStatus, device_session.status),
@@ -151,7 +155,7 @@ async def create_device_session(
     token: Annotated[AuthToken, Depends(get_current_token)],
 ) -> DeviceSessionResponse:
     """
-    创建严格绑定当前用户、设备和远端工具 session 的控制会话
+    管理员迁移兼容：创建严格绑定设备和远端工具 session 的控制会话
 
     :param payload (CreateDeviceSessionRequest): 创建设备控制会话请求
     :param _release_gate (None): 当前生产发布证据门禁
@@ -170,6 +174,35 @@ async def create_device_session(
         tool_session_id=payload.tool_session_id,
     )
     return DeviceSessionResponse(data=_data(device_session), request_id=get_request_id())
+
+
+@router.post("/claim", response_model=DeviceSessionResponse)
+async def claim_device_session(
+    payload: ClaimDeviceSessionRequest,
+    _release_gate: DeviceControlReleaseGate,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    token: Annotated[AuthToken, Depends(get_current_token)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+) -> DeviceSessionResponse:
+    """
+    由当前 Device APP 原子 claim 一个远端 Claude session
+
+    :param payload (ClaimDeviceSessionRequest): 待 claim 的远端 session
+    :param _release_gate (None): 当前生产发布证据门禁
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param token (AuthToken): 当前设备认证令牌
+    :param relay_hub (DeviceRelayHub): 设备密文 relay 连接中心
+
+    :return DeviceSessionResponse: 新的设备控制会话
+    """
+
+    result = await DeviceSessionService(session, settings, relay_hub).claim(
+        token=token,
+        tool_session_id=payload.tool_session_id,
+    )
+    return DeviceSessionResponse(data=_data(result.device_session), request_id=get_request_id())
 
 
 @router.get("", response_model=DeviceSessionListResponse)
@@ -221,6 +254,29 @@ async def list_device_session_inbox(
     items = await DeviceSessionService(session, settings).list_for_device(token=token)
     return DeviceSessionListResponse(
         data=DeviceSessionListData(items=[_data(item) for item in items]),
+        request_id=get_request_id(),
+    )
+
+
+@router.get("/candidates", response_model=DeviceSessionCandidateListResponse)
+async def list_device_session_candidates(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    token: Annotated[AuthToken, Depends(get_current_token)],
+) -> DeviceSessionCandidateListResponse:
+    """
+    列出当前 Device APP 可以选择的远端 Claude session
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param token (AuthToken): 当前设备认证令牌
+
+    :return DeviceSessionCandidateListResponse: 最小化候选列表
+    """
+
+    items = await DeviceSessionService(session, settings).list_candidates(token=token)
+    return DeviceSessionCandidateListResponse(
+        data=DeviceSessionCandidateListData(items=items),
         request_id=get_request_id(),
     )
 
@@ -437,6 +493,7 @@ async def stop_device_session(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     token: Annotated[AuthToken, Depends(get_current_token)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> DeviceSessionResponse:
     """
     由当前用户或绑定设备立即停止并撤销设备控制
@@ -451,7 +508,7 @@ async def stop_device_session(
     :return DeviceSessionResponse: 已停止的设备控制会话响应
     """
 
-    service = DeviceSessionService(session, settings)
+    service = DeviceSessionService(session, settings, relay_hub)
     if token.token_type == "device":
         device_session = await service.stop_by_device(
             token=token, device_session_id=device_session_id, reason=payload.reason
@@ -622,7 +679,7 @@ async def _relay_claims_are_current(
     exact_binding = (
         device_session.user_id == binding.user_id
         and device_session.device_id == binding.device_id
-        and device_session.tool_session_id == binding.tool_session_id
+        and device_session.binding_tool_session_id == binding.tool_session_id
         and device_session.node_id == binding.node_id
         and device_session.generation == binding.generation
     )

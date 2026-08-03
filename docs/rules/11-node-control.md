@@ -34,9 +34,14 @@
 - Store section names and summary keys in audit logs, not full sensitive state.
 - Runtime session summaries contain only session IDs, backend names, neutral resource IDs, and active flags.
 - Reconciliation marks inactive native sessions `interrupted` and may enqueue idempotent runtime cleanup without changing that user-visible status; it must not request command replay.
+- When reconciliation marks a tool session interrupted or confirms process exit, it also revokes
+  the session's live device-control binding in the same database transaction.
 
 ## Runtime Tasks
 
 - Account binding, session lifecycle, workspace ownership, Docker access, and native isolation are executed through the node's privileged runtime helper.
 - Runtime task payloads carry IDs, locale, timezone, bounded policy, and declared backend. They must not carry host-derived paths outside managed roots.
 - Backend migration requires no active sessions and a live target capability. Task failure preserves the original pinned backend.
+- Device-control activate, context-update, and deactivate tasks carry the complete binding.
+  Delayed deactivation is a successful no-op when the active context belongs to a different
+  `device_session_id` or newer generation; it must never stop the replacement bridge.

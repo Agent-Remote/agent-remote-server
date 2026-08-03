@@ -2,8 +2,9 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from agent_remote_server.models import (
     DeviceSession,
@@ -12,6 +13,7 @@ from agent_remote_server.models import (
     NodeTask,
     Session,
     UserDevice,
+    Workspace,
 )
 
 
@@ -59,27 +61,37 @@ class DeviceSessionRepository:
             statement = statement.with_for_update()
         return await self._session.scalar(statement)
 
-    async def get_tool_session(self, tool_session_id: UUID) -> Session | None:
+    async def get_tool_session(
+        self, tool_session_id: UUID, *, for_update: bool = False
+    ) -> Session | None:
         """
         读取绑定的远端工具 session
 
         :param tool_session_id (UUID): 远端工具 session ID
+        :param for_update (bool): 是否获取数据库行锁
 
         :return Session | None: 远端工具 session 实体
         """
 
-        return await self._session.get(Session, tool_session_id)
+        statement = select(Session).where(Session.id == tool_session_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return await self._session.scalar(statement)
 
-    async def get_device(self, device_id: UUID) -> UserDevice | None:
+    async def get_device(self, device_id: UUID, *, for_update: bool = False) -> UserDevice | None:
         """
         读取被控制设备
 
         :param device_id (UUID): 被控制设备 ID
+        :param for_update (bool): 是否获取数据库行锁
 
         :return UserDevice | None: 用户设备实体
         """
 
-        return await self._session.get(UserDevice, device_id)
+        statement = select(UserDevice).where(UserDevice.id == device_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return await self._session.scalar(statement)
 
     async def get_node(self, node_id: UUID) -> Node | None:
         """
@@ -124,6 +136,172 @@ class DeviceSessionRepository:
             .order_by(DeviceSession.created_at.asc())
         )
         return result.all()
+
+    async def list_live_for_binding(
+        self, *, tool_session_id: UUID, device_id: UUID, for_update: bool = False
+    ) -> Sequence[DeviceSession]:
+        """
+        查询某个 Claude session 或本机设备当前占用的 live binding
+
+        :param tool_session_id (UUID): 候选远端工具 session ID
+        :param device_id (UUID): 当前认证设备 ID
+
+        :return Sequence[DeviceSession]: 需要在 claim 事务中处理的 live 绑定
+        """
+
+        statement = (
+            select(DeviceSession)
+            .where(
+                or_(
+                    DeviceSession.tool_session_id == tool_session_id,
+                    DeviceSession.device_id == device_id,
+                )
+            )
+            .where(DeviceSession.status.not_in({"stopped", "denied", "expired", "failed"}))
+            .order_by(DeviceSession.id.asc())
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await self._session.scalars(statement)
+        return result.all()
+
+    async def list_live_for_device(
+        self, device_id: UUID, *, for_update: bool = False
+    ) -> Sequence[DeviceSession]:
+        """
+        查询某个设备的全部 live 控制绑定
+
+        :param device_id (UUID): 设备 ID
+        :param for_update (bool): 是否获取数据库行锁
+
+        :return Sequence[DeviceSession]: live 设备控制绑定
+        """
+
+        statement = (
+            select(DeviceSession)
+            .where(DeviceSession.device_id == device_id)
+            .where(DeviceSession.status.not_in({"stopped", "denied", "expired", "failed"}))
+            .order_by(DeviceSession.id.asc())
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await self._session.scalars(statement)
+        return result.all()
+
+    async def has_any_for_device(self, device_id: UUID) -> bool:
+        """判断设备是否仍有受 retention 管理的控制绑定历史。"""
+
+        return (
+            await self._session.scalar(
+                select(DeviceSession.id).where(DeviceSession.device_id == device_id).limit(1)
+            )
+            is not None
+        )
+
+    async def acquire_user_claim_lock(self, user_id: UUID) -> None:
+        """
+        在 PostgreSQL 中串行化同一用户的 claim/rebind 事务
+
+        :param user_id (UUID): 当前设备所属用户 ID
+        """
+
+        if self._session.get_bind().dialect.name != "postgresql":
+            return
+        key = user_id.int & ((1 << 63) - 1)
+        await self._session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    async def list_live_for_tool_session(
+        self, tool_session_id: UUID, *, for_update: bool = False
+    ) -> Sequence[DeviceSession]:
+        """
+        查询某个远端 Claude session 的全部 live 设备绑定
+
+        :param tool_session_id (UUID): 远端工具 session ID
+        :param for_update (bool): 是否获取数据库行锁
+
+        :return Sequence[DeviceSession]: live 设备控制绑定
+        """
+
+        statement = (
+            select(DeviceSession)
+            .where(DeviceSession.tool_session_id == tool_session_id)
+            .where(DeviceSession.status.not_in({"stopped", "denied", "expired", "failed"}))
+            .order_by(DeviceSession.id.asc())
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await self._session.scalars(statement)
+        return result.all()
+
+    async def list_due(self, now: datetime) -> Sequence[DeviceSession]:
+        """
+        查询已经超过最大 TTL 的 live 设备控制绑定并锁定
+
+        :param now (datetime): 当前 UTC 时间
+
+        :return Sequence[DeviceSession]: 待过期绑定
+        """
+
+        result = await self._session.scalars(
+            select(DeviceSession)
+            .where(DeviceSession.status.not_in({"stopped", "denied", "expired", "failed"}))
+            .where(DeviceSession.expires_at <= now)
+            .order_by(DeviceSession.expires_at.asc(), DeviceSession.id.asc())
+            .with_for_update()
+        )
+        return result.all()
+
+    async def lock_bindings(self, device_session_ids: Sequence[UUID]) -> Sequence[DeviceSession]:
+        """
+        按稳定顺序锁定 claim 涉及的所有 live binding
+
+        :param device_session_ids (Sequence[UUID]): 待锁定的设备控制会话 ID
+
+        :return Sequence[DeviceSession]: 已锁定的设备控制会话
+        """
+
+        if not device_session_ids:
+            return []
+        result = await self._session.scalars(
+            select(DeviceSession)
+            .where(DeviceSession.id.in_(set(device_session_ids)))
+            .order_by(DeviceSession.id.asc())
+            .with_for_update()
+        )
+        return result.all()
+
+    async def list_candidate_rows(
+        self, user_id: UUID
+    ) -> Sequence[tuple[Session, Node, DeviceSession | None, UserDevice | None, Workspace]]:
+        """
+        查询用户可见的 Claude 控制候选及其当前 live 绑定
+
+        :param user_id (UUID): 用户 ID
+
+        :return Sequence[tuple]: Claude session、Node、live binding、设备和工作区
+        """
+
+        binding = aliased(DeviceSession)
+        bound_device = aliased(UserDevice)
+        result = await self._session.execute(
+            select(Session, Node, binding, bound_device, Workspace)
+            .join(Node, Node.id == Session.node_id)
+            .join(Workspace, Workspace.id == Session.workspace_id)
+            .outerjoin(
+                binding,
+                and_(
+                    binding.tool_session_id == Session.id,
+                    binding.status.not_in({"stopped", "denied", "expired", "failed"}),
+                ),
+            )
+            .outerjoin(bound_device, bound_device.id == binding.device_id)
+            .where(Session.user_id == user_id)
+            .where(Session.tool_type == "claude")
+            .where(Session.status.in_({"running", "active", "detached"}))
+            .where(Session.device_control_protocol_version == 1)
+            .order_by(Session.updated_at.desc(), Session.id.asc())
+        )
+        return result.tuples().all()
 
     async def list_all(self) -> Sequence[DeviceSession]:
         """

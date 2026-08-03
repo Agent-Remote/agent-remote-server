@@ -19,6 +19,7 @@ DeviceSessionStatus = Literal[
     "expired",
     "failed",
 ]
+ToolSessionStatus = Literal["running", "active", "detached"]
 ControlLevel = Literal["view_only", "click_only", "full_control"]
 
 
@@ -29,6 +30,53 @@ class CreateDeviceSessionRequest(BaseModel):
 
     device_id: UUID = Field(..., description="待控制的本机设备 ID")
     tool_session_id: UUID = Field(..., description="绑定的远端 Claude session ID")
+
+
+class ClaimDeviceSessionRequest(BaseModel):
+    """
+    当前设备主动 claim 远端 Claude session 请求
+    """
+
+    tool_session_id: UUID = Field(..., description="待绑定的远端 Claude session ID")
+
+
+class DeviceSessionCandidateData(BaseModel):
+    """
+    设备应用可选择的远端 Claude session 候选
+    """
+
+    tool_session_id: UUID = Field(..., description="远端工具 session ID")
+    tool_type: Literal["claude"] = Field(..., description="工具类型")
+    tool_account_id: UUID = Field(..., description="远端工具账户 ID")
+    workspace_id: UUID = Field(..., description="远端工作区 ID")
+    project_key: str = Field(..., description="项目 key")
+    display_name: str = Field(..., description="供本机应用展示的项目名称")
+    status: ToolSessionStatus = Field(..., description="远端工具 session 状态")
+    node_id: UUID = Field(..., description="远端 Node ID")
+    runtime_backend: str = Field(..., description="固定运行时 backend")
+    current_device_id: UUID | None = Field(default=None, description="当前绑定设备 ID")
+    current_device_name: str | None = Field(default=None, description="当前绑定设备名称")
+    device_session_id: UUID | None = Field(default=None, description="当前设备控制会话 ID")
+    controllable: bool = Field(..., description="当前设备是否可以 claim")
+
+
+class DeviceSessionCandidateListData(BaseModel):
+    """
+    设备应用可选择的远端 Claude session 候选列表
+    """
+
+    items: list[DeviceSessionCandidateData] = Field(
+        default_factory=list, description="远端 Claude session 候选列表"
+    )
+
+
+class DeviceSessionCandidateListResponse(BaseModel):
+    """
+    设备应用可选择的远端 Claude session 候选响应
+    """
+
+    data: DeviceSessionCandidateListData = Field(..., description="远端 Claude session 候选")
+    request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class DeviceSessionData(BaseModel):

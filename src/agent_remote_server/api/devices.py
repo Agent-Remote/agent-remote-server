@@ -5,9 +5,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.api.auth import _token_data
-from agent_remote_server.api.deps import get_current_user, get_session, get_settings
+from agent_remote_server.api.deps import (
+    get_current_user,
+    get_device_relay_hub,
+    get_session,
+    get_settings,
+)
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.models import User, UserDevice
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.devices import (
@@ -131,6 +137,7 @@ async def revoke_device(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> EmptyResponse:
     """
     撤销设备
@@ -143,7 +150,9 @@ async def revoke_device(
     :return EmptyResponse: 空响应
     """
 
-    await IdentityService(session, settings).revoke_device(actor=user, device_id=device_id)
+    await IdentityService(session, settings, relay_hub).revoke_device(
+        actor=user, device_id=device_id
+    )
     return EmptyResponse(request_id=get_request_id())
 
 

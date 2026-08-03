@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -20,6 +21,7 @@ from agent_remote_server.models import (
     WireGuardPeer,
 )
 from agent_remote_server.repositories import IdentityRepository, NodeRepository
+from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
 from agent_remote_server.security import (
     create_opaque_token,
     decrypt_text,
@@ -30,6 +32,7 @@ from agent_remote_server.security import (
     verify_password,
     verify_totp_code,
 )
+from agent_remote_server.services.device_sessions import DeviceSessionService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 
@@ -75,11 +78,17 @@ class IdentityService:
     身份认证和设备服务
     """
 
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        relay_hub: DeviceRelayHub | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
         self._repository = IdentityRepository(session)
         self._node_repository = NodeRepository(session)
+        self._relay_hub = relay_hub
 
     async def bootstrap_required(self) -> bool:
         """
@@ -637,6 +646,15 @@ class IdentityService:
         """
 
         device = await self._require_visible_device(actor=actor, device_id=device_id)
+        device_stop = await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).stop_for_device(
+            device_id=device.id,
+            reason="device_revoked",
+            actor_user_id=actor.id,
+            audit_action="device_session.device_revoke",
+            commit=False,
+        )
         revoked_at = self._now()
         device.status = "revoked"
         for ssh_key in await self._repository.list_ssh_keys_for_device(device.id):
@@ -678,6 +696,9 @@ class IdentityService:
             details={"device_user_id": str(device.user_id)},
         )
         await self._session.commit()
+        await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).close_revoked_bindings(device_stop.revoked_bindings)
         return device
 
     async def delete_device(self, *, actor: User, device_id: UUID) -> None:
@@ -699,6 +720,12 @@ class IdentityService:
             raise ApiError(
                 code="DEVICE_DELETE_BLOCKED",
                 message="Delete the device workspaces before deleting the device.",
+                status_code=409,
+            )
+        if await DeviceSessionRepository(self._session).has_any_for_device(device.id):
+            raise ApiError(
+                code="DEVICE_DELETE_BINDING_HISTORY",
+                message="Device control history must expire before deleting this device.",
                 status_code=409,
             )
         await self._audit(

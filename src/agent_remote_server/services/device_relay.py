@@ -231,7 +231,7 @@ class DeviceRelayService:
         return DeviceRelayBinding(
             user_id=device_session.user_id,
             device_id=device_session.device_id,
-            tool_session_id=device_session.tool_session_id,
+            tool_session_id=device_session.binding_tool_session_id,
             device_session_id=device_session.id,
             node_id=device_session.node_id,
             generation=device_session.generation,

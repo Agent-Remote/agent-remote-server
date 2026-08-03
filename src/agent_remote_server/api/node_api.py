@@ -3,9 +3,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.api.deps import get_current_node, get_session, get_settings
+from agent_remote_server.api.deps import (
+    get_current_node,
+    get_device_relay_hub,
+    get_session,
+    get_settings,
+)
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.models import Node
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.schemas.auth import EmptyResponse
@@ -247,6 +253,7 @@ async def reconcile(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> EmptyResponse:
     """
     提交节点对账快照
@@ -259,7 +266,7 @@ async def reconcile(
     :return EmptyResponse: 空响应
     """
 
-    await NodeService(session, settings).reconcile(
+    await NodeService(session, settings, relay_hub).reconcile(
         node=node,
         node_id=payload.node_id,
         sections=payload.sections,

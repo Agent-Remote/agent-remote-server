@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -12,7 +12,7 @@ from sqlalchemy import select
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import AuditLog, Node, NodeTaskResult
+from agent_remote_server.models import AuditLog, DeviceSession, Node, NodeTaskResult
 from agent_remote_server.services.nodes import NodeService
 
 
@@ -371,3 +371,58 @@ def test_node_delete_requires_disabled_unreferenced_node(client: TestClient) -> 
     assert (
         client.get(f"/api/v1/nodes/{node_id}", headers=auth_header(admin_token)).status_code == 404
     )
+
+
+def test_node_delete_is_blocked_by_retained_device_binding(client: TestClient) -> None:
+    """禁用 Node 也不能级联删除受 retention 管理的设备控制历史。"""
+
+    admin_token = bootstrap(client)
+    created = client.post(
+        "/api/v1/nodes",
+        headers=auth_header(admin_token),
+        json={
+            "name": "retained-binding-node",
+            "region_code": "US",
+            "tags": [],
+            "weight": 10,
+            "supported_tool_types": ["claude"],
+        },
+    )
+    assert created.status_code == 200
+    node_id = UUID(created.json()["data"]["node"]["id"])
+
+    async def add_retained_binding() -> None:
+        app = cast(FastAPI, client.app)
+        tool_session_id = uuid4()
+        async with app.state.session_factory() as session:
+            session.add(
+                DeviceSession(
+                    user_id=uuid4(),
+                    device_id=uuid4(),
+                    tool_session_id=tool_session_id,
+                    tool_session_reference_id=tool_session_id,
+                    node_id=node_id,
+                    platform="macos",
+                    status="stopped",
+                    generation=2,
+                    expires_at=datetime.now(UTC) + timedelta(days=30),
+                    stopped_at=datetime.now(UTC),
+                    stop_reason="session_end",
+                )
+            )
+            await session.commit()
+
+    asyncio.run(add_retained_binding())
+    assert (
+        client.post(
+            f"/api/v1/nodes/{node_id}/disable",
+            headers=auth_header(admin_token),
+        ).status_code
+        == 200
+    )
+    deleted = client.delete(
+        f"/api/v1/nodes/{node_id}",
+        headers=auth_header(admin_token),
+    )
+    assert deleted.status_code == 409
+    assert deleted.json()["error"]["code"] == "NODE_DELETE_BLOCKED"

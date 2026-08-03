@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
+from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -16,6 +17,10 @@ from agent_remote_server.models import (
 )
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.sessions import SessionRepository
+from agent_remote_server.services.device_sessions import (
+    DeviceSessionService,
+    RevokedDeviceBinding,
+)
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTIVE_NODE_STATUSES
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
@@ -38,12 +43,18 @@ class ToolSessionService:
     工具运行 session 生命周期服务
     """
 
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        relay_hub: DeviceRelayHub | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
         self._repository = SessionRepository(session)
         self._identity_repository = IdentityRepository(session)
         self._registry = ToolRegistry()
+        self._relay_hub = relay_hub
 
     async def list_sessions(
         self, *, user: User, tool_type: str | None, statuses: list[str] | None
@@ -268,6 +279,15 @@ class ToolSessionService:
         tool_session = await self._require_user_session(user=user, session_id=session_id)
         if tool_session.status in {"stopped", "failed"}:
             return tool_session
+        device_stop = await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).stop_for_tool_session(
+            tool_session_id=tool_session.id,
+            reason="tool_session_stop",
+            actor_user_id=user.id,
+            audit_action="device_session.session_stop",
+            commit=False,
+        )
         task_id = f"stop_tool_session:{tool_session.id}"
         existing = await self._repository.get_task_by_task_id(task_id)
         if existing is None:
@@ -302,6 +322,9 @@ class ToolSessionService:
             details={"task_id": task_id},
         )
         await self._session.commit()
+        await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).close_revoked_bindings(device_stop.revoked_bindings)
         return tool_session
 
     async def delete_session(self, *, user: User, session_id: UUID) -> None:
@@ -319,6 +342,15 @@ class ToolSessionService:
                 message="Only stopped or interrupted sessions can be deleted.",
                 status_code=409,
             )
+        device_stop = await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).stop_for_tool_session(
+            tool_session_id=tool_session.id,
+            reason="tool_session_delete",
+            actor_user_id=user.id,
+            audit_action="device_session.session_stop",
+            commit=False,
+        )
         await self._audit(
             actor_user_id=user.id,
             action="sessions.delete",
@@ -328,6 +360,9 @@ class ToolSessionService:
         )
         await self._repository.delete_session(tool_session)
         await self._session.commit()
+        await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).close_revoked_bindings(device_stop.revoked_bindings)
 
     async def delete_inactive_sessions(self, *, user: User) -> int:
         """
@@ -345,7 +380,18 @@ class ToolSessionService:
         )
         if not sessions:
             return 0
+        revoked_bindings: list[RevokedDeviceBinding] = []
         for tool_session in sessions:
+            device_stop = await DeviceSessionService(
+                self._session, self._settings, self._relay_hub
+            ).stop_for_tool_session(
+                tool_session_id=tool_session.id,
+                reason="tool_session_bulk_delete",
+                actor_user_id=user.id,
+                audit_action="device_session.session_stop",
+                commit=False,
+            )
+            revoked_bindings.extend(device_stop.revoked_bindings)
             await self._repository.delete_session(tool_session)
         await self._audit(
             actor_user_id=user.id,
@@ -358,6 +404,9 @@ class ToolSessionService:
             },
         )
         await self._session.commit()
+        await DeviceSessionService(
+            self._session, self._settings, self._relay_hub
+        ).close_revoked_bindings(revoked_bindings)
         return len(sessions)
 
     async def _require_user_session(self, *, user: User, session_id: UUID) -> Session:
