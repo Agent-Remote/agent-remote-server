@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.8 - 2026-08-03
+
+- test: isolate health checks from redis (adc1de3)
+- feat: add local device session binding (2089f35)
+
 ## v0.1.7 - 2026-08-01
 
 - feat: support multi-architecture release evidence (68daf3e)
