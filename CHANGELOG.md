@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.1.9 - 2026-08-04
+
+- Release metadata update.
+
 ## v0.1.8 - 2026-08-03
 
 - test: isolate health checks from redis (adc1de3)
