@@ -4,7 +4,8 @@ All notable changes to this repository are recorded here.
 
 ## v0.1.9 - 2026-08-04
 
-- Release metadata update.
+- fix: update cryptography security baseline (1faae85)
+- chore: release v0.1.9 (12b8f0a)
 
 ## v0.1.8 - 2026-08-03
 
