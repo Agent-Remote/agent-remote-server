@@ -28,6 +28,7 @@ from agent_remote_server.device_relay_store import DeviceRelayStore, DeviceRelay
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, DeviceSession, Node, User
 from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.device_sessions import (
     AbortDeviceActionRequest,
     ApproveDeviceSessionRequest,
@@ -235,6 +236,18 @@ async def list_device_sessions(
     )
 
 
+@router.delete("", response_model=EmptyResponse)
+async def delete_terminal_device_sessions(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """删除当前用户可见的全部已结束设备控制会话。"""
+
+    await DeviceSessionService(session, settings).delete_terminal_sessions(user=user)
+    return EmptyResponse(request_id=get_request_id())
+
+
 @router.get("/device-inbox", response_model=DeviceSessionListResponse)
 async def list_device_session_inbox(
     settings: Annotated[Settings, Depends(get_settings)],
@@ -303,6 +316,21 @@ async def get_device_session(
         user=user, device_session_id=device_session_id
     )
     return DeviceSessionResponse(data=_data(device_session), request_id=get_request_id())
+
+
+@router.delete("/{device_session_id}", response_model=EmptyResponse)
+async def delete_device_session(
+    device_session_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """删除当前用户拥有的已结束设备控制会话。"""
+
+    await DeviceSessionService(session, settings).delete_for_user(
+        user=user, device_session_id=device_session_id
+    )
+    return EmptyResponse(request_id=get_request_id())
 
 
 @router.post("/{device_session_id}/device-connected", response_model=DeviceSessionResponse)

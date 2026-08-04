@@ -399,6 +399,52 @@ class DeviceSessionService:
             raise ApiError(code="COMMON_FORBIDDEN", message="Admin role required.", status_code=403)
         return list(await self._repository.list_all())
 
+    async def delete_for_user(self, *, user: User, device_session_id: UUID) -> None:
+        """删除当前用户拥有的终态设备控制会话。"""
+
+        device_session = await self._require(device_session_id, for_update=True)
+        if device_session.user_id != user.id and user.role != "admin":
+            raise ApiError(
+                code="COMMON_NOT_FOUND", message="Device session was not found.", status_code=404
+            )
+        if device_session.status not in TERMINAL_DEVICE_STATUSES:
+            raise ApiError(
+                code="DEVICE_SESSION_NOT_TERMINAL",
+                message="Only ended device sessions can be deleted.",
+                status_code=409,
+            )
+        await self._session.delete(device_session)
+        await self._audit(
+            user.id,
+            "device_session.delete",
+            device_session,
+            {"status": device_session.status},
+        )
+        await self._session.commit()
+
+    async def delete_terminal_sessions(self, *, user: User) -> int:
+        """删除当前用户可见的全部终态设备控制会话。"""
+
+        sessions = list(
+            await (
+                self._repository.list_all()
+                if user.role == "admin"
+                else self._repository.list_for_user(user.id)
+            )
+        )
+        deletable = [item for item in sessions if item.status in TERMINAL_DEVICE_STATUSES]
+        for device_session in deletable:
+            await self._session.delete(device_session)
+        if deletable:
+            await self._audit(
+                user.id,
+                "device_session.bulk_delete",
+                deletable[0],
+                {"deleted_count": len(deletable)},
+            )
+            await self._session.commit()
+        return len(deletable)
+
     async def list_for_device(self, *, token: AuthToken) -> list[DeviceSession]:
         """
         列出当前认证设备可处理的非终态控制会话
