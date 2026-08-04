@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.0 - 2026-08-04
+
+- docs: complete chinese docstrings for public symbols (14a0128)
+- feat: add device session deletion api (f08aa94)
+
 ## v0.1.9 - 2026-08-04
 
 - fix: update cryptography security baseline (1faae85)
