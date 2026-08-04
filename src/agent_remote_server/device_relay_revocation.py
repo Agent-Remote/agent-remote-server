@@ -19,7 +19,12 @@ class DeviceRelayRevocationPublisher(Protocol):
     """relay hub 所需的最小跨 worker 发布接口。"""
 
     async def publish(self, device_session_id: UUID, generation: int) -> None:
-        """发布一个 generation 撤销事件。"""
+        """
+        发布一个 generation 撤销事件
+
+        :param device_session_id (UUID): 设备控制会话 ID
+        :param generation (int): 被撤销的连接代次
+        """
 
 
 class DeviceRelayRevocationBus:
@@ -33,7 +38,11 @@ class DeviceRelayRevocationBus:
         self._task: asyncio.Task[None] | None = None
 
     async def start(self, handler: RevocationHandler) -> None:
-        """启动后台订阅任务。"""
+        """
+        启动后台订阅任务
+
+        :param handler (RevocationHandler): 收到撤销事件时调用的异步回调
+        """
 
         if self._task is not None:
             return
@@ -45,7 +54,12 @@ class DeviceRelayRevocationBus:
         self._task = asyncio.create_task(self._run(handler))
 
     async def publish(self, device_session_id: UUID, generation: int) -> None:
-        """发布一个不含敏感材料的撤销事件。"""
+        """
+        发布一个不含敏感材料的撤销事件
+
+        :param device_session_id (UUID): 设备控制会话 ID
+        :param generation (int): 被撤销的连接代次
+        """
 
         await self._redis.publish(
             self._channel,
@@ -109,10 +123,19 @@ class NoopDeviceRelayRevocationBus:
     """SQLite 测试和单进程测试使用的无外部依赖通知实现。"""
 
     async def start(self, handler: RevocationHandler) -> None:
-        """兼容生产 bus 的启动接口。"""
+        """
+        兼容生产 bus 的启动接口
+
+        :param handler (RevocationHandler): 收到撤销事件时调用的异步回调
+        """
 
     async def publish(self, device_session_id: UUID, generation: int) -> None:
-        """忽略测试环境中的跨进程通知。"""
+        """
+        忽略测试环境中的跨进程通知
+
+        :param device_session_id (UUID): 设备控制会话 ID
+        :param generation (int): 被撤销的连接代次
+        """
 
     async def close(self) -> None:
         """兼容生产 bus 的关闭接口。"""
@@ -121,7 +144,13 @@ class NoopDeviceRelayRevocationBus:
 def create_device_relay_revocation_bus(
     settings: Settings,
 ) -> DeviceRelayRevocationBus | NoopDeviceRelayRevocationBus:
-    """按照部署数据库类型创建 relay 撤销通知总线。"""
+    """
+    按照部署数据库类型创建 relay 撤销通知总线
+
+    :param settings (Settings): 应用配置
+
+    :return DeviceRelayRevocationBus | NoopDeviceRelayRevocationBus: 按部署数据库类型创建的撤销总线
+    """
 
     if settings.database_url.startswith("sqlite"):
         return NoopDeviceRelayRevocationBus()

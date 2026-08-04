@@ -325,7 +325,16 @@ class ConnectionService:
     async def verify_node_binding_attach(
         self, *, node: Node, node_id: UUID, account_id: UUID, device_id: UUID
     ) -> tuple[str, str, str]:
-        """校验设备对工具账户绑定会话的 attach 权限。"""
+        """
+        校验设备对工具账户绑定会话的 attach 权限
+
+        :param node (Node): 当前节点
+        :param node_id (UUID): 请求节点 ID
+        :param account_id (UUID): 工具账户 ID
+        :param device_id (UUID): 设备 ID
+
+        :return tuple[str, str, str]: 绑定 session ID、tmux session 名与运行时后端
+        """
 
         if node.id != node_id:
             raise ApiError(

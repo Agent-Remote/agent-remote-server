@@ -346,7 +346,16 @@ async def verify_binding_attach(
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
 ) -> VerifyBindingAttachResponse:
-    """校验节点 SSH forced command 绑定 attach 请求。"""
+    """
+    校验节点 SSH forced command 绑定 attach 请求
+
+    :param payload (VerifyBindingAttachRequest): 绑定 attach 校验请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param node (Node): 当前节点
+
+    :return VerifyBindingAttachResponse: 绑定 attach 校验结果
+    """
 
     binding_id, tmux_name, backend = await ConnectionService(
         session, settings

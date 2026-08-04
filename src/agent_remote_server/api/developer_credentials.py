@@ -25,6 +25,10 @@ router = APIRouter(prefix="/developer-credential-profiles", tags=["developer-cre
 def profile_data(profile: DeveloperCredentialProfile) -> DeveloperCredentialProfileData:
     """
     转换开发凭据 profile 响应数据
+
+    :param profile (DeveloperCredentialProfile): 开发凭据 profile 模型
+
+    :return DeveloperCredentialProfileData: profile 响应数据
     """
 
     return DeveloperCredentialProfileData(
@@ -48,6 +52,12 @@ async def list_profiles(
 ) -> DeveloperCredentialProfileListResponse:
     """
     列出开发凭据 profile
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileListResponse: 开发凭据 profile 列表响应
     """
 
     profiles = await DeveloperCredentialService(session, settings).list_profiles(user=user)
@@ -68,6 +78,13 @@ async def create_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     创建开发凭据 profile
+
+    :param payload (CreateDeveloperCredentialProfileRequest): 创建请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 创建后的开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).create_profile(
@@ -91,6 +108,13 @@ async def get_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     读取开发凭据 profile
+
+    :param profile_id (UUID): 开发凭据 profile ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).get_profile(
@@ -112,6 +136,14 @@ async def update_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     更新开发凭据 profile
+
+    :param profile_id (UUID): 开发凭据 profile ID
+    :param payload (UpdateDeveloperCredentialProfileRequest): 更新请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 更新后的开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).update_profile(
@@ -139,6 +171,13 @@ async def disable_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     禁用开发凭据 profile
+
+    :param profile_id (UUID): 开发凭据 profile ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 禁用后的开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).disable_profile(
@@ -162,6 +201,14 @@ async def bind_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     绑定开发凭据 profile 到工具账户
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param payload (BindDeveloperCredentialProfileRequest): 绑定请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 绑定后的开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).bind_to_tool_account(
@@ -183,6 +230,13 @@ async def unbind_profile(
 ) -> Response:
     """
     解除工具账户开发凭据 profile 绑定
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return Response: 空响应
     """
 
     await DeveloperCredentialService(session, settings).unbind_from_tool_account(

@@ -144,12 +144,24 @@ class ConnectionRepository:
         return await self._session.get(Session, session_id)
 
     async def get_tool_account(self, account_id: UUID) -> ToolAccount | None:
-        """读取用于绑定 attach 校验的工具账户。"""
+        """
+        读取用于绑定 attach 校验的工具账户
+
+        :param account_id (UUID): 工具账户 ID
+
+        :return ToolAccount: 工具账户实体
+        """
 
         return await self._session.get(ToolAccount, account_id)
 
     async def get_tool_account_profile(self, account_id: UUID) -> ToolAccountProfile | None:
-        """读取用于绑定 attach 校验的工具账户 profile。"""
+        """
+        读取用于绑定 attach 校验的工具账户 profile
+
+        :param account_id (UUID): 工具账户 ID
+
+        :return ToolAccountProfile: 工具账户 profile 实体
+        """
 
         return await self._session.scalar(
             select(ToolAccountProfile).where(ToolAccountProfile.tool_account_id == account_id)
@@ -158,7 +170,13 @@ class ConnectionRepository:
     async def get_developer_credential_profile_for_account(
         self, account_id: UUID
     ) -> DeveloperCredentialProfile | None:
-        """读取工具账户绑定的开发凭据 profile。"""
+        """
+        读取工具账户绑定的开发凭据 profile
+
+        :param account_id (UUID): 工具账户 ID
+
+        :return DeveloperCredentialProfile: 开发凭据 profile 实体
+        """
 
         return await self._session.scalar(
             select(DeveloperCredentialProfile)

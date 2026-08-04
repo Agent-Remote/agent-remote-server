@@ -365,6 +365,14 @@ async def create_tool_account_config_import(
 ) -> ToolAccountConfigImportResponse:
     """
     创建工具账户配置导入计划
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param payload (ToolAccountConfigImportRequest): 配置导入请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return ToolAccountConfigImportResponse: 配置导入计划响应
     """
 
     result = await ToolAccountService(session, settings).plan_config_import(
@@ -424,6 +432,14 @@ async def bind_developer_credential_profile(
 ) -> DeveloperCredentialProfileResponse:
     """
     绑定开发凭据 profile
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param payload (BindDeveloperCredentialProfileRequest): 绑定请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return DeveloperCredentialProfileResponse: 开发凭据 profile 响应
     """
 
     profile = await DeveloperCredentialService(session, settings).bind_to_tool_account(
@@ -445,6 +461,11 @@ async def unbind_developer_credential_profile(
 ) -> None:
     """
     解除开发凭据 profile 绑定
+
+    :param tool_account_id (UUID): 工具账户 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
     """
 
     await DeveloperCredentialService(session, settings).unbind_from_tool_account(

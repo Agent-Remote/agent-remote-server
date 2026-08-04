@@ -18,6 +18,8 @@ class GitSyncPolicy(BaseModel):
 def default_git_excludes() -> list[str]:
     """
     默认 Git 和构建产物排除规则
+
+    :return list[str]: 默认排除规则列表
     """
 
     return [

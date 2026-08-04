@@ -211,7 +211,13 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
 
     @property
     def binding_tool_session_id(self) -> UUID:
-        """返回历史保留后仍稳定的远端工具 session 引用。"""
+        """
+        返回历史保留后仍稳定的远端工具 session 引用
+
+        :return UUID: 稳定的远端工具 session 引用
+
+        :raises RuntimeError: 设备会话缺少工具 session 引用时抛出
+        """
 
         value = self.tool_session_reference_id or self.tool_session_id
         if value is None:

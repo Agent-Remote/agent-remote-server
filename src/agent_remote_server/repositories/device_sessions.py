@@ -189,7 +189,13 @@ class DeviceSessionRepository:
         return result.all()
 
     async def has_any_for_device(self, device_id: UUID) -> bool:
-        """判断设备是否仍有受 retention 管理的控制绑定历史。"""
+        """
+        判断设备是否仍有受 retention 管理的控制绑定历史
+
+        :param device_id (UUID): 设备 ID
+
+        :return bool: 是否仍有受 retention 管理的控制绑定历史
+        """
 
         return (
             await self._session.scalar(

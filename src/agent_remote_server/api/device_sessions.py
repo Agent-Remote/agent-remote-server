@@ -242,7 +242,15 @@ async def delete_terminal_device_sessions(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> EmptyResponse:
-    """删除当前用户可见的全部已结束设备控制会话。"""
+    """
+    删除当前用户可见的全部已结束设备控制会话
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return EmptyResponse: 空响应
+    """
 
     await DeviceSessionService(session, settings).delete_terminal_sessions(user=user)
     return EmptyResponse(request_id=get_request_id())
@@ -325,7 +333,16 @@ async def delete_device_session(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> EmptyResponse:
-    """删除当前用户拥有的已结束设备控制会话。"""
+    """
+    删除当前用户拥有的已结束设备控制会话
+
+    :param device_session_id (UUID): 设备控制会话 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+
+    :return EmptyResponse: 空响应
+    """
 
     await DeviceSessionService(session, settings).delete_for_user(
         user=user, device_session_id=device_session_id

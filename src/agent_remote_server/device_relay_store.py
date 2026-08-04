@@ -165,6 +165,10 @@ class RedisDeviceRelayStore:
         :param ttl (int): 短期状态有效秒数
 
         :return DeviceRelayExchangeResult: 公钥交换结果
+
+        :raises RuntimeError: 中继交换结果为空
+
+        :raises ValueError: 同一代次内设备中继 SPKI 发生变化
         """
 
         peer: DeviceRelayRole = "proxy" if role == "device" else "device"
@@ -209,6 +213,8 @@ class RedisDeviceRelayStore:
         :param token_hash (str): 中继票据哈希
         :param claims (DeviceRelayTicketClaims): 中继票据声明
         :param ttl (int): 票据有效秒数
+
+        :raises RuntimeError: 中继票据冲突
         """
 
         payload = json.dumps(
@@ -301,6 +307,8 @@ class InMemoryDeviceRelayStore:
         :param ttl (int): 短期状态有效秒数
 
         :return DeviceRelayExchangeResult: 公钥交换结果
+
+        :raises ValueError: 同一代次内设备中继 SPKI 发生变化
         """
 
         key = (binding.device_session_id, binding.generation)
@@ -342,6 +350,8 @@ class InMemoryDeviceRelayStore:
         :param token_hash (str): 中继票据哈希
         :param claims (DeviceRelayTicketClaims): 中继票据声明
         :param ttl (int): 票据有效秒数
+
+        :raises RuntimeError: 中继票据冲突
         """
 
         async with self._lock:

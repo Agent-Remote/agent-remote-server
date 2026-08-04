@@ -175,6 +175,8 @@ class Settings(BaseSettings):
         校验跨字段部署策略中的关联边界
 
         :return Settings: 已通过关联边界校验的应用配置
+
+        :raises ValueError: 部署策略关联边界不合法，如"端口范围、TTL、设备中继速率或保留期配置冲突"
         """
 
         if self.port_forward_min_port > self.port_forward_max_port:

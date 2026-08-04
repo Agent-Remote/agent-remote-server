@@ -167,6 +167,10 @@ class SessionRepository:
     ) -> DeveloperCredentialProfile | None:
         """
         读取工具账户绑定的开发凭据 profile
+
+        :param account_id (UUID): 工具账户 ID
+
+        :return DeveloperCredentialProfile: 开发凭据 profile 实体
         """
 
         return await self._session.scalar(

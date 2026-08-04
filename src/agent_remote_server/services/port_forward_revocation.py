@@ -19,7 +19,20 @@ async def revoke_port_forwards(
     node_id: UUID | None = None,
     tool_account_id: UUID | None = None,
 ) -> int:
-    """在所属资源撤销事务内同步终止关联端口转发。"""
+    """
+    在所属资源撤销事务内同步终止关联端口转发
+
+    :param database (AsyncSession): 数据库会话
+    :param reason (str): 撤销原因
+    :param actor_user_id (UUID | None): 操作者用户 ID
+    :param user_id (UUID | None): 端口转发所属用户 ID
+    :param device_id (UUID | None): 端口转发所属设备 ID
+    :param session_id (UUID | None): 端口转发所属会话 ID
+    :param node_id (UUID | None): 端口转发所属 Node ID
+    :param tool_account_id (UUID | None): 工具账户 ID
+
+    :return int: 已终止的端口转发数量
+    """
 
     statement = select(PortForward).where(PortForward.status.in_(NON_TERMINAL_FORWARD_STATUSES))
     if user_id is not None:

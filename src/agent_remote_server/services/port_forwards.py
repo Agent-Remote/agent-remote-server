@@ -412,6 +412,13 @@ class PortForwardService:
         """
         续租 Node 端口转发授权
 
+        :param node (Node): 当前 Node
+        :param forward_id (UUID): 端口转发 ID
+        :param generation (int): 连接代数
+        :param bytes_up_total (int): 本代累计上行字节数
+        :param bytes_down_total (int): 本代累计下行字节数
+        :param connection_count_total (int): 本代累计连接数
+
         :return RedeemedPortForward: 续租结果
         """
 
@@ -446,6 +453,14 @@ class PortForwardService:
     ) -> PortForward:
         """
         释放 Node 端口转发连接
+
+        :param node (Node): 当前 Node
+        :param forward_id (UUID): 端口转发 ID
+        :param generation (int): 连接代数
+        :param bytes_up_total (int): 本代累计上行字节数
+        :param bytes_down_total (int): 本代累计下行字节数
+        :param connection_count_total (int): 本代累计连接数
+        :param reason (str): 释放原因
 
         :return PortForward: 释放后的转发实体
         """

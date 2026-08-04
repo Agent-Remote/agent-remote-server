@@ -27,13 +27,33 @@ class PortForwardTokenStore(Protocol):
     """
 
     async def issue(self, *, token_hash: str, claims: PortForwardTokenClaims, ttl: int) -> None:
-        """写入一次性 token 声明。"""
+        """
+        写入一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+        :param claims (PortForwardTokenClaims): 待存储的 token 声明
+        :param ttl (int): 声明有效期（秒）
+        """
 
     async def consume(self, *, token_hash: str) -> PortForwardTokenClaims | None:
-        """原子消费一次性 token 声明。"""
+        """
+        原子消费一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+
+        :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
+        """
 
     async def allow(self, *, scope: str, limit: int, window_seconds: int) -> bool:
-        """原子增加限速计数并返回当前请求是否允许。"""
+        """
+        原子增加限速计数并返回当前请求是否允许
+
+        :param scope (str): 限速范围标识
+        :param limit (int): 限速窗口内允许的最大请求数
+        :param window_seconds (int): 限速窗口时长（秒）
+
+        :return bool: 当前请求是否被允许
+        """
 
     async def close(self) -> None:
         """关闭 token store 连接。"""
@@ -48,7 +68,15 @@ class RedisPortForwardTokenStore:
         self._redis = redis
 
     async def issue(self, *, token_hash: str, claims: PortForwardTokenClaims, ttl: int) -> None:
-        """写入一次性 token 声明。"""
+        """
+        写入一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+        :param claims (PortForwardTokenClaims): 待存储的 token 声明
+        :param ttl (int): 声明有效期（秒）
+
+        :raises RuntimeError: token 哈希已存在导致写入冲突时抛出
+        """
 
         payload = json.dumps(
             {
@@ -61,7 +89,13 @@ class RedisPortForwardTokenStore:
             raise RuntimeError("port forward token collision")
 
     async def consume(self, *, token_hash: str) -> PortForwardTokenClaims | None:
-        """原子消费一次性 token 声明。"""
+        """
+        原子消费一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+
+        :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
+        """
 
         payload = await self._redis.getdel(self._key(token_hash))
         if payload is None:
@@ -74,7 +108,15 @@ class RedisPortForwardTokenStore:
         )
 
     async def allow(self, *, scope: str, limit: int, window_seconds: int) -> bool:
-        """原子增加限速计数并返回当前请求是否允许。"""
+        """
+        原子增加限速计数并返回当前请求是否允许
+
+        :param scope (str): 限速范围标识
+        :param limit (int): 限速窗口内允许的最大请求数
+        :param window_seconds (int): 限速窗口时长（秒）
+
+        :return bool: 当前请求是否被允许
+        """
 
         key = f"agent-remote:port-forward-rate:{scope}"
         async with self._redis.pipeline(transaction=True) as pipeline:
@@ -103,7 +145,15 @@ class InMemoryPortForwardTokenStore:
         self._lock = asyncio.Lock()
 
     async def issue(self, *, token_hash: str, claims: PortForwardTokenClaims, ttl: int) -> None:
-        """写入一次性 token 声明。"""
+        """
+        写入一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+        :param claims (PortForwardTokenClaims): 待存储的 token 声明
+        :param ttl (int): 声明有效期（秒）
+
+        :raises RuntimeError: token 哈希已存在导致写入冲突时抛出
+        """
 
         async with self._lock:
             if token_hash in self._values:
@@ -111,7 +161,13 @@ class InMemoryPortForwardTokenStore:
             self._values[token_hash] = (claims, datetime.now(UTC) + timedelta(seconds=ttl))
 
     async def consume(self, *, token_hash: str) -> PortForwardTokenClaims | None:
-        """原子消费一次性 token 声明。"""
+        """
+        原子消费一次性 token 声明
+
+        :param token_hash (str): 一次性 token 的哈希值
+
+        :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
+        """
 
         async with self._lock:
             value = self._values.pop(token_hash, None)
@@ -120,7 +176,15 @@ class InMemoryPortForwardTokenStore:
         return value[0]
 
     async def allow(self, *, scope: str, limit: int, window_seconds: int) -> bool:
-        """原子增加限速计数并返回当前请求是否允许。"""
+        """
+        原子增加限速计数并返回当前请求是否允许
+
+        :param scope (str): 限速范围标识
+        :param limit (int): 限速窗口内允许的最大请求数
+        :param window_seconds (int): 限速窗口时长（秒）
+
+        :return bool: 当前请求是否被允许
+        """
 
         now = datetime.now(UTC)
         async with self._lock:

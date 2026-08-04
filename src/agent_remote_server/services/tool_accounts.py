@@ -418,6 +418,17 @@ class ToolAccountService:
     ) -> ToolAccountConfigImportData:
         """
         生成工具账户配置导入计划
+
+        :param user (User): 当前用户
+        :param account_id (UUID): 工具账户 ID
+        :param tool_type (str): 工具类型
+        :param include (list[str]): 待导入的配置路径
+        :param exclude (list[str]): 排除的配置路径
+        :param files (list[ToolAccountConfigImportFile]): 待导入的配置文件
+        :param include_resume_history (bool): 是否包含恢复历史路径
+        :param dry_run (bool): 是否仅生成计划而不实际导入
+
+        :return ToolAccountConfigImportData: 配置导入计划
         """
 
         account = await self.get_account(user=user, account_id=account_id)

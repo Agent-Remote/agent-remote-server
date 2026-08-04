@@ -50,6 +50,9 @@ async def bootstrap_status(
     """
     查询是否需要初始化首个管理员
 
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+
     :return BootstrapStatusResponse: 初始化状态
     """
 

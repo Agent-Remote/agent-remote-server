@@ -400,7 +400,12 @@ class DeviceSessionService:
         return list(await self._repository.list_all())
 
     async def delete_for_user(self, *, user: User, device_session_id: UUID) -> None:
-        """删除当前用户拥有的终态设备控制会话。"""
+        """
+        删除当前用户拥有的终态设备控制会话
+
+        :param user (User): 当前用户
+        :param device_session_id (UUID): 设备控制会话 ID
+        """
 
         device_session = await self._require(device_session_id, for_update=True)
         if device_session.user_id != user.id and user.role != "admin":
@@ -423,7 +428,13 @@ class DeviceSessionService:
         await self._session.commit()
 
     async def delete_terminal_sessions(self, *, user: User) -> int:
-        """删除当前用户可见的全部终态设备控制会话。"""
+        """
+        删除当前用户可见的全部终态设备控制会话
+
+        :param user (User): 当前用户
+
+        :return int: 已删除的会话数量
+        """
 
         sessions = list(
             await (
@@ -785,10 +796,18 @@ class DeviceSessionService:
         commit: bool = True,
     ) -> DeviceSessionStopResult:
         """
-        结束远端 Claude session 对应的全部 live 设备控制绑定。
+        结束远端 Claude session 对应的全部 live 设备控制绑定
 
         该操作只撤销设备控制，不改变远端 session 的状态；调用方可以在同一
         数据库事务中继续更新工具 session。
+
+        :param tool_session_id (UUID): 远端工具 session ID
+        :param reason (str): 不含敏感内容的停止原因
+        :param actor_user_id (UUID | None): 操作发起用户 ID，默认取会话所属用户
+        :param audit_action (str): 审计动作名称
+        :param commit (bool): 是否立即提交事务并关闭被撤销的 relay
+
+        :return DeviceSessionStopResult: 被停止的绑定及待关闭的旧 relay 绑定
         """
 
         bindings = list(
@@ -819,7 +838,17 @@ class DeviceSessionService:
         audit_action: str = "device_session.device_stop",
         commit: bool = True,
     ) -> DeviceSessionStopResult:
-        """撤销某个设备上的全部 live 控制绑定。"""
+        """
+        撤销某个设备上的全部 live 控制绑定
+
+        :param device_id (UUID): 被控制设备 ID
+        :param reason (str): 不含敏感内容的停止原因
+        :param actor_user_id (UUID | None): 操作发起用户 ID，默认取会话所属用户
+        :param audit_action (str): 审计动作名称
+        :param commit (bool): 是否立即提交事务并关闭被撤销的 relay
+
+        :return DeviceSessionStopResult: 被停止的绑定及待关闭的旧 relay 绑定
+        """
 
         bindings = list(await self._repository.list_live_for_device(device_id, for_update=True))
         revoked: list[RevokedDeviceBinding] = []
@@ -839,7 +868,11 @@ class DeviceSessionService:
         return result
 
     async def expire_due(self) -> int:
-        """将超过最大 TTL 的 live 绑定统一置为 expired 并下发清理任务。"""
+        """
+        将超过最大 TTL 的 live 绑定统一置为 expired 并下发清理任务
+
+        :return int: 被置为 expired 的绑定数量
+        """
 
         bindings = list(await self._repository.list_due(self._now()))
         revoked: list[RevokedDeviceBinding] = []
@@ -858,7 +891,11 @@ class DeviceSessionService:
     async def close_revoked_bindings(
         self, bindings: tuple[RevokedDeviceBinding, ...] | list[RevokedDeviceBinding]
     ) -> None:
-        """在数据库提交后关闭已撤销 generation 的 relay。"""
+        """
+        在数据库提交后关闭已撤销 generation 的 relay
+
+        :param bindings (tuple[RevokedDeviceBinding, ...] | list[RevokedDeviceBinding]): 旧绑定
+        """
 
         for binding in bindings:
             await self._close_relay(binding)

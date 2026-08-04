@@ -126,7 +126,12 @@ class DeviceRelayHub:
             await self._revocation_bus.publish(device_session_id, generation)
 
     async def close_binding_remote(self, device_session_id: UUID, generation: int) -> None:
-        """响应其他 worker 的撤销通知，只关闭本地 relay 且不再次广播。"""
+        """
+        响应其他 worker 的撤销通知，只关闭本地 relay 且不再次广播
+
+        :param device_session_id (UUID): 设备控制会话 ID
+        :param generation (int): 被撤销的连接代次
+        """
 
         await self.close_binding(device_session_id, generation, publish=False)
 

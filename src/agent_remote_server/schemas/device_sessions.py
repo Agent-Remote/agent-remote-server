@@ -149,6 +149,8 @@ class DeviceApprovalItem(BaseModel):
         :param value (str): 待校验的应用标识摘要
 
         :return str: 已校验的应用标识摘要
+
+        :raises ValueError: 应用标识摘要不是小写十六进制
         """
 
         if any(character not in "0123456789abcdef" for character in value):

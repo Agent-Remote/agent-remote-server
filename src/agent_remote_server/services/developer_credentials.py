@@ -27,6 +27,10 @@ class DeveloperCredentialService:
     async def list_profiles(self, *, user: User) -> list[DeveloperCredentialProfile]:
         """
         列出用户开发凭据 profile
+
+        :param user (User): 当前用户
+
+        :return list[DeveloperCredentialProfile]: 用户的开发凭据 profile 列表
         """
 
         result = await self._session.scalars(
@@ -47,6 +51,14 @@ class DeveloperCredentialService:
     ) -> DeveloperCredentialProfile:
         """
         创建开发凭据 profile
+
+        :param user (User): 当前用户
+        :param display_name (str): profile 显示名称
+        :param git_identity (dict[str, object]): git 身份信息（user_name/user_email）
+        :param github_cli_mode (str): GitHub CLI 凭据模式
+        :param ssh_mode (str): SSH 凭据模式
+
+        :return DeveloperCredentialProfile: 新创建的开发凭据 profile
         """
 
         self._validate_modes(github_cli_mode=github_cli_mode, ssh_mode=ssh_mode)
@@ -74,6 +86,11 @@ class DeveloperCredentialService:
     async def get_profile(self, *, user: User, profile_id: UUID) -> DeveloperCredentialProfile:
         """
         读取开发凭据 profile
+
+        :param user (User): 当前用户
+        :param profile_id (UUID): 开发凭据 profile ID
+
+        :return DeveloperCredentialProfile: 开发凭据 profile 实体
         """
 
         profile = await self._require_profile(user=user, profile_id=profile_id)
@@ -92,6 +109,16 @@ class DeveloperCredentialService:
     ) -> DeveloperCredentialProfile:
         """
         更新开发凭据 profile
+
+        :param user (User): 当前用户
+        :param profile_id (UUID): 开发凭据 profile ID
+        :param display_name (str | None): 新的显示名称，None 表示不修改
+        :param status (str | None): 新的状态，None 表示不修改
+        :param git_identity (dict[str, object] | None): 新的 git 身份信息，None 表示不修改
+        :param github_cli_mode (str | None): 新的 GitHub CLI 模式，None 表示不修改
+        :param ssh_mode (str | None): 新的 SSH 模式，None 表示不修改
+
+        :return DeveloperCredentialProfile: 更新后的开发凭据 profile
         """
 
         profile = await self._require_profile(user=user, profile_id=profile_id)
@@ -126,6 +153,11 @@ class DeveloperCredentialService:
     async def disable_profile(self, *, user: User, profile_id: UUID) -> DeveloperCredentialProfile:
         """
         禁用开发凭据 profile
+
+        :param user (User): 当前用户
+        :param profile_id (UUID): 开发凭据 profile ID
+
+        :return DeveloperCredentialProfile: 已禁用的开发凭据 profile
         """
 
         profile = await self._require_profile(user=user, profile_id=profile_id)
@@ -149,6 +181,12 @@ class DeveloperCredentialService:
     ) -> DeveloperCredentialProfile:
         """
         将开发凭据 profile 绑定到工具账户
+
+        :param user (User): 当前用户
+        :param account_id (UUID): 工具账户 ID
+        :param profile_id (UUID): 开发凭据 profile ID
+
+        :return DeveloperCredentialProfile: 已绑定到工具账户的 profile
         """
 
         account = await self._require_account(user=user, account_id=account_id)
@@ -186,6 +224,9 @@ class DeveloperCredentialService:
     async def unbind_from_tool_account(self, *, user: User, account_id: UUID) -> None:
         """
         解除工具账户开发凭据 profile 绑定
+
+        :param user (User): 当前用户
+        :param account_id (UUID): 工具账户 ID
         """
 
         account = await self._require_account(user=user, account_id=account_id)
