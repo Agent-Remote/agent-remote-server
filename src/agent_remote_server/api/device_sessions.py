@@ -678,6 +678,7 @@ async def relay_device_ciphertext(
         ensure_device_control_release_evidence_current(
             environment=settings.environment,
             enabled=settings.device_control_enabled,
+            v2_rollout_percent=settings.device_control_v2_rollout_percent,
             evidence=evidence,
         )
     except DeviceControlReleaseEvidenceError:

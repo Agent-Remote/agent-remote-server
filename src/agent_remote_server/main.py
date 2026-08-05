@@ -11,7 +11,10 @@ from agent_remote_server.api.health import router as health_router
 from agent_remote_server.api.routes import api_router
 from agent_remote_server.config import Settings, get_settings
 from agent_remote_server.db import create_engine, create_session_factory
-from agent_remote_server.device_control_release import verify_device_control_release_evidence
+from agent_remote_server.device_control_release import (
+    ensure_device_control_release_evidence_current,
+    verify_device_control_release_evidence,
+)
 from agent_remote_server.device_control_retention import run_device_control_retention
 from agent_remote_server.device_relay_hub import DeviceRelayHub
 from agent_remote_server.device_relay_revocation import create_device_relay_revocation_bus
@@ -43,6 +46,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         device_control_release_evidence = verify_device_control_release_evidence(
             evidence_path=app_settings.device_control_release_evidence_path,
             public_key_base64=app_settings.device_control_release_public_key,
+        )
+        ensure_device_control_release_evidence_current(
+            environment=app_settings.environment,
+            enabled=app_settings.device_control_enabled,
+            v2_rollout_percent=app_settings.device_control_v2_rollout_percent,
+            evidence=device_control_release_evidence,
         )
     configure_logging(app_settings.log_level)
 

@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     device_control_enabled: bool = Field(
         default=False, description="是否在部署门禁验证完成后启用设备控制"
     )
+    device_control_v2_rollout_percent: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        validation_alias="DEVICE_CONTROL_V2_ROLLOUT_PERCENT",
+        description="按设备稳定分桶启用 Computer Use v2 的百分比",
+    )
     device_control_release_evidence_path: str = Field(
         default="",
         validation_alias="DEVICE_CONTROL_RELEASE_EVIDENCE_PATH",

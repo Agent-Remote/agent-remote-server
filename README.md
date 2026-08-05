@@ -101,6 +101,7 @@ Environment variables:
 - `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 - `DEVICE_CONTROL_ENABLED`
+- `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` (defaults to `0`; stable per-device v1/v2 cohort)
 - `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
 - `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
 - `DEVICE_SESSION_RETENTION_DAYS`
@@ -116,6 +117,12 @@ non-expired release-evidence manifest bound to the exact server version and sign
 Base64-encoded Ed25519 public key. Operators must also choose explicit non-zero terminal-session
 and device-session-audit retention periods; audit retention cannot be shorter than session
 retention. Development may explicitly enable the capability only for non-sensitive test data.
+
+Keep `DEVICE_CONTROL_V2_ROLLOUT_PERCENT=0` unless the signed release manifest contains
+`computer_use_v2_evidence_sha256` from the artifact-bound acceptance report. Startup and runtime
+checks reject non-zero rollout without it. The percentage affects only new generations; rollback
+sets it to `0`, terminates active v2 device sessions, and requires fresh local approval for v1. Do
+not downgrade an active generation in place.
 
 The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
 

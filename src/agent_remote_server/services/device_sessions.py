@@ -37,6 +37,11 @@ LIVE_DEVICE_STATUSES = {
     "active",
     "stopping",
 }
+DEVICE_CONTROL_V2_CAPABILITIES = (
+    "adaptive_settle_v2",
+    "ax_state_v2",
+    "observation_mode_v2",
+)
 
 
 @dataclass(frozen=True)
@@ -1050,6 +1055,11 @@ class DeviceSessionService:
             raise RuntimeError("active device session omitted its lease")
         lease_until = self._aware(device_session.lease_until)
         lease_identity = int(lease_until.timestamp() * 1_000_000)
+        node = await self._repository.get_node(device_session.node_id)
+        capabilities = self._negotiated_v2_capabilities(
+            node.runtime_capabilities if node is not None else {},
+            device_session.device_id,
+        )
         await self._repository.add_task(
             NodeTask(
                 task_id=(
@@ -1069,6 +1079,7 @@ class DeviceSessionService:
                     "platform": "macos",
                     "generation": device_session.generation,
                     "lease_until": lease_until.isoformat().replace("+00:00", "Z"),
+                    "capabilities": list(capabilities),
                 },
             )
         )
@@ -1226,6 +1237,27 @@ class DeviceSessionService:
             and isinstance(backends, list)
             and runtime_backend in backends
         )
+
+    def _negotiated_v2_capabilities(
+        self,
+        runtime_capabilities: dict[str, object],
+        device_id: UUID,
+    ) -> tuple[str, ...]:
+        rollout_percent = self._settings.device_control_v2_rollout_percent
+        if rollout_percent == 0 or device_id.int % 100 >= rollout_percent:
+            return ()
+        capability = runtime_capabilities.get("device_control")
+        if not isinstance(capability, dict):
+            return ()
+        advertised = capability.get("capabilities")
+        if not isinstance(advertised, list) or any(
+            not isinstance(item, str) for item in advertised
+        ):
+            return ()
+        values = set(cast(list[str], advertised))
+        if all(item in values for item in DEVICE_CONTROL_V2_CAPABILITIES):
+            return DEVICE_CONTROL_V2_CAPABILITIES
+        return ()
 
     def _aware(self, value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=UTC)

@@ -48,6 +48,81 @@ from agent_remote_server.services.device_sessions import DeviceSessionService
 _DIGEST = "a" * 64
 
 
+@pytest.mark.parametrize(
+    "advertised",
+    [
+        ["ax_state_v2"],
+        ["adaptive_settle_v2", "ax_state_v2"],
+        "adaptive_settle_v2",
+        ["adaptive_settle_v2", 7, "observation_mode_v2"],
+        None,
+    ],
+)
+def test_device_session_v2_capabilities_fail_closed_when_incomplete_or_malformed(
+    advertised: object,
+) -> None:
+    """部分或畸形 capability 不能启用任何 v2 语义。"""
+
+    service = DeviceSessionService.__new__(DeviceSessionService)
+    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=100)
+    assert (
+        service._negotiated_v2_capabilities(
+            {"device_control": {"capabilities": advertised}}, uuid4()
+        )
+        == ()
+    )
+
+
+def test_device_session_v2_capabilities_are_canonicalized() -> None:
+    """完整无序集合只输出控制面定义的规范顺序。"""
+
+    service = DeviceSessionService.__new__(DeviceSessionService)
+    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=100)
+    assert service._negotiated_v2_capabilities(
+        {
+            "device_control": {
+                "capabilities": [
+                    "observation_mode_v2",
+                    "adaptive_settle_v2",
+                    "ax_state_v2",
+                ]
+            }
+        },
+        uuid4(),
+    ) == (
+        "adaptive_settle_v2",
+        "ax_state_v2",
+        "observation_mode_v2",
+    )
+
+
+def test_device_session_v2_rollout_is_stable_and_defaults_to_v1() -> None:
+    """灰度按设备稳定分桶，零比例时即使 Node 支持也保持完整 v1。"""
+
+    runtime_capabilities: dict[str, object] = {
+        "device_control": {
+            "capabilities": [
+                "adaptive_settle_v2",
+                "ax_state_v2",
+                "observation_mode_v2",
+            ]
+        }
+    }
+    device_id = UUID(int=42)
+    service = DeviceSessionService.__new__(DeviceSessionService)
+    service._settings = Settings(secret_key="test-secret")
+    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == ()
+
+    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=42)
+    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == ()
+    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=43)
+    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == (
+        "adaptive_settle_v2",
+        "ax_state_v2",
+        "observation_mode_v2",
+    )
+
+
 async def create_schema(app: FastAPI) -> None:
     """创建测试数据库 schema。"""
 
@@ -150,6 +225,33 @@ def expired_release_evidence() -> DeviceControlReleaseEvidence:
     )
 
 
+def current_release_evidence_without_v2() -> DeviceControlReleaseEvidence:
+    """构造当前有效但未批准 Computer Use v2 的 Apple 发布证据。"""
+
+    now = datetime.now(UTC)
+    return DeviceControlReleaseEvidence(
+        schema_version=1,
+        release_version=__version__,
+        issued_at=now - timedelta(minutes=1),
+        expires_at=now + timedelta(days=1),
+        server_sha256=_DIGEST,
+        node_sha256=_DIGEST,
+        application_sha256=_DIGEST,
+        proxy_sha256=_DIGEST,
+        sbom_sha256=_DIGEST,
+        provenance_sha256=_DIGEST,
+        security_tests_sha256=_DIGEST,
+        security_review_sha256=_DIGEST,
+        signing_notarization_sha256=_DIGEST,
+        outbound_policy_sha256=_DIGEST,
+        local_claude_isolation_sha256=_DIGEST,
+        stop_revocation_sha256=_DIGEST,
+        compatibility_sha256=_DIGEST,
+        ci_run_url="https://ci.example.test/runs/current-without-v2",
+        signature="test-only",
+    )
+
+
 def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
     client: TestClient,
 ) -> None:
@@ -189,6 +291,39 @@ def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
     )
     assert stopped.status_code == 200
     assert stopped.json()["data"]["status"] == "stopped"
+
+
+def test_runtime_v2_rollout_change_requires_signed_v2_evidence(client: TestClient) -> None:
+    """运行中把灰度改为非零时，下一次推进必须重新执行 v2 证据门禁。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:runtime-v2-release-evidence",
+    )
+    device_id, device_token = register_device(client, token)
+    created = client.post(
+        "/api/v1/device-sessions",
+        headers=auth_header(token),
+        json={"device_id": device_id, "tool_session_id": tool_session_id},
+    )
+    assert created.status_code == 200
+    device_session_id = created.json()["data"]["id"]
+
+    app = cast(FastAPI, client.app)
+    app.state.settings.environment = "production"
+    app.state.settings.device_control_v2_rollout_percent = 100
+    app.state.device_control_release_evidence = current_release_evidence_without_v2()
+
+    connected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+
+    assert connected.status_code == 503
+    assert connected.json()["error"]["code"] == "DEVICE_CONTROL_RELEASE_EVIDENCE_EXPIRED"
 
 
 def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestClient) -> None:
@@ -364,6 +499,7 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
                 "platform": "macos",
                 "generation": 1,
                 "lease_until": approved_data["lease_until"],
+                "capabilities": [],
             }
             assert lifecycle_tasks[2].task_id == (f"activate_device_control:{device_session_id}:2")
             assert lifecycle_tasks[3].task_id == (
@@ -1418,6 +1554,11 @@ async def test_device_session_service_complete_state_machine() -> None:
                         "protocol_versions": [1],
                         "platforms": ["macos"],
                         "backends": ["native"],
+                        "capabilities": [
+                            "observation_mode_v2",
+                            "adaptive_settle_v2",
+                            "ax_state_v2",
+                        ],
                     }
                 },
             )
@@ -1439,7 +1580,12 @@ async def test_device_session_service_complete_state_machine() -> None:
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
             )
             service = DeviceSessionService(
-                session, Settings(secret_key="test-secret", device_control_enabled=True)
+                session,
+                Settings(
+                    secret_key="test-secret",
+                    device_control_enabled=True,
+                    device_control_v2_rollout_percent=100,
+                ),
             )
             record = await service.create(
                 user=user,
@@ -1466,6 +1612,18 @@ async def test_device_session_service_complete_state_machine() -> None:
                 generation=1,
                 approvals=[approval],
             )
+            context_task = await session.scalar(
+                select(NodeTask).where(
+                    NodeTask.task_type == "update_device_control_context",
+                    NodeTask.payload["generation"].as_integer() == 1,
+                )
+            )
+            assert context_task is not None
+            assert context_task.payload["capabilities"] == [
+                "adaptive_settle_v2",
+                "ax_state_v2",
+                "observation_mode_v2",
+            ]
             locked = await service.acquire_lock(
                 token=token, device_session_id=record.id, generation=1
             )

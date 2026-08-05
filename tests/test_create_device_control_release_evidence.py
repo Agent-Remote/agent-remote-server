@@ -51,6 +51,7 @@ def write_draft(path: Path) -> None:
                 "local_claude_isolation_sha256": _DIGEST,
                 "stop_revocation_sha256": _DIGEST,
                 "compatibility_sha256": _DIGEST,
+                "computer_use_v2_evidence_sha256": _DIGEST,
                 "ci_run_url": "https://ci.example.test/runs/456",
             },
             sort_keys=True,

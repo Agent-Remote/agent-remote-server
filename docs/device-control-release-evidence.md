@@ -18,10 +18,14 @@ Schema version 1 contains exactly these fields:
 - `security_tests_sha256`, `security_review_sha256`, `signing_notarization_sha256`,
   `outbound_policy_sha256`, `local_claude_isolation_sha256`, `stop_revocation_sha256`, and
   `compatibility_sha256`: release-gate evidence digests.
+- `computer_use_v2_evidence_sha256`: optional Apple-profile digest of the validated, artifact-bound
+  Computer Use v2 acceptance record; required whenever production v2 rollout is non-zero.
 - `ci_run_url`: HTTPS URL for the release run that assembled the evidence.
 - `signature`: Base64-encoded Ed25519 signature.
 
-Every digest is 64 lowercase hexadecimal characters. Unknown or missing fields are rejected.
+Every present digest is 64 lowercase hexadecimal characters. Unknown fields are rejected, as are
+missing fields required by the selected profile; the optional v2 digest may be `null` only while
+rollout is zero.
 
 Schema version 2 is restricted to the reduced `community-local-trust` production profile. It must
 declare `production_ready=true`, `apple_notarized=false`, `public_distribution=false`, and
@@ -35,6 +39,25 @@ Schema version 3 keeps the same `community-local-trust` claims and replaces the 
 `proxy_artifacts_sha256` mappings. Both mappings must cover `linux-amd64-glibc`,
 `linux-arm64-glibc`, `linux-amd64-musl`, and `linux-arm64-musl`, allowing one signed manifest to
 authorize a mixed-architecture Node fleet.
+
+## Computer Use v2 rollout boundary
+
+The Apple-profile release assembler validates the artifact-specific Computer Use v2 report and
+binds its record digest as `computer_use_v2_evidence_sha256`. The Community schemas require this
+field to be `null`. A valid general device-control manifest without the digest does not authorize a
+non-zero `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` in production.
+
+That report must cover signed Safari, Chrome, Firefox, native application, and AX-incomplete
+Electron runs; zero-content telemetry review; golden-prompt and current MCP/runtime compatibility;
+zero wrong-target actions; no success-rate regression; the published image, latency, settle, and
+coordinate-fallback thresholds; and a rehearsed new-generation rollback. A Community risk
+acceptance digest cannot substitute for this report. The Apple assembler requires the structured
+record's `report_sha256` to match a real file inside the bounded raw security-tests archive before
+the record digest can become `computer_use_v2_evidence_sha256`.
+
+Server startup rejects a non-zero rollout when the digest is absent. The same check runs on device
+control progression and relay establishment, so an expired manifest or runtime configuration
+change cannot bypass the startup decision.
 
 ## Signature
 

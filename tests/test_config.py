@@ -14,12 +14,23 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.access_token_ttl_seconds == 3600
     assert settings.device_token_ttl_seconds == 2_592_000
     assert settings.device_control_enabled is False
+    assert settings.device_control_v2_rollout_percent == 0
     assert settings.device_control_release_evidence_path == ""
     assert settings.device_control_release_public_key == ""
     assert settings.device_session_retention_days == 0
     assert settings.device_session_audit_retention_days == 0
     assert settings.device_relay_max_bytes_per_second == 8_388_608
     assert settings.device_relay_max_connection_seconds == 900
+
+
+def test_device_control_v2_rollout_percentage_is_bounded() -> None:
+    """v2 灰度比例只能位于闭区间 0 到 100。"""
+
+    assert Settings(device_control_v2_rollout_percent=100).device_control_v2_rollout_percent == 100
+    with pytest.raises(ValidationError):
+        Settings(device_control_v2_rollout_percent=-1)
+    with pytest.raises(ValidationError):
+        Settings(device_control_v2_rollout_percent=101)
 
 
 def test_port_forward_settings_reject_incoherent_ranges() -> None:

@@ -132,6 +132,9 @@ class DeviceControlReleaseEvidence(BaseModel):
     compatibility_sha256: str | None = Field(
         default=None, description="Apple 配置的当前 Claude Code 与 MCP 兼容性证据摘要"
     )
+    computer_use_v2_evidence_sha256: str | None = Field(
+        default=None, description="Apple 配置的 Computer Use v2 专项生产验收证据摘要"
+    )
     community_signing_sha256: str | None = Field(
         default=None, description="Community 自签名身份与嵌套签名证据摘要"
     )
@@ -221,6 +224,7 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.automated_release_checks_sha256 is None
             or self.risk_acceptance_sha256 is None
             or any(digest is not None for digest in strict_gate_digests)
+            or self.computer_use_v2_evidence_sha256 is not None
         ):
             raise ValueError("community local-trust schemas require the reduced-trust profile")
         return self
@@ -264,6 +268,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         "local_claude_isolation_sha256",
         "stop_revocation_sha256",
         "compatibility_sha256",
+        "computer_use_v2_evidence_sha256",
         "community_signing_sha256",
         "automated_release_checks_sha256",
         "risk_acceptance_sha256",
@@ -455,6 +460,7 @@ def ensure_device_control_release_evidence_current(
     *,
     environment: str,
     enabled: bool,
+    v2_rollout_percent: int,
     evidence: DeviceControlReleaseEvidence | None,
     now: datetime | None = None,
 ) -> None:
@@ -463,12 +469,15 @@ def ensure_device_control_release_evidence_current(
 
     :param environment (str): 当前部署环境
     :param enabled (bool): 是否配置启用设备控制
+    :param v2_rollout_percent (int): 按设备稳定分桶启用 Computer Use v2 的百分比
     :param evidence (DeviceControlReleaseEvidence): 启动时已验证的发布证据
     :param now (datetime): 可选的当前时间，供确定性验证使用
 
     :raises DeviceControlReleaseEvidenceError: 生产证据缺失、尚未生效或已经过期
     """
 
+    if not 0 <= v2_rollout_percent <= 100:
+        raise DeviceControlReleaseEvidenceError("device control v2 rollout percentage is invalid")
     if environment.strip().lower() != "production" or not enabled:
         return
     if evidence is None:
@@ -482,3 +491,7 @@ def ensure_device_control_release_evidence_current(
         raise DeviceControlReleaseEvidenceError("device control release evidence is not yet valid")
     if evidence.expires_at <= verification_time:
         raise DeviceControlReleaseEvidenceError("device control release evidence has expired")
+    if v2_rollout_percent > 0 and evidence.computer_use_v2_evidence_sha256 is None:
+        raise DeviceControlReleaseEvidenceError(
+            "production Computer Use v2 rollout requires signed release evidence"
+        )

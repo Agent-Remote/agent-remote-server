@@ -27,6 +27,8 @@ def create_signed_evidence(
     issued_at: datetime | None = None,
     release_version: str = __version__,
     schema_version: int = 2,
+    apple_profile: bool = False,
+    computer_use_v2_evidence_sha256: str | None = None,
 ) -> str:
     """创建使用临时密钥签名的测试发布证据。"""
 
@@ -45,27 +47,46 @@ def create_signed_evidence(
         if schema_version == 3
         else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
     )
-    manifest = DeviceControlReleaseEvidence(
-        schema_version=schema_version,
-        release_profile="community-local-trust",
-        production_ready=True,
-        apple_notarized=False,
-        public_distribution=False,
-        manual_trust_required=True,
-        release_version=release_version,
-        issued_at=issued_at or expires_at - timedelta(days=1),
-        expires_at=expires_at,
-        server_sha256=_DIGEST,
-        application_sha256=_DIGEST,
-        sbom_sha256=_DIGEST,
-        provenance_sha256=_DIGEST,
-        signing_notarization_sha256=_DIGEST,
-        community_signing_sha256=_DIGEST,
-        automated_release_checks_sha256=_DIGEST,
-        risk_acceptance_sha256=_DIGEST,
-        ci_run_url="https://ci.example.test/runs/123",
-        signature="pending",
-        **release_artifacts,
+    profile_fields: dict[str, object]
+    if apple_profile:
+        if schema_version != 1:
+            raise ValueError("Apple test evidence requires schema version 1")
+        profile_fields = {
+            "security_tests_sha256": _DIGEST,
+            "security_review_sha256": _DIGEST,
+            "outbound_policy_sha256": _DIGEST,
+            "local_claude_isolation_sha256": _DIGEST,
+            "stop_revocation_sha256": _DIGEST,
+            "compatibility_sha256": _DIGEST,
+            "computer_use_v2_evidence_sha256": computer_use_v2_evidence_sha256,
+        }
+    else:
+        profile_fields = {
+            "release_profile": "community-local-trust",
+            "apple_notarized": False,
+            "public_distribution": False,
+            "manual_trust_required": True,
+            "community_signing_sha256": _DIGEST,
+            "automated_release_checks_sha256": _DIGEST,
+            "risk_acceptance_sha256": _DIGEST,
+        }
+    manifest = DeviceControlReleaseEvidence.model_validate(
+        {
+            "schema_version": schema_version,
+            "production_ready": True,
+            "release_version": release_version,
+            "issued_at": issued_at or expires_at - timedelta(days=1),
+            "expires_at": expires_at,
+            "server_sha256": _DIGEST,
+            "application_sha256": _DIGEST,
+            "sbom_sha256": _DIGEST,
+            "provenance_sha256": _DIGEST,
+            "signing_notarization_sha256": _DIGEST,
+            "ci_run_url": "https://ci.example.test/runs/123",
+            "signature": "pending",
+            **release_artifacts,
+            **profile_fields,
+        }
     )
     signature = private_key.sign(manifest.signing_payload())
     signed_manifest = manifest.model_copy(
@@ -364,6 +385,123 @@ def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path
     assert app.state.settings.device_control_enabled is True
 
 
+def test_production_v2_rollout_requires_signed_v2_evidence(tmp_path: Path) -> None:
+    """生产非零 v2 灰度不得复用缺少专项摘要的普通发布清单。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        schema_version=1,
+        apple_profile=True,
+    )
+
+    with pytest.raises(
+        DeviceControlReleaseEvidenceError,
+        match="Computer Use v2 rollout requires signed release evidence",
+    ):
+        create_app(
+            Settings(
+                secret_key="test-secret",
+                environment="production",
+                device_control_enabled=True,
+                device_control_v2_rollout_percent=1,
+                device_session_retention_days=30,
+                device_session_audit_retention_days=90,
+                device_control_release_evidence_path=str(evidence_path),
+                device_control_release_public_key=public_key,
+            )
+        )
+
+
+def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> None:
+    """生产非零 v2 灰度应接受签名载荷内的专项证据摘要。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        schema_version=1,
+        apple_profile=True,
+        computer_use_v2_evidence_sha256="b" * 64,
+    )
+
+    app = create_app(
+        Settings(
+            secret_key="test-secret",
+            environment="production",
+            device_control_enabled=True,
+            device_control_v2_rollout_percent=100,
+            device_session_retention_days=30,
+            device_session_audit_retention_days=90,
+            device_control_release_evidence_path=str(evidence_path),
+            device_control_release_public_key=public_key,
+        )
+    )
+
+    assert app.state.device_control_release_evidence.computer_use_v2_evidence_sha256 == "b" * 64
+
+
+def test_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
+    """Community 风险接受不能替代 Computer Use v2 专项生产证据。"""
+
+    now = datetime.now(UTC)
+    with pytest.raises(ValueError, match="reduced-trust profile"):
+        DeviceControlReleaseEvidence(
+            schema_version=2,
+            release_profile="community-local-trust",
+            production_ready=True,
+            apple_notarized=False,
+            public_distribution=False,
+            manual_trust_required=True,
+            release_version=__version__,
+            issued_at=now,
+            expires_at=now + timedelta(days=1),
+            server_sha256=_DIGEST,
+            node_sha256=_DIGEST,
+            application_sha256=_DIGEST,
+            proxy_sha256=_DIGEST,
+            sbom_sha256=_DIGEST,
+            provenance_sha256=_DIGEST,
+            signing_notarization_sha256=_DIGEST,
+            computer_use_v2_evidence_sha256=_DIGEST,
+            community_signing_sha256=_DIGEST,
+            automated_release_checks_sha256=_DIGEST,
+            risk_acceptance_sha256=_DIGEST,
+            ci_run_url="https://ci.example.test/runs/community-v2",
+            signature="test-only",
+        )
+
+
+def test_computer_use_v2_evidence_digest_must_be_sha256() -> None:
+    """专项摘要必须使用规范小写 SHA-256。"""
+
+    now = datetime.now(UTC)
+    with pytest.raises(ValueError, match="lowercase SHA-256"):
+        DeviceControlReleaseEvidence(
+            schema_version=1,
+            release_version=__version__,
+            issued_at=now,
+            expires_at=now + timedelta(days=1),
+            server_sha256=_DIGEST,
+            node_sha256=_DIGEST,
+            application_sha256=_DIGEST,
+            proxy_sha256=_DIGEST,
+            sbom_sha256=_DIGEST,
+            provenance_sha256=_DIGEST,
+            security_tests_sha256=_DIGEST,
+            security_review_sha256=_DIGEST,
+            signing_notarization_sha256=_DIGEST,
+            outbound_policy_sha256=_DIGEST,
+            local_claude_isolation_sha256=_DIGEST,
+            stop_revocation_sha256=_DIGEST,
+            compatibility_sha256=_DIGEST,
+            computer_use_v2_evidence_sha256="INVALID",
+            ci_run_url="https://ci.example.test/runs/apple-v2",
+            signature="test-only",
+        )
+
+
 def test_development_device_control_does_not_require_release_evidence() -> None:
     """开发环境仍可使用无敏感数据的显式设备控制测试。"""
 
@@ -410,6 +548,7 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
         ensure_device_control_release_evidence_current(
             environment="production",
             enabled=True,
+            v2_rollout_percent=0,
             evidence=evidence,
             now=now,
         )
@@ -417,6 +556,7 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
     ensure_device_control_release_evidence_current(
         environment="development",
         enabled=True,
+        v2_rollout_percent=100,
         evidence=None,
         now=now,
     )
