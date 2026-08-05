@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.1 - 2026-08-05
+
+- feat: gate computer use v2 rollout (1ad287d)
+
 ## v0.2.0 - 2026-08-04
 
 - docs: complete chinese docstrings for public symbols (14a0128)
