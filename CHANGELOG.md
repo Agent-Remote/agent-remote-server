@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.2 - 2026-08-07
+
+- feat: add bounded computer use acceptance (12bd98b)
+
 ## v0.2.1 - 2026-08-05
 
 - feat: gate computer use v2 rollout (1ad287d)
