@@ -59,6 +59,18 @@ Server startup rejects a non-zero rollout when the digest is absent. The same ch
 control progression and relay establishment, so an expired manifest or runtime configuration
 change cannot bypass the startup decision.
 
+### Bounded Community acceptance window
+
+Community deployments may gather the artifact-specific report through a single-device acceptance
+window before enabling rollout. `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` and
+`DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT` must be configured together, require a current signed
+Community device-control manifest, require `DEVICE_CONTROL_V2_ROLLOUT_PERCENT=0`, and may remain
+valid for at most 24 hours from server startup. Capability negotiation matches only the exact
+device UUID and stops selecting v2 after expiry. This window is an evidence-generation mechanism,
+not a substitute for `computer_use_v2_evidence_sha256`; production rollout remains forbidden until
+the resulting report is independently validated and bound into a release manifest. End the active
+validation generation when the window closes because capabilities never downgrade in place.
+
 ## Signature
 
 The signed bytes are UTF-8 JSON after removing `signature`, sorting keys, emitting ASCII escapes,

@@ -102,6 +102,8 @@ Environment variables:
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 - `DEVICE_CONTROL_ENABLED`
 - `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` (defaults to `0`; stable per-device v1/v2 cohort)
+- `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` / `DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT`
+  (optional one-device Community acceptance window, at most 24 hours)
 - `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
 - `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
 - `DEVICE_SESSION_RETENTION_DAYS`
@@ -123,6 +125,13 @@ Keep `DEVICE_CONTROL_V2_ROLLOUT_PERCENT=0` unless the signed release manifest co
 checks reject non-zero rollout without it. The percentage affects only new generations; rollback
 sets it to `0`, terminates active v2 device sessions, and requires fresh local approval for v1. Do
 not downgrade an active generation in place.
+
+Before Community v2 evidence exists, an operator may run one artifact acceptance session by
+setting `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` and a timezone-aware
+`DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT` no more than 24 hours ahead. This path requires current
+signed Community device-control evidence and a zero global rollout. It selects only that exact
+device, stops negotiating v2 after expiry, and is not production rollout authorization. End the
+validation generation before removing the settings or after the window expires.
 
 The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
 

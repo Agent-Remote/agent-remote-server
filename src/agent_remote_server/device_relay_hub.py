@@ -1,11 +1,14 @@
 import asyncio
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 from agent_remote_server.device_relay_revocation import DeviceRelayRevocationPublisher
 from agent_remote_server.device_relay_store import DeviceRelayRole, DeviceRelayTicketClaims
+
+logger = logging.getLogger(__name__)
 
 
 class _RelayBindingClosed(Exception):
@@ -85,11 +88,37 @@ class DeviceRelayHub:
             )
             try:
                 async with asyncio.timeout(self._maximum_connection_seconds):
-                    await self._forward(websocket, peer)
+                    await self._forward(key, endpoint.role, websocket, peer)
             except TimeoutError:
+                logger.warning(
+                    "device_relay_closed session=%s generation=%s role=%s reason=%s",
+                    key[0],
+                    key[1],
+                    endpoint.role,
+                    "connection_timeout",
+                    extra={
+                        "device_session_id": str(key[0]),
+                        "generation": key[1],
+                        "relay_role": endpoint.role,
+                        "relay_reason": "connection_timeout",
+                    },
+                )
                 await websocket.close(code=1008)
                 await peer.close(code=1008)
         except (TimeoutError, _RelayBindingClosed):
+            logger.warning(
+                "device_relay_closed session=%s generation=%s role=%s reason=%s",
+                key[0],
+                key[1],
+                endpoint.role,
+                "pair_timeout_or_revoked",
+                extra={
+                    "device_session_id": str(key[0]),
+                    "generation": key[1],
+                    "relay_role": endpoint.role,
+                    "relay_reason": "pair_timeout_or_revoked",
+                },
+            )
             await websocket.close(code=1008)
         finally:
             await self._remove(key, endpoint)
@@ -135,19 +164,48 @@ class DeviceRelayHub:
 
         await self.close_binding(device_session_id, generation, publish=False)
 
-    async def _forward(self, source: WebSocket, destination: WebSocket) -> None:
+    async def _forward(
+        self,
+        key: tuple[UUID, int],
+        role: DeviceRelayRole,
+        source: WebSocket,
+        destination: WebSocket,
+    ) -> None:
         loop = asyncio.get_running_loop()
         window_started = loop.time()
         window_bytes = 0
+        total_bytes = 0
+        frame_count = 0
         while True:
-            message = await source.receive()
+            try:
+                message = await source.receive()
+            except WebSocketDisconnect as error:
+                self._log_forward_end(
+                    key,
+                    role,
+                    "source_disconnected",
+                    frame_count,
+                    total_bytes,
+                    error.code,
+                )
+                return
             if message["type"] == "websocket.disconnect":
+                self._log_forward_end(
+                    key,
+                    role,
+                    "source_disconnected",
+                    frame_count,
+                    total_bytes,
+                    message.get("code"),
+                )
                 return
             data = message.get("bytes")
             if not isinstance(data, bytes):
+                self._log_forward_end(key, role, "non_binary_frame", frame_count, total_bytes, 1003)
                 await source.close(code=1003)
                 return
             if len(data) > self._maximum_frame_bytes:
+                self._log_forward_end(key, role, "frame_limit", frame_count, total_bytes, 1009)
                 await source.close(code=1009)
                 await destination.close(code=1009)
                 return
@@ -157,10 +215,56 @@ class DeviceRelayHub:
                 window_bytes = 0
             window_bytes += len(data)
             if window_bytes > self._maximum_bytes_per_second:
+                self._log_forward_end(key, role, "rate_limit", frame_count, total_bytes, 1008)
                 await source.close(code=1008)
                 await destination.close(code=1008)
                 return
-            await destination.send_bytes(data)
+            frame_count += 1
+            total_bytes += len(data)
+            try:
+                await destination.send_bytes(data)
+            except WebSocketDisconnect as error:
+                self._log_forward_end(
+                    key,
+                    role,
+                    "destination_disconnected",
+                    frame_count,
+                    total_bytes,
+                    error.code,
+                )
+                return
+
+    @staticmethod
+    def _log_forward_end(
+        key: tuple[UUID, int],
+        role: DeviceRelayRole,
+        reason: str,
+        frame_count: int,
+        total_bytes: int,
+        close_code: object,
+    ) -> None:
+        logger.warning(
+            (
+                "device_relay_forward_ended session=%s generation=%s role=%s "
+                "reason=%s frames=%s bytes=%s close_code=%s"
+            ),
+            key[0],
+            key[1],
+            role,
+            reason,
+            frame_count,
+            total_bytes,
+            close_code,
+            extra={
+                "device_session_id": str(key[0]),
+                "generation": key[1],
+                "relay_role": role,
+                "relay_reason": reason,
+                "relay_frame_count": frame_count,
+                "relay_total_bytes": total_bytes,
+                "relay_close_code": close_code,
+            },
+        )
 
     async def _remove(self, key: tuple[UUID, int], endpoint: _RelayEndpoint) -> None:
         async with self._lock:

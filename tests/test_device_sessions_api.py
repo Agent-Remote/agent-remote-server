@@ -123,6 +123,38 @@ def test_device_session_v2_rollout_is_stable_and_defaults_to_v1() -> None:
     )
 
 
+def test_device_session_v2_acceptance_selects_only_the_configured_device() -> None:
+    """限时验收窗口不得把其他设备带入 v2。"""
+
+    runtime_capabilities: dict[str, object] = {
+        "device_control": {
+            "capabilities": [
+                "adaptive_settle_v2",
+                "ax_state_v2",
+                "observation_mode_v2",
+            ]
+        }
+    }
+    device_id = uuid4()
+    service = DeviceSessionService.__new__(DeviceSessionService)
+    service._settings = Settings(
+        secret_key="test-secret",
+        environment="production",
+        device_control_enabled=True,
+        device_session_retention_days=30,
+        device_session_audit_retention_days=90,
+        device_control_v2_acceptance_device_id=device_id,
+        device_control_v2_acceptance_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == (
+        "adaptive_settle_v2",
+        "ax_state_v2",
+        "observation_mode_v2",
+    )
+    assert service._negotiated_v2_capabilities(runtime_capabilities, uuid4()) == ()
+
+
 async def create_schema(app: FastAPI) -> None:
     """创建测试数据库 schema。"""
 
@@ -655,6 +687,89 @@ def test_device_claiming_another_claude_rebounds_its_current_binding(
             assert {item.status for item in tool_sessions} == {"running"}
 
     asyncio.run(verify_switch())
+
+
+def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> None:
+    """Expired live rows must not be returned by claim's idempotent fast path."""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client, token, project_key="sha256:expired-idempotent-claim"
+    )
+    _device_id, device_token = register_device(client, token)
+    first = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert first.status_code == 200
+    first_id = first.json()["data"]["id"]
+
+    async def expire_first_binding() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            record = await session.get(DeviceSession, UUID(first_id))
+            assert record is not None
+            record.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await session.commit()
+
+    asyncio.run(expire_first_binding())
+    replacement = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert replacement.status_code == 200
+    assert replacement.json()["data"]["id"] != first_id
+    assert replacement.json()["data"]["status"] == "pending_device"
+
+    async def load_old_binding() -> tuple[str, str | None]:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            record = await session.get(DeviceSession, UUID(first_id))
+            assert record is not None
+            return record.status, record.stop_reason
+
+    assert asyncio.run(load_old_binding()) == ("expired", "session_expired")
+
+
+def test_candidates_do_not_advertise_expired_current_device(client: TestClient) -> None:
+    """Candidate ownership is cleared as soon as its binding TTL has elapsed."""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client, token, project_key="sha256:expired-candidate-binding"
+    )
+    _device_id, device_token = register_device(client, token)
+    claimed = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert claimed.status_code == 200
+    binding_id = claimed.json()["data"]["id"]
+
+    async def expire_binding() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            record = await session.get(DeviceSession, UUID(binding_id))
+            assert record is not None
+            record.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await session.commit()
+
+    asyncio.run(expire_binding())
+    candidates = client.get(
+        "/api/v1/device-sessions/candidates",
+        headers=auth_header(device_token),
+    )
+    assert candidates.status_code == 200
+    candidate = next(
+        item
+        for item in candidates.json()["data"]["items"]
+        if item["tool_session_id"] == tool_session_id
+    )
+    assert candidate["current_device_id"] is None
+    assert candidate["device_session_id"] is None
 
 
 def test_device_session_generation_exhaustion_has_no_partial_mutation(

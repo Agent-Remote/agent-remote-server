@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
@@ -15,6 +18,8 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.device_token_ttl_seconds == 2_592_000
     assert settings.device_control_enabled is False
     assert settings.device_control_v2_rollout_percent == 0
+    assert settings.device_control_v2_acceptance_device_id is None
+    assert settings.device_control_v2_acceptance_expires_at is None
     assert settings.device_control_release_evidence_path == ""
     assert settings.device_control_release_public_key == ""
     assert settings.device_session_retention_days == 0
@@ -31,6 +36,41 @@ def test_device_control_v2_rollout_percentage_is_bounded() -> None:
         Settings(device_control_v2_rollout_percent=-1)
     with pytest.raises(ValidationError):
         Settings(device_control_v2_rollout_percent=101)
+
+
+def test_device_control_v2_acceptance_settings_are_bounded() -> None:
+    """v2 验收只允许生产环境中的单设备零灰度配置。"""
+
+    expires_at = datetime.now(UTC) + timedelta(hours=1)
+    device_id = uuid4()
+    settings = Settings(
+        environment="production",
+        device_control_enabled=True,
+        device_session_retention_days=30,
+        device_session_audit_retention_days=90,
+        device_control_v2_acceptance_device_id=device_id,
+        device_control_v2_acceptance_expires_at=expires_at,
+    )
+    assert settings.device_control_v2_acceptance_device_id == device_id
+
+    with pytest.raises(ValidationError, match="configured together"):
+        Settings(
+            environment="production",
+            device_control_enabled=True,
+            device_session_retention_days=30,
+            device_session_audit_retention_days=90,
+            device_control_v2_acceptance_device_id=device_id,
+        )
+    with pytest.raises(ValidationError, match="zero global rollout"):
+        Settings(
+            environment="production",
+            device_control_enabled=True,
+            device_session_retention_days=30,
+            device_session_audit_retention_days=90,
+            device_control_v2_rollout_percent=1,
+            device_control_v2_acceptance_device_id=device_id,
+            device_control_v2_acceptance_expires_at=expires_at,
+        )
 
 
 def test_port_forward_settings_reject_incoherent_ranges() -> None:

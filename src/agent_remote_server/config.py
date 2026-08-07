@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import lru_cache
+from uuid import UUID
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -109,6 +111,16 @@ class Settings(BaseSettings):
         validation_alias="DEVICE_CONTROL_V2_ROLLOUT_PERCENT",
         description="按设备稳定分桶启用 Computer Use v2 的百分比",
     )
+    device_control_v2_acceptance_device_id: UUID | None = Field(
+        default=None,
+        validation_alias="DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID",
+        description="限时 Computer Use v2 验收设备 ID",
+    )
+    device_control_v2_acceptance_expires_at: datetime | None = Field(
+        default=None,
+        validation_alias="DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT",
+        description="限时 Computer Use v2 验收窗口的 UTC 失效时间",
+    )
     device_control_release_evidence_path: str = Field(
         default="",
         validation_alias="DEVICE_CONTROL_RELEASE_EVIDENCE_PATH",
@@ -208,6 +220,19 @@ class Settings(BaseSettings):
             )
         ):
             raise ValueError("production device control requires explicit metadata retention")
+        acceptance_configured = self.device_control_v2_acceptance_device_id is not None
+        if acceptance_configured != (self.device_control_v2_acceptance_expires_at is not None):
+            raise ValueError("device control v2 acceptance settings must be configured together")
+        if acceptance_configured:
+            if self.environment.strip().lower() != "production":
+                raise ValueError("device control v2 acceptance is restricted to production")
+            if not self.device_control_enabled:
+                raise ValueError("device control v2 acceptance requires device control")
+            if self.device_control_v2_rollout_percent != 0:
+                raise ValueError("device control v2 acceptance requires zero global rollout")
+            expires_at = self.device_control_v2_acceptance_expires_at
+            if expires_at is None or expires_at.tzinfo is None or expires_at.utcoffset() is None:
+                raise ValueError("device control v2 acceptance expiry must be timezone-aware")
         return self
 
 

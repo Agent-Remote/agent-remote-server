@@ -6,6 +6,7 @@ import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Self
+from uuid import UUID
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -16,6 +17,7 @@ from agent_remote_server import __version__
 _SHA256_HEX_LENGTH = 64
 _MAXIMUM_MANIFEST_BYTES = 65_536
 _MAXIMUM_EVIDENCE_LIFETIME_DAYS = 30
+_MAXIMUM_V2_ACCEPTANCE_WINDOW = timedelta(hours=24)
 _SUPPORTED_NODE_TARGETS = {
     "linux-amd64-glibc",
     "linux-arm64-glibc",
@@ -494,4 +496,53 @@ def ensure_device_control_release_evidence_current(
     if v2_rollout_percent > 0 and evidence.computer_use_v2_evidence_sha256 is None:
         raise DeviceControlReleaseEvidenceError(
             "production Computer Use v2 rollout requires signed release evidence"
+        )
+
+
+def ensure_device_control_v2_acceptance_window(
+    *,
+    environment: str,
+    enabled: bool,
+    device_id: UUID | None,
+    expires_at: datetime | None,
+    evidence: DeviceControlReleaseEvidence | None,
+    now: datetime | None = None,
+) -> None:
+    """
+    校验单设备 Computer Use v2 生产验收窗口
+
+    :param environment (str): 当前部署环境
+    :param enabled (bool): 是否配置启用设备控制
+    :param device_id (UUID | None): 唯一允许进入 v2 的验收设备
+    :param expires_at (datetime | None): 验收窗口失效时间
+    :param evidence (DeviceControlReleaseEvidence | None): 已验证的一般设备控制发布证据
+    :param now (datetime | None): 可选的当前时间，供确定性验证使用
+
+    :raises DeviceControlReleaseEvidenceError: 验收窗口不满足生产边界
+    """
+
+    if device_id is None and expires_at is None:
+        return
+    if device_id is None or expires_at is None:
+        raise DeviceControlReleaseEvidenceError(
+            "Computer Use v2 acceptance settings must be configured together"
+        )
+    if environment.strip().lower() != "production" or not enabled:
+        raise DeviceControlReleaseEvidenceError(
+            "Computer Use v2 acceptance requires production device control"
+        )
+    if evidence is None or evidence.release_profile != "community-local-trust":
+        raise DeviceControlReleaseEvidenceError(
+            "Computer Use v2 acceptance requires current Community release evidence"
+        )
+    verification_time = now or datetime.now(UTC)
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        raise DeviceControlReleaseEvidenceError(
+            "Computer Use v2 acceptance expiry must be timezone-aware"
+        )
+    if expires_at <= verification_time:
+        raise DeviceControlReleaseEvidenceError("Computer Use v2 acceptance window has expired")
+    if expires_at > verification_time + _MAXIMUM_V2_ACCEPTANCE_WINDOW:
+        raise DeviceControlReleaseEvidenceError(
+            "Computer Use v2 acceptance window cannot exceed 24 hours"
         )

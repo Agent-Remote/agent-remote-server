@@ -218,6 +218,10 @@ class DeviceSessionService:
                 code="COMMON_NOT_FOUND", message="Device was not found.", status_code=404
             )
 
+        # Candidate ownership must not advertise a binding whose absolute TTL
+        # has elapsed. Expire due rows synchronously so a device can re-claim
+        # the tool session without first hitting a stale idempotent binding.
+        await self.expire_due()
         candidates: list[DeviceSessionCandidateData] = []
         for (
             tool_session,
@@ -313,6 +317,16 @@ class DeviceSessionService:
                 device_id=device.id,
             )
         )
+        revoked: list[RevokedDeviceBinding] = []
+        for binding in bindings:
+            if self._aware(binding.expires_at) <= self._now():
+                await self._expire_binding(
+                    binding,
+                    reason="session_expired",
+                    commit=False,
+                    revoked_bindings=revoked,
+                )
+        bindings = [item for item in bindings if item.status not in TERMINAL_DEVICE_STATUSES]
         target_binding = next(
             (item for item in bindings if item.tool_session_id == tool_session.id), None
         )
@@ -328,7 +342,6 @@ class DeviceSessionService:
                 revoked_bindings=(),
             )
 
-        revoked: list[RevokedDeviceBinding] = []
         for binding in bindings:
             if binding.id not in {
                 item.id for item in (target_binding, current_binding) if item is not None
@@ -1244,7 +1257,14 @@ class DeviceSessionService:
         device_id: UUID,
     ) -> tuple[str, ...]:
         rollout_percent = self._settings.device_control_v2_rollout_percent
-        if rollout_percent == 0 or device_id.int % 100 >= rollout_percent:
+        acceptance_expires_at = self._settings.device_control_v2_acceptance_expires_at
+        selected_for_acceptance = (
+            self._settings.device_control_v2_acceptance_device_id == device_id
+            and acceptance_expires_at is not None
+            and self._aware(acceptance_expires_at) > self._now()
+        )
+        selected_for_rollout = rollout_percent > 0 and device_id.int % 100 < rollout_percent
+        if not selected_for_acceptance and not selected_for_rollout:
             return ()
         capability = runtime_capabilities.get("device_control")
         if not isinstance(capability, dict):

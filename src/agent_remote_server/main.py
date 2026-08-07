@@ -13,6 +13,7 @@ from agent_remote_server.config import Settings, get_settings
 from agent_remote_server.db import create_engine, create_session_factory
 from agent_remote_server.device_control_release import (
     ensure_device_control_release_evidence_current,
+    ensure_device_control_v2_acceptance_window,
     verify_device_control_release_evidence,
 )
 from agent_remote_server.device_control_retention import run_device_control_retention
@@ -51,6 +52,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             environment=app_settings.environment,
             enabled=app_settings.device_control_enabled,
             v2_rollout_percent=app_settings.device_control_v2_rollout_percent,
+            evidence=device_control_release_evidence,
+        )
+        ensure_device_control_v2_acceptance_window(
+            environment=app_settings.environment,
+            enabled=app_settings.device_control_enabled,
+            device_id=app_settings.device_control_v2_acceptance_device_id,
+            expires_at=app_settings.device_control_v2_acceptance_expires_at,
             evidence=device_control_release_evidence,
         )
     configure_logging(app_settings.log_level)

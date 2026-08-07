@@ -114,6 +114,11 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   signing, official-runner automation, and risk-acceptance digests. Schema 3 binds every supported
   Linux Node and proxy target in one community manifest. Development may explicitly enable the
   capability without this production-only evidence gate for non-sensitive test data.
+- A Community deployment may negotiate Computer Use v2 for one exact device during a startup-
+  validated acceptance window of at most 24 hours while global rollout remains zero. The window
+  requires current signed general device-control evidence, exists only to generate artifact-bound
+  v2 acceptance evidence, and cannot authorize percentage rollout. Capabilities do not downgrade
+  within a generation, so operators must end the validation generation when the window closes.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal
   sessions older than the configured stop-time cutoff and audit rows whose target type is

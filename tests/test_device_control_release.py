@@ -2,6 +2,7 @@ import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -13,6 +14,7 @@ from agent_remote_server.device_control_release import (
     DeviceControlReleaseEvidence,
     DeviceControlReleaseEvidenceError,
     ensure_device_control_release_evidence_current,
+    ensure_device_control_v2_acceptance_window,
     verify_device_control_release_evidence,
 )
 from agent_remote_server.main import create_app
@@ -440,6 +442,63 @@ def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> Non
     )
 
     assert app.state.device_control_release_evidence.computer_use_v2_evidence_sha256 == "b" * 64
+
+
+def test_community_v2_acceptance_window_is_bounded() -> None:
+    """Community 单设备验收必须短期、精确并基于一般发布证据。"""
+
+    now = datetime.now(UTC)
+    evidence = DeviceControlReleaseEvidence(
+        schema_version=2,
+        release_profile="community-local-trust",
+        production_ready=True,
+        apple_notarized=False,
+        public_distribution=False,
+        manual_trust_required=True,
+        release_version=__version__,
+        issued_at=now - timedelta(hours=1),
+        expires_at=now + timedelta(days=1),
+        server_sha256=_DIGEST,
+        node_sha256=_DIGEST,
+        application_sha256=_DIGEST,
+        proxy_sha256=_DIGEST,
+        sbom_sha256=_DIGEST,
+        provenance_sha256=_DIGEST,
+        signing_notarization_sha256=_DIGEST,
+        community_signing_sha256=_DIGEST,
+        automated_release_checks_sha256=_DIGEST,
+        risk_acceptance_sha256=_DIGEST,
+        ci_run_url="https://ci.example.test/runs/acceptance",
+        signature="test-only",
+    )
+    device_id = UUID("123e4567-e89b-42d3-a456-426614174000")
+
+    ensure_device_control_v2_acceptance_window(
+        environment="production",
+        enabled=True,
+        device_id=device_id,
+        expires_at=now + timedelta(hours=1),
+        evidence=evidence,
+        now=now,
+    )
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="cannot exceed 24 hours"):
+        ensure_device_control_v2_acceptance_window(
+            environment="production",
+            enabled=True,
+            device_id=device_id,
+            expires_at=now + timedelta(hours=25),
+            evidence=evidence,
+            now=now,
+        )
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="has expired"):
+        ensure_device_control_v2_acceptance_window(
+            environment="production",
+            enabled=True,
+            device_id=device_id,
+            expires_at=now,
+            evidence=evidence,
+            now=now,
+        )
 
 
 def test_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
