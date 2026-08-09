@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.3 - 2026-08-09
+
+- fix: recover device relays and delete failed sessions (1b1ce9a)
+
 ## v0.2.2 - 2026-08-07
 
 - feat: add bounded computer use acceptance (12bd98b)
