@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.5 - 2026-08-09
+
+- feat(device-control): enable computer use v2 by default (f54ac43)
+
 ## v0.2.4 - 2026-08-09
 
 - feat(device-control): accept community v2 evidence (e03920c)
