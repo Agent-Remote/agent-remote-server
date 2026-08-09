@@ -198,7 +198,10 @@ class NodeRepository:
             .where(NodeTask.node_id == node_id)
             .where(
                 (NodeTask.status == "pending")
-                | ((NodeTask.status == "leased") & (NodeTask.lease_until <= normalized_now))
+                | (
+                    NodeTask.status.in_({"leased", "running"})
+                    & (NodeTask.lease_until <= normalized_now)
+                )
             )
             .order_by(NodeTask.created_at)
             .limit(limit)

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import AuditLog, DeviceSession, Node, NodeTaskResult
+from agent_remote_server.models import AuditLog, DeviceSession, Node, NodeTask, NodeTaskResult
 from agent_remote_server.services.nodes import NodeService
 
 
@@ -257,6 +257,65 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
             assert results[0].status == "succeeded"
 
     asyncio.run(count_results())
+
+
+def test_expired_running_node_task_is_released(client: TestClient) -> None:
+    admin_token = bootstrap(client)
+    node_id, node_token = create_and_register_node(client, admin_token)
+
+    async def create_task() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            await NodeService(session, app.state.settings).create_task(
+                node_id=UUID(node_id),
+                task_id="task_expired_running",
+                task_type="reconcile_state",
+                payload={"target": "node"},
+            )
+
+    asyncio.run(create_task())
+
+    first_poll = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert first_poll.status_code == 200
+    assert [task["task_id"] for task in first_poll.json()["data"]["tasks"]] == [
+        "task_expired_running"
+    ]
+
+    start_response = client.post(
+        "/api/v1/node-api/tasks/task_expired_running/start",
+        headers=auth_header(node_token),
+    )
+    assert start_response.status_code == 200
+
+    async def expire_lease() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            task = await session.scalar(
+                select(NodeTask).where(NodeTask.task_id == "task_expired_running")
+            )
+            assert task is not None
+            assert task.status == "running"
+            task.lease_until = datetime.now(UTC) - timedelta(seconds=1)
+            await session.commit()
+
+    asyncio.run(expire_lease())
+
+    second_poll = client.post("/api/v1/node-api/tasks/poll", headers=auth_header(node_token))
+    assert second_poll.status_code == 200
+    tasks = second_poll.json()["data"]["tasks"]
+    assert [task["task_id"] for task in tasks] == ["task_expired_running"]
+
+    async def assert_released() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            task = await session.scalar(
+                select(NodeTask).where(NodeTask.task_id == "task_expired_running")
+            )
+            assert task is not None
+            assert task.status == "leased"
+            assert task.retry_count == 2
+
+    asyncio.run(assert_released())
 
 
 def test_admin_can_list_failed_node_tasks(client: TestClient) -> None:

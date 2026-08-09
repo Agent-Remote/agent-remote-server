@@ -50,6 +50,8 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Backend changes use an explicit node task and commit only after node-side verification succeeds.
 - Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
 - Inactive native resources reported during reconciliation move active sessions to `interrupted`; process exits may enqueue idempotent runtime cleanup without replacing that status, and the control plane never replays their commands.
+- Node task leases cover both delivery and execution. An expired non-terminal lease is reissued so
+  the node can replay its locally persisted terminal result and converge the control-plane state.
 - Users may delete only `stopped`, `interrupted`, or `failed` tool sessions. Collection deletion removes all sessions in those three states for the current user; active lifecycle states remain protected and all deletion paths are audited.
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
 - SSH agent forwarding is authorized only for active developer credential profiles that explicitly select `agent_forwarding`; both the client attach response and the node forced-command verification carry that decision.

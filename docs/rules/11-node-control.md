@@ -19,7 +19,8 @@
 - Nodes poll for tasks; nodes do not expose public HTTP APIs.
 - Polling leases only tasks owned by the authenticated node.
 - A leased task must include a lease deadline.
-- Expired leases can be reissued while the task is not terminal.
+- Expired `leased` and `running` tasks can be reissued while the task is not terminal. Nodes must
+  replay a locally persisted terminal result instead of repeating the runtime operation.
 - Terminal statuses are `succeeded`, `failed`, `cancelled`, and `expired`.
 
 ## Task Results
