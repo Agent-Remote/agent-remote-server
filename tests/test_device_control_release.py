@@ -2,7 +2,6 @@ import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -14,7 +13,6 @@ from agent_remote_server.device_control_release import (
     DeviceControlReleaseEvidence,
     DeviceControlReleaseEvidenceError,
     ensure_device_control_release_evidence_current,
-    ensure_device_control_v2_acceptance_window,
     verify_device_control_release_evidence,
 )
 from agent_remote_server.main import create_app
@@ -388,8 +386,8 @@ def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path
     assert app.state.settings.device_control_enabled is True
 
 
-def test_production_v2_rollout_requires_signed_v2_evidence(tmp_path: Path) -> None:
-    """生产非零 v2 灰度不得复用缺少专项摘要的普通发布清单。"""
+def test_production_default_v2_accepts_general_release_evidence(tmp_path: Path) -> None:
+    """生产默认 v2 只依赖当前通用发布证据，不要求专项验收摘要。"""
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -399,26 +397,24 @@ def test_production_v2_rollout_requires_signed_v2_evidence(tmp_path: Path) -> No
         apple_profile=True,
     )
 
-    with pytest.raises(
-        DeviceControlReleaseEvidenceError,
-        match="Computer Use v2 rollout requires signed release evidence",
-    ):
-        create_app(
-            Settings(
-                secret_key="test-secret",
-                environment="production",
-                device_control_enabled=True,
-                device_control_v2_rollout_percent=1,
-                device_session_retention_days=30,
-                device_session_audit_retention_days=90,
-                device_control_release_evidence_path=str(evidence_path),
-                device_control_release_public_key=public_key,
-            )
+    app = create_app(
+        Settings(
+            secret_key="test-secret",
+            environment="production",
+            device_control_enabled=True,
+            device_session_retention_days=30,
+            device_session_audit_retention_days=90,
+            device_control_release_evidence_path=str(evidence_path),
+            device_control_release_public_key=public_key,
         )
+    )
+
+    assert app.state.settings.device_control_v2_enabled is True
+    assert app.state.device_control_release_evidence.computer_use_v2_evidence_sha256 is None
 
 
-def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> None:
-    """生产非零 v2 灰度应接受签名载荷内的专项证据摘要。"""
+def test_production_preserves_optional_v2_evidence_metadata(tmp_path: Path) -> None:
+    """专项 v2 证据继续作为可选质量元数据被验证并保留。"""
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -434,7 +430,6 @@ def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> Non
             secret_key="test-secret",
             environment="production",
             device_control_enabled=True,
-            device_control_v2_rollout_percent=100,
             device_session_retention_days=30,
             device_session_audit_retention_days=90,
             device_control_release_evidence_path=str(evidence_path),
@@ -445,8 +440,8 @@ def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> Non
     assert app.state.device_control_release_evidence.computer_use_v2_evidence_sha256 == "b" * 64
 
 
-def test_production_v2_rollout_accepts_community_schema_v4_evidence(tmp_path: Path) -> None:
-    """Community schema v4 应以相同运行期门禁授权生产 v2 灰度。"""
+def test_production_accepts_optional_community_schema_v4_evidence(tmp_path: Path) -> None:
+    """Community schema v4 继续作为可选的运行时验收记录。"""
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -461,7 +456,6 @@ def test_production_v2_rollout_accepts_community_schema_v4_evidence(tmp_path: Pa
             secret_key="test-secret",
             environment="production",
             device_control_enabled=True,
-            device_control_v2_rollout_percent=100,
             device_session_retention_days=30,
             device_session_audit_retention_days=90,
             device_control_release_evidence_path=str(evidence_path),
@@ -473,63 +467,6 @@ def test_production_v2_rollout_accepts_community_schema_v4_evidence(tmp_path: Pa
     assert evidence.schema_version == 4
     assert evidence.release_profile == "community-local-trust"
     assert evidence.computer_use_v2_evidence_sha256 == "b" * 64
-
-
-def test_community_v2_acceptance_window_is_bounded() -> None:
-    """Community 单设备验收必须短期、精确并基于一般发布证据。"""
-
-    now = datetime.now(UTC)
-    evidence = DeviceControlReleaseEvidence(
-        schema_version=2,
-        release_profile="community-local-trust",
-        production_ready=True,
-        apple_notarized=False,
-        public_distribution=False,
-        manual_trust_required=True,
-        release_version=__version__,
-        issued_at=now - timedelta(hours=1),
-        expires_at=now + timedelta(days=1),
-        server_sha256=_DIGEST,
-        node_sha256=_DIGEST,
-        application_sha256=_DIGEST,
-        proxy_sha256=_DIGEST,
-        sbom_sha256=_DIGEST,
-        provenance_sha256=_DIGEST,
-        signing_notarization_sha256=_DIGEST,
-        community_signing_sha256=_DIGEST,
-        automated_release_checks_sha256=_DIGEST,
-        risk_acceptance_sha256=_DIGEST,
-        ci_run_url="https://ci.example.test/runs/acceptance",
-        signature="test-only",
-    )
-    device_id = UUID("123e4567-e89b-42d3-a456-426614174000")
-
-    ensure_device_control_v2_acceptance_window(
-        environment="production",
-        enabled=True,
-        device_id=device_id,
-        expires_at=now + timedelta(hours=1),
-        evidence=evidence,
-        now=now,
-    )
-    with pytest.raises(DeviceControlReleaseEvidenceError, match="cannot exceed 24 hours"):
-        ensure_device_control_v2_acceptance_window(
-            environment="production",
-            enabled=True,
-            device_id=device_id,
-            expires_at=now + timedelta(hours=25),
-            evidence=evidence,
-            now=now,
-        )
-    with pytest.raises(DeviceControlReleaseEvidenceError, match="has expired"):
-        ensure_device_control_v2_acceptance_window(
-            environment="production",
-            enabled=True,
-            device_id=device_id,
-            expires_at=now,
-            evidence=evidence,
-            now=now,
-        )
 
 
 def test_legacy_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
@@ -674,7 +611,6 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
         ensure_device_control_release_evidence_current(
             environment="production",
             enabled=True,
-            v2_rollout_percent=0,
             evidence=evidence,
             now=now,
         )
@@ -682,7 +618,6 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
     ensure_device_control_release_evidence_current(
         environment="development",
         enabled=True,
-        v2_rollout_percent=100,
         evidence=None,
         now=now,
     )

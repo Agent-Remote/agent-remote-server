@@ -1071,7 +1071,6 @@ class DeviceSessionService:
         node = await self._repository.get_node(device_session.node_id)
         capabilities = self._negotiated_v2_capabilities(
             node.runtime_capabilities if node is not None else {},
-            device_session.device_id,
         )
         await self._repository.add_task(
             NodeTask(
@@ -1254,17 +1253,8 @@ class DeviceSessionService:
     def _negotiated_v2_capabilities(
         self,
         runtime_capabilities: dict[str, object],
-        device_id: UUID,
     ) -> tuple[str, ...]:
-        rollout_percent = self._settings.device_control_v2_rollout_percent
-        acceptance_expires_at = self._settings.device_control_v2_acceptance_expires_at
-        selected_for_acceptance = (
-            self._settings.device_control_v2_acceptance_device_id == device_id
-            and acceptance_expires_at is not None
-            and self._aware(acceptance_expires_at) > self._now()
-        )
-        selected_for_rollout = rollout_percent > 0 and device_id.int % 100 < rollout_percent
-        if not selected_for_acceptance and not selected_for_rollout:
+        if not self._settings.device_control_v2_enabled:
             return ()
         capability = runtime_capabilities.get("device_control")
         if not isinstance(capability, dict):

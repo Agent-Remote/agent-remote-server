@@ -118,11 +118,11 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   signing, official-runner automation, and risk-acceptance digests. Schema 3 binds every supported
   Linux Node and proxy target in one community manifest. Development may explicitly enable the
   capability without this production-only evidence gate for non-sensitive test data.
-- A Community deployment may negotiate Computer Use v2 for one exact device during a startup-
-  validated acceptance window of at most 24 hours while global rollout remains zero. The window
-  requires current signed general device-control evidence, exists only to generate artifact-bound
-  v2 acceptance evidence, and cannot authorize percentage rollout. Capabilities do not downgrade
-  within a generation, so operators must end the validation generation when the window closes.
+- Computer Use v2 is enabled by default for new generations. The Server negotiates it only when the
+  assigned Node advertises the complete canonical capability set; partial, unknown, or malformed
+  capability sets fall back atomically to v1. `device_control_v2_enabled=false` is the emergency
+  switch for new generations. Optional schema 4 quality evidence does not authorize runtime
+  capabilities, and capabilities never change within an active generation.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal
   sessions older than the configured stop-time cutoff and audit rows whose target type is

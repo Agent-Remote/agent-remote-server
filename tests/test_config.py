@@ -1,5 +1,4 @@
-from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -17,9 +16,7 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.access_token_ttl_seconds == 3600
     assert settings.device_token_ttl_seconds == 2_592_000
     assert settings.device_control_enabled is False
-    assert settings.device_control_v2_rollout_percent == 0
-    assert settings.device_control_v2_acceptance_device_id is None
-    assert settings.device_control_v2_acceptance_expires_at is None
+    assert settings.device_control_v2_enabled is True
     assert settings.device_control_release_evidence_path == ""
     assert settings.device_control_release_public_key == ""
     assert settings.device_session_retention_days == 0
@@ -28,49 +25,19 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.device_relay_max_connection_seconds == 900
 
 
-def test_device_control_v2_rollout_percentage_is_bounded() -> None:
-    """v2 灰度比例只能位于闭区间 0 到 100。"""
+def test_device_control_v2_can_be_disabled_for_emergency_rollback() -> None:
+    """v2 默认启用，同时保留显式紧急关闭开关。"""
 
-    assert Settings(device_control_v2_rollout_percent=100).device_control_v2_rollout_percent == 100
-    with pytest.raises(ValidationError):
-        Settings(device_control_v2_rollout_percent=-1)
-    with pytest.raises(ValidationError):
-        Settings(device_control_v2_rollout_percent=101)
+    assert Settings(device_control_v2_enabled=False).device_control_v2_enabled is False
 
 
-def test_device_control_v2_acceptance_settings_are_bounded() -> None:
-    """v2 验收只允许生产环境中的单设备零灰度配置。"""
+def test_example_environment_uses_the_default_v2_switch() -> None:
+    """示例部署只公开默认开启的 v2 开关，不保留旧灰度和验收窗口。"""
 
-    expires_at = datetime.now(UTC) + timedelta(hours=1)
-    device_id = uuid4()
-    settings = Settings(
-        environment="production",
-        device_control_enabled=True,
-        device_session_retention_days=30,
-        device_session_audit_retention_days=90,
-        device_control_v2_acceptance_device_id=device_id,
-        device_control_v2_acceptance_expires_at=expires_at,
-    )
-    assert settings.device_control_v2_acceptance_device_id == device_id
-
-    with pytest.raises(ValidationError, match="configured together"):
-        Settings(
-            environment="production",
-            device_control_enabled=True,
-            device_session_retention_days=30,
-            device_session_audit_retention_days=90,
-            device_control_v2_acceptance_device_id=device_id,
-        )
-    with pytest.raises(ValidationError, match="zero global rollout"):
-        Settings(
-            environment="production",
-            device_control_enabled=True,
-            device_session_retention_days=30,
-            device_session_audit_retention_days=90,
-            device_control_v2_rollout_percent=1,
-            device_control_v2_acceptance_device_id=device_id,
-            device_control_v2_acceptance_expires_at=expires_at,
-        )
+    example = Path(".env.example").read_text(encoding="utf-8")
+    assert "DEVICE_CONTROL_V2_ENABLED=true" in example
+    assert "DEVICE_CONTROL_V2_ROLLOUT_PERCENT" not in example
+    assert "DEVICE_CONTROL_V2_ACCEPTANCE" not in example
 
 
 def test_port_forward_settings_reject_incoherent_ranges() -> None:

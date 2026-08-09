@@ -101,9 +101,7 @@ Environment variables:
 - `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 - `DEVICE_CONTROL_ENABLED`
-- `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` (defaults to `0`; stable per-device v1/v2 cohort)
-- `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` / `DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT`
-  (optional one-device Community acceptance window, at most 24 hours)
+- `DEVICE_CONTROL_V2_ENABLED` (defaults to `true`; emergency rollback switch for new generations)
 - `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
 - `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
 - `DEVICE_SESSION_RETENTION_DAYS`
@@ -120,23 +118,14 @@ Base64-encoded Ed25519 public key. Operators must also choose explicit non-zero 
 and device-session-audit retention periods; audit retention cannot be shorter than session
 retention. Development may explicitly enable the capability only for non-sensitive test data.
 
-Keep `DEVICE_CONTROL_V2_ROLLOUT_PERCENT=0` unless the signed release manifest contains
-`computer_use_v2_evidence_sha256` from the artifact-bound acceptance report. Startup and runtime
-checks reject non-zero rollout without it. The percentage affects only new generations; rollback
-sets it to `0`, terminates active v2 device sessions, and requires fresh local approval for v1. Do
-not downgrade an active generation in place.
+Computer Use v2 is enabled for new generations by default. The Server negotiates v2 only when the
+Node advertises the complete canonical capability set; missing, partial, malformed, or older sets
+fall back atomically to v1. Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created
+generations during an emergency. Active generations never change capability sets in place.
 
-Apple schema 1 and Community schema 4 may carry the v2 digest. Community schema versions 2 and 3
-cannot authorize v2; schema 4 additionally preserves the reduced-trust declarations and requires
-the protected Community report to bind the exact release artifacts. Risk acceptance by itself is
-never treated as v2 evidence.
-
-Before Community v2 evidence exists, an operator may run one artifact acceptance session by
-setting `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` and a timezone-aware
-`DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT` no more than 24 hours ahead. This path requires current
-signed Community device-control evidence and a zero global rollout. It selects only that exact
-device, stops negotiating v2 after expiry, and is not production rollout authorization. End the
-validation generation before removing the settings or after the window expires.
+Apple schema 1 and Community schema 4 may carry the optional artifact-bound v2 quality digest.
+That digest supports release-quality auditing but is not runtime authorization. General signed
+production release evidence remains mandatory whenever device control is enabled in production.
 
 The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
 

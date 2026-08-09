@@ -64,12 +64,9 @@ def test_device_session_v2_capabilities_fail_closed_when_incomplete_or_malformed
     """部分或畸形 capability 不能启用任何 v2 语义。"""
 
     service = DeviceSessionService.__new__(DeviceSessionService)
-    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=100)
+    service._settings = Settings(secret_key="test-secret")
     assert (
-        service._negotiated_v2_capabilities(
-            {"device_control": {"capabilities": advertised}}, uuid4()
-        )
-        == ()
+        service._negotiated_v2_capabilities({"device_control": {"capabilities": advertised}}) == ()
     )
 
 
@@ -77,7 +74,7 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
     """完整无序集合只输出控制面定义的规范顺序。"""
 
     service = DeviceSessionService.__new__(DeviceSessionService)
-    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=100)
+    service._settings = Settings(secret_key="test-secret")
     assert service._negotiated_v2_capabilities(
         {
             "device_control": {
@@ -88,7 +85,6 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
                 ]
             }
         },
-        uuid4(),
     ) == (
         "adaptive_settle_v2",
         "ax_state_v2",
@@ -96,8 +92,8 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
     )
 
 
-def test_device_session_v2_rollout_is_stable_and_defaults_to_v1() -> None:
-    """灰度按设备稳定分桶，零比例时即使 Node 支持也保持完整 v1。"""
+def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() -> None:
+    """完整能力默认协商 v2，紧急开关关闭后原子回退 v1。"""
 
     runtime_capabilities: dict[str, object] = {
         "device_control": {
@@ -108,51 +104,19 @@ def test_device_session_v2_rollout_is_stable_and_defaults_to_v1() -> None:
             ]
         }
     }
-    device_id = UUID(int=42)
     service = DeviceSessionService.__new__(DeviceSessionService)
     service._settings = Settings(secret_key="test-secret")
-    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == ()
-
-    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=42)
-    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == ()
-    service._settings = Settings(secret_key="test-secret", device_control_v2_rollout_percent=43)
-    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == (
+    assert service._negotiated_v2_capabilities(runtime_capabilities) == (
         "adaptive_settle_v2",
         "ax_state_v2",
         "observation_mode_v2",
     )
 
-
-def test_device_session_v2_acceptance_selects_only_the_configured_device() -> None:
-    """限时验收窗口不得把其他设备带入 v2。"""
-
-    runtime_capabilities: dict[str, object] = {
-        "device_control": {
-            "capabilities": [
-                "adaptive_settle_v2",
-                "ax_state_v2",
-                "observation_mode_v2",
-            ]
-        }
-    }
-    device_id = uuid4()
-    service = DeviceSessionService.__new__(DeviceSessionService)
     service._settings = Settings(
         secret_key="test-secret",
-        environment="production",
-        device_control_enabled=True,
-        device_session_retention_days=30,
-        device_session_audit_retention_days=90,
-        device_control_v2_acceptance_device_id=device_id,
-        device_control_v2_acceptance_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        device_control_v2_enabled=False,
     )
-
-    assert service._negotiated_v2_capabilities(runtime_capabilities, device_id) == (
-        "adaptive_settle_v2",
-        "ax_state_v2",
-        "observation_mode_v2",
-    )
-    assert service._negotiated_v2_capabilities(runtime_capabilities, uuid4()) == ()
+    assert service._negotiated_v2_capabilities(runtime_capabilities) == ()
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -325,8 +289,8 @@ def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
     assert stopped.json()["data"]["status"] == "stopped"
 
 
-def test_runtime_v2_rollout_change_requires_signed_v2_evidence(client: TestClient) -> None:
-    """运行中把灰度改为非零时，下一次推进必须重新执行 v2 证据门禁。"""
+def test_runtime_v2_does_not_require_specialized_release_evidence(client: TestClient) -> None:
+    """当前通用生产证据允许完整能力集合自动协商 v2。"""
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -345,7 +309,6 @@ def test_runtime_v2_rollout_change_requires_signed_v2_evidence(client: TestClien
 
     app = cast(FastAPI, client.app)
     app.state.settings.environment = "production"
-    app.state.settings.device_control_v2_rollout_percent = 100
     app.state.device_control_release_evidence = current_release_evidence_without_v2()
 
     connected = client.post(
@@ -354,8 +317,7 @@ def test_runtime_v2_rollout_change_requires_signed_v2_evidence(client: TestClien
         json={"generation": 1},
     )
 
-    assert connected.status_code == 503
-    assert connected.json()["error"]["code"] == "DEVICE_CONTROL_RELEASE_EVIDENCE_EXPIRED"
+    assert connected.status_code == 200
 
 
 def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestClient) -> None:
@@ -1699,7 +1661,6 @@ async def test_device_session_service_complete_state_machine() -> None:
                 Settings(
                     secret_key="test-secret",
                     device_control_enabled=True,
-                    device_control_v2_rollout_percent=100,
                 ),
             )
             record = await service.create(
