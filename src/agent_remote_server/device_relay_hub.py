@@ -81,6 +81,8 @@ class DeviceRelayHub:
                 endpoint.peer.set_result(peer_endpoint.websocket)
                 peer_endpoint.peer.set_result(websocket)
 
+        peer: WebSocket | None = None
+        relay_close_code = 1011
         try:
             peer = await asyncio.wait_for(
                 asyncio.shield(endpoint.peer),
@@ -90,6 +92,7 @@ class DeviceRelayHub:
                 async with asyncio.timeout(self._maximum_connection_seconds):
                     await self._forward(key, endpoint.role, websocket, peer)
             except TimeoutError:
+                relay_close_code = 1008
                 logger.warning(
                     "device_relay_closed session=%s generation=%s role=%s reason=%s",
                     key[0],
@@ -103,8 +106,6 @@ class DeviceRelayHub:
                         "relay_reason": "connection_timeout",
                     },
                 )
-                await websocket.close(code=1008)
-                await peer.close(code=1008)
         except (TimeoutError, _RelayBindingClosed):
             logger.warning(
                 "device_relay_closed session=%s generation=%s role=%s reason=%s",
@@ -121,6 +122,13 @@ class DeviceRelayHub:
             )
             await websocket.close(code=1008)
         finally:
+            if peer is not None:
+                # 任一方向结束后，本代一次性材料都无法再配对；双端关闭可让存活端及时轮换代次。
+                await asyncio.gather(
+                    websocket.close(code=relay_close_code),
+                    peer.close(code=relay_close_code),
+                    return_exceptions=True,
+                )
             await self._remove(key, endpoint)
 
     async def close_binding(

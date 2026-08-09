@@ -134,7 +134,7 @@ async def delete_inactive_sessions(
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> EmptyResponse:
     """
-    删除当前用户全部已停止和已中断工具 session
+    删除当前用户全部已停止、已中断和失败的工具 session
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话

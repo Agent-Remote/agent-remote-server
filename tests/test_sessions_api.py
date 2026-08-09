@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from sqlalchemy import func, select
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
 from agent_remote_server.main import create_app
-from agent_remote_server.models import Node, NodeTask, Session, ToolAccount
+from agent_remote_server.models import AuditLog, Node, NodeTask, PortForward, Session, ToolAccount
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -374,7 +375,7 @@ def test_list_sessions_includes_workspace_paths_and_filters_statuses(
     assert invalid_response.json()["error"]["code"] == "SESSION_STATUS_INVALID"
 
 
-def test_delete_stopped_session_and_bulk_delete_inactive_sessions(client: TestClient) -> None:
+def test_delete_terminal_sessions_and_bulk_delete_inactive_sessions(client: TestClient) -> None:
     token = bootstrap(client)
     node_id, _node_token = create_node(client, token, name="us-west-delete", weight=10)
     device_id, device_token = register_device(client, token)
@@ -394,40 +395,73 @@ def test_delete_stopped_session_and_bulk_delete_inactive_sessions(client: TestCl
     assert created.status_code == 200
     starting_id = str(created.json()["data"]["id"])
 
-    async def seed_inactive_sessions() -> tuple[str, str, str]:
+    async def seed_inactive_sessions() -> tuple[str, str, str, str, str, str]:
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
             assert account is not None
             seeded = []
-            for status in ("stopped", "interrupted", "failed"):
+            for suffix, status in (
+                ("stopped", "stopped"),
+                ("interrupted", "interrupted"),
+                ("failed-single", "failed"),
+                ("failed-bulk", "failed"),
+            ):
                 tool_session = Session(
                     tool_type="claude",
                     user_id=account.user_id,
                     tool_account_id=account.id,
                     workspace_id=UUID(workspace_id),
                     node_id=UUID(node_id),
-                    project_key=f"sha256:delete-{status}",
+                    project_key=f"sha256:delete-{suffix}",
                     status=status,
-                    tmux_session_name=f"ar-claude-delete-{status}",
-                    container_id=f"agent-remote-claude-delete-{status}",
+                    tmux_session_name=f"ar-claude-delete-{suffix}",
+                    container_id=f"agent-remote-claude-delete-{suffix}",
                 )
                 session.add(tool_session)
                 seeded.append(tool_session)
+            await session.flush()
+            expires_at = datetime.now(UTC) + timedelta(hours=1)
+            forwards = []
+            for index, tool_session in enumerate((seeded[2], seeded[3]), start=1):
+                port_forward = PortForward(
+                    user_id=account.user_id,
+                    device_id=UUID(device_id),
+                    session_id=tool_session.id,
+                    node_id=UUID(node_id),
+                    remote_port=5100 + index,
+                    requested_local_port=5100 + index,
+                    client_instance_id=f"delete-test-{index}",
+                    status="active",
+                    expires_at=expires_at,
+                )
+                session.add(port_forward)
+                forwards.append(port_forward)
             await session.commit()
-            return str(seeded[0].id), str(seeded[1].id), str(seeded[2].id)
+            return (
+                str(seeded[0].id),
+                str(seeded[1].id),
+                str(seeded[2].id),
+                str(seeded[3].id),
+                str(forwards[0].id),
+                str(forwards[1].id),
+            )
 
-    stopped_id, interrupted_id, failed_id = asyncio.run(seed_inactive_sessions())
+    stopped_id, interrupted_id, failed_id, bulk_failed_id, failed_forward_id, bulk_forward_id = (
+        asyncio.run(seed_inactive_sessions())
+    )
 
     protected = client.delete(f"/api/v1/sessions/{starting_id}", headers=auth_header(token))
     assert protected.status_code == 409
     assert protected.json()["error"]["code"] == "SESSION_DELETE_NOT_ALLOWED"
 
-    deleted = client.delete(f"/api/v1/sessions/{stopped_id}", headers=auth_header(token))
-    assert deleted.status_code == 200
-    assert (
-        client.get(f"/api/v1/sessions/{stopped_id}", headers=auth_header(token)).status_code == 404
-    )
+    for session_id in (stopped_id, failed_id):
+        deleted = client.delete(f"/api/v1/sessions/{session_id}", headers=auth_header(token))
+        assert deleted.status_code == 200
+        assert (
+            client.get(f"/api/v1/sessions/{session_id}", headers=auth_header(token)).status_code
+            == 404
+        )
 
     bulk_deleted = client.delete("/api/v1/sessions", headers=auth_header(token))
     assert bulk_deleted.status_code == 200
@@ -436,7 +470,8 @@ def test_delete_stopped_session_and_bulk_delete_inactive_sessions(client: TestCl
         == 404
     )
     assert (
-        client.get(f"/api/v1/sessions/{failed_id}", headers=auth_header(token)).status_code == 200
+        client.get(f"/api/v1/sessions/{bulk_failed_id}", headers=auth_header(token)).status_code
+        == 404
     )
     assert (
         client.get(f"/api/v1/sessions/{starting_id}", headers=auth_header(token)).status_code == 200
@@ -444,6 +479,25 @@ def test_delete_stopped_session_and_bulk_delete_inactive_sessions(client: TestCl
 
     repeated = client.delete("/api/v1/sessions", headers=auth_header(token))
     assert repeated.status_code == 200
+
+    async def assert_port_forwards_revoked_before_deletion() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            for forward_id in (failed_forward_id, bulk_forward_id):
+                port_forward = await session.get(PortForward, UUID(forward_id))
+                assert port_forward is not None
+                assert port_forward.status == "revoked"
+                assert port_forward.stop_reason == "session_deleted"
+                audit = await session.scalar(
+                    select(AuditLog).where(
+                        AuditLog.action == "port_forward.revoked",
+                        AuditLog.target_id == forward_id,
+                    )
+                )
+                assert audit is not None
+                assert audit.details == {"reason": "session_deleted"}
+
+    asyncio.run(assert_port_forwards_revoked_before_deletion())
 
 
 def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> None:

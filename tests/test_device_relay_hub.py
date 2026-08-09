@@ -90,6 +90,18 @@ async def test_device_relay_hub_expires_both_peers_after_the_connection_limit() 
     assert 1008 in proxy.close_codes
 
 
+async def test_device_relay_hub_closes_device_when_proxy_disconnects() -> None:
+    """验证代理断开会关闭设备端，触发设备轮换 relay generation。"""
+
+    await _assert_peer_closed_after_disconnect(disconnected_role="proxy")
+
+
+async def test_device_relay_hub_closes_proxy_when_device_disconnects() -> None:
+    """验证设备断开会关闭代理端，不留下单边僵尸 relay。"""
+
+    await _assert_peer_closed_after_disconnect(disconnected_role="device")
+
+
 async def test_device_relay_hub_broadcasts_local_close_but_not_remote_close() -> None:
     """验证本地撤销会广播，其他 worker 的通知不会形成消息回环。"""
 
@@ -117,6 +129,32 @@ def _binding() -> DeviceRelayBinding:
         node_id=uuid4(),
         generation=1,
     )
+
+
+async def _assert_peer_closed_after_disconnect(
+    *,
+    disconnected_role: DeviceRelayRole,
+) -> None:
+    hub = DeviceRelayHub(
+        maximum_frame_bytes=16,
+        pair_timeout_seconds=1,
+        maximum_bytes_per_second=16,
+        maximum_connection_seconds=1,
+    )
+    device = _FakeWebSocket()
+    proxy = _FakeWebSocket()
+    disconnected = proxy if disconnected_role == "proxy" else device
+    peer = device if disconnected_role == "proxy" else proxy
+    disconnected.messages.put_nowait({"type": "websocket.disconnect", "code": 1000})
+    binding = _binding()
+
+    await asyncio.gather(
+        hub.connect(_claims(binding, "device"), cast(WebSocket, device)),
+        hub.connect(_claims(binding, "proxy"), cast(WebSocket, proxy)),
+    )
+
+    assert disconnected.accepted and peer.accepted
+    assert 1011 in peer.close_codes
 
 
 def _claims(binding: DeviceRelayBinding, role: DeviceRelayRole) -> DeviceRelayTicketClaims:

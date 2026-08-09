@@ -26,7 +26,7 @@ from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTI
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
 ACTIVE_SESSION_STATUSES = {"starting", "running", "active"}
-DELETABLE_SESSION_STATUSES = {"stopped", "interrupted"}
+DELETABLE_SESSION_STATUSES = {"stopped", "interrupted", "failed"}
 SESSION_STATUSES = {
     "starting",
     "running",
@@ -329,7 +329,7 @@ class ToolSessionService:
 
     async def delete_session(self, *, user: User, session_id: UUID) -> None:
         """
-        删除当前用户已停止或已中断的工具 session
+        删除当前用户已停止、已中断或失败的工具 session
 
         :param user (User): 当前用户
         :param session_id (UUID): 工具 session ID
@@ -339,7 +339,7 @@ class ToolSessionService:
         if tool_session.status not in DELETABLE_SESSION_STATUSES:
             raise ApiError(
                 code="SESSION_DELETE_NOT_ALLOWED",
-                message="Only stopped or interrupted sessions can be deleted.",
+                message="Only stopped, interrupted, or failed sessions can be deleted.",
                 status_code=409,
             )
         device_stop = await DeviceSessionService(
@@ -350,6 +350,12 @@ class ToolSessionService:
             actor_user_id=user.id,
             audit_action="device_session.session_stop",
             commit=False,
+        )
+        await revoke_port_forwards(
+            self._session,
+            reason="session_deleted",
+            actor_user_id=user.id,
+            session_id=tool_session.id,
         )
         await self._audit(
             actor_user_id=user.id,
@@ -366,7 +372,7 @@ class ToolSessionService:
 
     async def delete_inactive_sessions(self, *, user: User) -> int:
         """
-        删除当前用户全部已停止和已中断工具 session
+        删除当前用户全部已停止、已中断和失败的工具 session
 
         :param user (User): 当前用户
 
@@ -392,6 +398,12 @@ class ToolSessionService:
                 commit=False,
             )
             revoked_bindings.extend(device_stop.revoked_bindings)
+            await revoke_port_forwards(
+                self._session,
+                reason="session_deleted",
+                actor_user_id=user.id,
+                session_id=tool_session.id,
+            )
             await self._repository.delete_session(tool_session)
         await self._audit(
             actor_user_id=user.id,

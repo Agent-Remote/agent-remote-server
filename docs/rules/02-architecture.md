@@ -50,7 +50,7 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Backend changes use an explicit node task and commit only after node-side verification succeeds.
 - Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
 - Inactive native resources reported during reconciliation move active sessions to `interrupted`; process exits may enqueue idempotent runtime cleanup without replacing that status, and the control plane never replays their commands.
-- Users may delete only `stopped` or `interrupted` tool sessions. Collection deletion removes all sessions in those two states for the current user; active lifecycle states remain protected and all deletion paths are audited.
+- Users may delete only `stopped`, `interrupted`, or `failed` tool sessions. Collection deletion removes all sessions in those three states for the current user; active lifecycle states remain protected and all deletion paths are audited.
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
 - SSH agent forwarding is authorized only for active developer credential profiles that explicitly select `agent_forwarding`; both the client attach response and the node forced-command verification carry that decision.
 
@@ -91,8 +91,10 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   ticket exactly once; none of these values enter SQL or structured logs.
 - The device relay consumes role-bound tickets atomically, pairs only opposite roles with the
   same complete session binding and generation, accepts binary frames only, and enforces explicit
-  per-frame, per-direction byte-rate, peer-wait, and connection-lifetime limits. It never parses
-  or persists the nested TLS byte stream.
+  per-frame, per-direction byte-rate, peer-wait, and connection-lifetime limits. When either peer
+  disconnects or reaches a connection limit, the relay closes both endpoints so the surviving
+  side cannot retain a dead one-time generation. It never parses or persists the nested TLS byte
+  stream.
 - Creation requires the assigned node's latest independent capability report to explicitly
   support protocol version 1, `platform=macos`, and the tool session's pinned runtime backend.
   A missing, stale, malformed, or incompatible report is denied rather than inferred.
