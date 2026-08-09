@@ -126,6 +126,11 @@ checks reject non-zero rollout without it. The percentage affects only new gener
 sets it to `0`, terminates active v2 device sessions, and requires fresh local approval for v1. Do
 not downgrade an active generation in place.
 
+Apple schema 1 and Community schema 4 may carry the v2 digest. Community schema versions 2 and 3
+cannot authorize v2; schema 4 additionally preserves the reduced-trust declarations and requires
+the protected Community report to bind the exact release artifacts. Risk acceptance by itself is
+never treated as v2 evidence.
+
 Before Community v2 evidence exists, an operator may run one artifact acceptance session by
 setting `DEVICE_CONTROL_V2_ACCEPTANCE_DEVICE_ID` and a timezone-aware
 `DEVICE_CONTROL_V2_ACCEPTANCE_EXPIRES_AT` no more than 24 hours ahead. This path requires current

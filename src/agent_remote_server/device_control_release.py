@@ -135,7 +135,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         default=None, description="Apple 配置的当前 Claude Code 与 MCP 兼容性证据摘要"
     )
     computer_use_v2_evidence_sha256: str | None = Field(
-        default=None, description="Apple 配置的 Computer Use v2 专项生产验收证据摘要"
+        default=None, description="与发布配置匹配的 Computer Use v2 专项生产验收证据摘要"
     )
     community_signing_sha256: str | None = Field(
         default=None, description="Community 自签名身份与嵌套签名证据摘要"
@@ -162,7 +162,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 格式版本不受支持
         """
 
-        if value not in {1, 2, 3}:
+        if value not in {1, 2, 3, 4}:
             raise ValueError("unsupported device control release evidence schema version")
         return value
 
@@ -210,13 +210,13 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.proxy_artifacts_sha256 is not None
         ):
             raise ValueError("schema version 2 requires one Node release target")
-        if self.schema_version == 3 and (
+        if self.schema_version in {3, 4} and (
             self.node_sha256 is not None
             or self.proxy_sha256 is not None
             or self.node_artifacts_sha256 is None
             or self.proxy_artifacts_sha256 is None
         ):
-            raise ValueError("schema version 3 requires every Node release target")
+            raise ValueError("schema versions 3 and 4 require every Node release target")
         if (
             self.release_profile != "community-local-trust"
             or self.apple_notarized
@@ -226,9 +226,12 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.automated_release_checks_sha256 is None
             or self.risk_acceptance_sha256 is None
             or any(digest is not None for digest in strict_gate_digests)
-            or self.computer_use_v2_evidence_sha256 is not None
         ):
             raise ValueError("community local-trust schemas require the reduced-trust profile")
+        if self.schema_version in {2, 3} and self.computer_use_v2_evidence_sha256 is not None:
+            raise ValueError("community schema versions 2 and 3 cannot authorize Computer Use v2")
+        if self.schema_version == 4 and self.computer_use_v2_evidence_sha256 is None:
+            raise ValueError("community schema version 4 requires Computer Use v2 evidence")
         return self
 
     @field_validator("node_artifacts_sha256", "proxy_artifacts_sha256")

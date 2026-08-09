@@ -46,7 +46,7 @@ def create_signed_evidence(
             "node_artifacts_sha256": target_digests,
             "proxy_artifacts_sha256": target_digests,
         }
-        if schema_version == 3
+        if schema_version in {3, 4}
         else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
     )
     profile_fields: dict[str, object]
@@ -71,6 +71,7 @@ def create_signed_evidence(
             "community_signing_sha256": _DIGEST,
             "automated_release_checks_sha256": _DIGEST,
             "risk_acceptance_sha256": _DIGEST,
+            "computer_use_v2_evidence_sha256": computer_use_v2_evidence_sha256,
         }
     manifest = DeviceControlReleaseEvidence.model_validate(
         {
@@ -444,6 +445,36 @@ def test_production_v2_rollout_accepts_signed_v2_evidence(tmp_path: Path) -> Non
     assert app.state.device_control_release_evidence.computer_use_v2_evidence_sha256 == "b" * 64
 
 
+def test_production_v2_rollout_accepts_community_schema_v4_evidence(tmp_path: Path) -> None:
+    """Community schema v4 应以相同运行期门禁授权生产 v2 灰度。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        schema_version=4,
+        computer_use_v2_evidence_sha256="b" * 64,
+    )
+
+    app = create_app(
+        Settings(
+            secret_key="test-secret",
+            environment="production",
+            device_control_enabled=True,
+            device_control_v2_rollout_percent=100,
+            device_session_retention_days=30,
+            device_session_audit_retention_days=90,
+            device_control_release_evidence_path=str(evidence_path),
+            device_control_release_public_key=public_key,
+        )
+    )
+
+    evidence = app.state.device_control_release_evidence
+    assert evidence.schema_version == 4
+    assert evidence.release_profile == "community-local-trust"
+    assert evidence.computer_use_v2_evidence_sha256 == "b" * 64
+
+
 def test_community_v2_acceptance_window_is_bounded() -> None:
     """Community 单设备验收必须短期、精确并基于一般发布证据。"""
 
@@ -501,11 +532,11 @@ def test_community_v2_acceptance_window_is_bounded() -> None:
         )
 
 
-def test_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
-    """Community 风险接受不能替代 Computer Use v2 专项生产证据。"""
+def test_legacy_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
+    """旧 Community schema 的风险接受不能替代 Computer Use v2 专项证据。"""
 
     now = datetime.now(UTC)
-    with pytest.raises(ValueError, match="reduced-trust profile"):
+    with pytest.raises(ValueError, match="cannot authorize Computer Use v2"):
         DeviceControlReleaseEvidence(
             schema_version=2,
             release_profile="community-local-trust",
@@ -528,6 +559,42 @@ def test_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
             automated_release_checks_sha256=_DIGEST,
             risk_acceptance_sha256=_DIGEST,
             ci_run_url="https://ci.example.test/runs/community-v2",
+            signature="test-only",
+        )
+
+
+def test_community_schema_v4_requires_computer_use_v2_evidence() -> None:
+    """Schema v4 不允许省略专项证据摘要后退化为普通 Community 清单。"""
+
+    now = datetime.now(UTC)
+    target_digests = {
+        "linux-amd64-glibc": "a" * 64,
+        "linux-arm64-glibc": "b" * 64,
+        "linux-amd64-musl": "c" * 64,
+        "linux-arm64-musl": "d" * 64,
+    }
+    with pytest.raises(ValueError, match="schema version 4 requires Computer Use v2 evidence"):
+        DeviceControlReleaseEvidence(
+            schema_version=4,
+            release_profile="community-local-trust",
+            production_ready=True,
+            apple_notarized=False,
+            public_distribution=False,
+            manual_trust_required=True,
+            release_version=__version__,
+            issued_at=now,
+            expires_at=now + timedelta(days=1),
+            server_sha256=_DIGEST,
+            node_artifacts_sha256=target_digests,
+            application_sha256=_DIGEST,
+            proxy_artifacts_sha256=target_digests,
+            sbom_sha256=_DIGEST,
+            provenance_sha256=_DIGEST,
+            signing_notarization_sha256=_DIGEST,
+            community_signing_sha256=_DIGEST,
+            automated_release_checks_sha256=_DIGEST,
+            risk_acceptance_sha256=_DIGEST,
+            ci_run_url="https://ci.example.test/runs/community-v4-empty",
             signature="test-only",
         )
 

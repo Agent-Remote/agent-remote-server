@@ -40,12 +40,19 @@ Schema version 3 keeps the same `community-local-trust` claims and replaces the 
 `linux-arm64-glibc`, `linux-amd64-musl`, and `linux-arm64-musl`, allowing one signed manifest to
 authorize a mixed-architecture Node fleet.
 
+Schema version 4 extends schema version 3 only for Community Computer Use v2 production rollout.
+It keeps the same reduced-trust claims and multi-architecture artifact maps, but requires a non-null
+`computer_use_v2_evidence_sha256` produced by the protected Community v2 assembler. Schema versions
+2 and 3 continue to reject that field, preserving the meaning of already issued manifests.
+
 ## Computer Use v2 rollout boundary
 
 The Apple-profile release assembler validates the artifact-specific Computer Use v2 report and
-binds its record digest as `computer_use_v2_evidence_sha256`. The Community schemas require this
-field to be `null`. A valid general device-control manifest without the digest does not authorize a
-non-zero `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` in production.
+binds its record digest as `computer_use_v2_evidence_sha256`. Community schema 4 binds the
+equivalent protected report to the exact Server, application, and selected Node/proxy target;
+Community schema versions 2 and 3 require the field to be `null`. A valid general device-control
+manifest without the digest does not authorize a non-zero `DEVICE_CONTROL_V2_ROLLOUT_PERCENT` in
+production.
 
 That report must cover signed Safari, Chrome, Firefox, native application, and AX-incomplete
 Electron runs; zero-content telemetry review; golden-prompt and current MCP/runtime compatibility;
@@ -68,8 +75,9 @@ Community device-control manifest, require `DEVICE_CONTROL_V2_ROLLOUT_PERCENT=0`
 valid for at most 24 hours from server startup. Capability negotiation matches only the exact
 device UUID and stops selecting v2 after expiry. This window is an evidence-generation mechanism,
 not a substitute for `computer_use_v2_evidence_sha256`; production rollout remains forbidden until
-the resulting report is independently validated and bound into a release manifest. End the active
-validation generation when the window closes because capabilities never downgrade in place.
+the resulting report is independently validated and bound into a schema 4 release manifest. End
+the active validation generation when the window closes because capabilities never downgrade in
+place.
 
 ## Signature
 
