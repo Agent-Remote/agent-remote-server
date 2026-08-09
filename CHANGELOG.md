@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.4 - 2026-08-09
+
+- feat(device-control): accept community v2 evidence (e03920c)
+- fix(node-tasks): reissue expired running tasks (abe4faa)
+
 ## v0.2.3 - 2026-08-09
 
 - fix: recover device relays and delete failed sessions (1b1ce9a)
