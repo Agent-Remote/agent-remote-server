@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,14 @@ _SUPPORTED_NODE_TARGETS = {
     "linux-amd64-musl",
     "linux-arm64-musl",
 }
+_SUPPORTED_COMPONENTS = {
+    "agent-remote-server",
+    "agent-remote-node",
+    "agent-remote-cli",
+    "agent-remote-admin-web",
+    "agent-remote-device",
+}
+_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-.+][0-9A-Za-z.-]+)?$")
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -79,6 +88,36 @@ class DeviceControlReleaseEvidenceError(ValueError):
     """
 
 
+class ReleaseComponentIdentity(BaseModel):
+    """
+    表示生产部署清单固定的组件源码身份
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    repository: str = Field(..., description="组件的规范 GitHub 仓库名")
+    version: str = Field(..., description="组件独立语义化版本")
+    commit: str = Field(..., description="组件不可变 Git commit SHA")
+    release_workflow: str = Field(..., description="签署该组件发布制品的工作流文件名")
+
+    @field_validator("repository", "version", "commit", "release_workflow")
+    @classmethod
+    def validate_identity_text(cls, value: str) -> str:
+        """
+        校验组件身份文本不为空且没有首尾空白
+
+        :param value (str): 待校验的身份文本
+
+        :return str: 已通过校验的身份文本
+
+        :raises ValueError: 身份文本为空或包含首尾空白
+        """
+
+        if not value or value != value.strip():
+            raise ValueError("release component identity text is invalid")
+        return value
+
+
 class DeviceControlReleaseEvidence(BaseModel):
     """
     设备控制生产发布证据清单
@@ -97,6 +136,15 @@ class DeviceControlReleaseEvidence(BaseModel):
         default=False, description="安装时是否需要管理员人工建立信任"
     )
     release_version: str = Field(..., description="证据绑定的服务端发布版本")
+    distribution_version: str | None = Field(
+        default=None, description="根仓库认证的生产部署组合版本"
+    )
+    release_manifest_sha256: str | None = Field(
+        default=None, description="根仓库生产发布清单的精确 SHA-256 摘要"
+    )
+    components: dict[str, ReleaseComponentIdentity] | None = Field(
+        default=None, description="生产部署组合固定的组件版本与源码身份"
+    )
     issued_at: datetime = Field(..., description="发布证据签发时间")
     expires_at: datetime = Field(..., description="发布证据失效时间")
     server_sha256: str = Field(..., description="服务端发布制品摘要")
@@ -160,7 +208,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 格式版本不受支持
         """
 
-        if value not in {1, 2, 3, 4}:
+        if value not in {1, 2, 3, 4, 5, 6, 7}:
             raise ValueError("unsupported device control release evidence schema version")
         return value
 
@@ -184,7 +232,21 @@ class DeviceControlReleaseEvidence(BaseModel):
         )
         if not self.production_ready:
             raise ValueError("device control release evidence is not production ready")
-        if self.schema_version == 1:
+        composition_fields = (
+            self.distribution_version,
+            self.release_manifest_sha256,
+            self.components,
+        )
+        if self.schema_version <= 4 and any(value is not None for value in composition_fields):
+            raise ValueError("legacy release evidence cannot contain a release composition")
+        if self.schema_version in {5, 6, 7} and any(value is None for value in composition_fields):
+            raise ValueError("release composition schemas require the certified manifest")
+        if self.schema_version in {5, 6, 7}:
+            assert self.components is not None
+            server = self.components["agent-remote-server"]
+            if server.version != self.release_version:
+                raise ValueError("release evidence server component version does not match")
+        if self.schema_version in {1, 7}:
             if (
                 self.release_profile != "apple-developer-id"
                 or not self.apple_notarized
@@ -199,7 +261,7 @@ class DeviceControlReleaseEvidence(BaseModel):
                 or self.proxy_artifacts_sha256 is not None
                 or any(digest is None for digest in strict_gate_digests)
             ):
-                raise ValueError("schema version 1 requires the Apple release profile")
+                raise ValueError("Apple release schemas require the Apple release profile")
             return self
         if self.schema_version == 2 and (
             self.node_sha256 is None
@@ -208,13 +270,13 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.proxy_artifacts_sha256 is not None
         ):
             raise ValueError("schema version 2 requires one Node release target")
-        if self.schema_version in {3, 4} and (
+        if self.schema_version in {3, 4, 5, 6} and (
             self.node_sha256 is not None
             or self.proxy_sha256 is not None
             or self.node_artifacts_sha256 is None
             or self.proxy_artifacts_sha256 is None
         ):
-            raise ValueError("schema versions 3 and 4 require every Node release target")
+            raise ValueError("multi-target schemas require every Node release target")
         if (
             self.release_profile != "community-local-trust"
             or self.apple_notarized
@@ -226,11 +288,49 @@ class DeviceControlReleaseEvidence(BaseModel):
             or any(digest is not None for digest in strict_gate_digests)
         ):
             raise ValueError("community local-trust schemas require the reduced-trust profile")
-        if self.schema_version in {2, 3} and self.computer_use_v2_evidence_sha256 is not None:
-            raise ValueError("community schema versions 2 and 3 cannot authorize Computer Use v2")
+        if self.schema_version in {2, 3, 5} and self.computer_use_v2_evidence_sha256 is not None:
+            raise ValueError("this community schema cannot authorize Computer Use v2")
         if self.schema_version == 4 and self.computer_use_v2_evidence_sha256 is None:
-            raise ValueError("community schema version 4 requires Computer Use v2 evidence")
+            raise ValueError("schema version 4 requires Computer Use v2 evidence")
+        if self.schema_version == 6 and self.computer_use_v2_evidence_sha256 is None:
+            raise ValueError("schema version 6 requires Computer Use v2 evidence")
         return self
+
+    @field_validator("components")
+    @classmethod
+    def validate_components(
+        cls, value: dict[str, ReleaseComponentIdentity] | None
+    ) -> dict[str, ReleaseComponentIdentity] | None:
+        """
+        校验生产组合完整覆盖规范组件且身份与仓库一致
+
+        :param value (dict[str, ReleaseComponentIdentity]): 组件身份映射
+
+        :return dict[str, ReleaseComponentIdentity]: 已通过校验的组件身份映射
+
+        :raises ValueError: 组件集合、仓库、版本或 commit 不符合固定契约
+        """
+
+        if value is None:
+            return None
+        if set(value) != _SUPPORTED_COMPONENTS:
+            raise ValueError("release evidence component inventory is incomplete")
+        for name, component in value.items():
+            if component.repository != f"Agent-Remote/{name}":
+                raise ValueError("release evidence component repository is invalid")
+            if _SEMVER.fullmatch(component.version) is None:
+                raise ValueError("release evidence component version is invalid")
+            if len(component.commit) != 40 or any(
+                character not in "0123456789abcdef" for character in component.commit
+            ):
+                raise ValueError("release evidence component commit is invalid")
+            if (
+                not component.release_workflow.endswith((".yml", ".yaml"))
+                or "/" in component.release_workflow
+                or "\\" in component.release_workflow
+            ):
+                raise ValueError("release evidence component workflow is invalid")
+        return value
 
     @field_validator("node_artifacts_sha256", "proxy_artifacts_sha256")
     @classmethod
@@ -275,6 +375,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         "community_signing_sha256",
         "automated_release_checks_sha256",
         "risk_acceptance_sha256",
+        "release_manifest_sha256",
     )
     @classmethod
     def validate_sha256(cls, value: str | None) -> str | None:
@@ -313,6 +414,23 @@ class DeviceControlReleaseEvidence(BaseModel):
             raise ValueError(
                 "release evidence text must be non-empty without surrounding whitespace"
             )
+        return value
+
+    @field_validator("distribution_version")
+    @classmethod
+    def validate_optional_distribution_version(cls, value: str | None) -> str | None:
+        """
+        校验可选部署组合版本使用语义化版本格式
+
+        :param value (str): 可选部署组合版本
+
+        :return str: 已通过校验的部署组合版本
+
+        :raises ValueError: 部署组合版本格式无效
+        """
+
+        if value is not None and _SEMVER.fullmatch(value) is None:
+            raise ValueError("release evidence distribution version is invalid")
         return value
 
     @field_validator("ci_run_url")
@@ -395,9 +513,12 @@ class DeviceControlReleaseEvidence(BaseModel):
         return self._canonical_json(exclude_signature=False)
 
     def _canonical_json(self, *, exclude_signature: bool) -> bytes:
+        excluded = {"signature"} if exclude_signature else set()
+        if self.distribution_version is None:
+            excluded.update({"distribution_version", "release_manifest_sha256", "components"})
         payload = self.model_dump(
             mode="json",
-            exclude={"signature"} if exclude_signature else None,
+            exclude=excluded,
         )
         return json.dumps(
             payload,

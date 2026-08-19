@@ -44,6 +44,20 @@ It keeps the same reduced-trust claims and multi-architecture artifact maps, but
 `computer_use_v2_evidence_sha256` produced by the protected Community v2 assembler. Schema versions
 2 and 3 continue to reject that field, preserving the meaning of already issued manifests.
 
+Schemas 5 and 6 are the independently versioned equivalents of Community schemas 3 and 4.
+They add `distribution_version`, `release_manifest_sha256`, and `components`. The component map
+must contain exactly Server, Node, CLI, Admin Web, and Device; every entry fixes its canonical
+repository, independent semantic version, and full lowercase Git commit SHA. The Server component
+identity also fixes the artifact-signing workflow filename. The Server component version must
+equal `release_version`, because runtime verification remains bound to the exact
+Server binary. Schema 5 does not carry optional Computer Use v2 evidence; schema 6 requires it.
+
+Schema 7 is the independently versioned Apple Developer ID profile. It preserves all schema 1
+signing, notarization, policy, review, and external-gate requirements while adding the same root
+distribution and component identity binding. Legacy schemas 1-4 remain verifiable so existing
+short-lived evidence does not become invalid during migration. New independently versioned
+compositions must use schemas 5-7.
+
 ## Computer Use v2 capability negotiation
 
 The Apple-profile release assembler validates the artifact-specific Computer Use v2 report and

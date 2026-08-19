@@ -57,3 +57,9 @@ Hook behavior:
 - `commit-msg` validates Conventional Commit format.
 - `pre-push` runs the quality gate again.
 
+## Releases
+
+The Server version and release cadence belong only to this repository. Preparing a Server release
+must not require or rewrite another component's version. The root `agent-remote` production
+manifest selects an exact Server tag and commit and certifies it with independently versioned
+components through compatibility and supply-chain gates.

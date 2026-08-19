@@ -12,6 +12,7 @@ from agent_remote_server.config import Settings
 from agent_remote_server.device_control_release import (
     DeviceControlReleaseEvidence,
     DeviceControlReleaseEvidenceError,
+    ReleaseComponentIdentity,
     ensure_device_control_release_evidence_current,
     verify_device_control_release_evidence,
 )
@@ -44,13 +45,13 @@ def create_signed_evidence(
             "node_artifacts_sha256": target_digests,
             "proxy_artifacts_sha256": target_digests,
         }
-        if schema_version in {3, 4}
+        if schema_version in {3, 4, 5, 6}
         else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
     )
     profile_fields: dict[str, object]
     if apple_profile:
-        if schema_version != 1:
-            raise ValueError("Apple test evidence requires schema version 1")
+        if schema_version not in {1, 7}:
+            raise ValueError("Apple test evidence requires an Apple schema")
         profile_fields = {
             "security_tests_sha256": _DIGEST,
             "security_review_sha256": _DIGEST,
@@ -71,6 +72,29 @@ def create_signed_evidence(
             "risk_acceptance_sha256": _DIGEST,
             "computer_use_v2_evidence_sha256": computer_use_v2_evidence_sha256,
         }
+    composition_fields = (
+        {
+            "distribution_version": "9.8.7",
+            "release_manifest_sha256": "e" * 64,
+            "components": {
+                name: {
+                    "repository": f"Agent-Remote/{name}",
+                    "version": release_version if name == "agent-remote-server" else version,
+                    "commit": character * 40,
+                    "release_workflow": "release.yml",
+                }
+                for name, version, character in (
+                    ("agent-remote-server", release_version, "1"),
+                    ("agent-remote-node", "2.3.4", "2"),
+                    ("agent-remote-cli", "3.4.5", "3"),
+                    ("agent-remote-admin-web", "4.5.6", "4"),
+                    ("agent-remote-device", "5.6.7", "5"),
+                )
+            },
+        }
+        if schema_version in {5, 6, 7}
+        else {}
+    )
     manifest = DeviceControlReleaseEvidence.model_validate(
         {
             "schema_version": schema_version,
@@ -87,6 +111,7 @@ def create_signed_evidence(
             "signature": "pending",
             **release_artifacts,
             **profile_fields,
+            **composition_fields,
         }
     )
     signature = private_key.sign(manifest.signing_payload())
@@ -146,6 +171,83 @@ def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> Non
     }
     assert set(evidence.node_artifacts_sha256 or {}) == expected_targets
     assert set(evidence.proxy_artifacts_sha256 or {}) == expected_targets
+
+
+def test_release_evidence_accepts_independent_component_versions(tmp_path: Path) -> None:
+    """Schema 5 应验签由根部署版本认证的独立组件版本组合。"""
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        expires_at=now + timedelta(days=1),
+        schema_version=5,
+    )
+
+    evidence = verify_device_control_release_evidence(
+        evidence_path=str(evidence_path),
+        public_key_base64=public_key,
+        now=now,
+    )
+
+    assert evidence.distribution_version == "9.8.7"
+    assert evidence.components is not None
+    assert evidence.components["agent-remote-node"].version == "2.3.4"
+    assert evidence.components["agent-remote-device"].version == "5.6.7"
+
+
+def test_release_evidence_rejects_mismatched_server_component() -> None:
+    """组合清单中的 Server 版本必须与运行时绑定版本一致。"""
+
+    now = datetime.now(UTC)
+    target_digests = {
+        "linux-amd64-glibc": "a" * 64,
+        "linux-arm64-glibc": "b" * 64,
+        "linux-amd64-musl": "c" * 64,
+        "linux-arm64-musl": "d" * 64,
+    }
+    components = {
+        name: ReleaseComponentIdentity(
+            repository=f"Agent-Remote/{name}",
+            version="1.2.3",
+            commit="a" * 40,
+            release_workflow="release.yml",
+        )
+        for name in (
+            "agent-remote-server",
+            "agent-remote-node",
+            "agent-remote-cli",
+            "agent-remote-admin-web",
+            "agent-remote-device",
+        )
+    }
+    with pytest.raises(ValueError, match="server component version does not match"):
+        DeviceControlReleaseEvidence(
+            schema_version=5,
+            release_profile="community-local-trust",
+            production_ready=True,
+            apple_notarized=False,
+            public_distribution=False,
+            manual_trust_required=True,
+            release_version=__version__,
+            distribution_version="9.8.7",
+            release_manifest_sha256=_DIGEST,
+            components=components,
+            issued_at=now,
+            expires_at=now + timedelta(days=1),
+            server_sha256=_DIGEST,
+            node_artifacts_sha256=target_digests,
+            application_sha256=_DIGEST,
+            proxy_artifacts_sha256=target_digests,
+            sbom_sha256=_DIGEST,
+            provenance_sha256=_DIGEST,
+            signing_notarization_sha256=_DIGEST,
+            community_signing_sha256=_DIGEST,
+            automated_release_checks_sha256=_DIGEST,
+            risk_acceptance_sha256=_DIGEST,
+            ci_run_url="https://ci.example.test/runs/mismatch",
+            signature="test-only",
+        )
 
 
 def test_multi_arch_release_evidence_rejects_missing_target() -> None:
