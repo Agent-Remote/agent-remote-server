@@ -102,7 +102,7 @@ def create_node(client: TestClient, token: str, *, name: str, weight: int) -> tu
         json={
             "node_id": node_id,
             "registration_token": node["registration_token"],
-            "version": "0.2.7",
+            "version": "0.2.8",
         },
     )
     assert register.status_code == 200

@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.8 - 2026-08-19
+
+- feat: support certified release compositions (2631f86)
+
 ## v0.2.7 - 2026-08-13
 
 - Release metadata update.
