@@ -37,9 +37,15 @@ LIVE_DEVICE_STATUSES = {
     "active",
     "stopping",
 }
+REQUIRED_DEVICE_CONTROL_V2_CAPABILITIES = (
+    "adaptive_settle_v2",
+    "ax_state_v2",
+    "observation_mode_v2",
+)
 DEVICE_CONTROL_V2_CAPABILITIES = (
     "adaptive_settle_v2",
     "ax_state_v2",
+    "clipboard_payload_v2",
     "observation_mode_v2",
 )
 
@@ -1265,9 +1271,13 @@ class DeviceSessionService:
         ):
             return ()
         values = set(cast(list[str], advertised))
-        if all(item in values for item in DEVICE_CONTROL_V2_CAPABILITIES):
-            return DEVICE_CONTROL_V2_CAPABILITIES
-        return ()
+        if (
+            len(values) != len(advertised)
+            or not values.issubset(DEVICE_CONTROL_V2_CAPABILITIES)
+            or not all(item in values for item in REQUIRED_DEVICE_CONTROL_V2_CAPABILITIES)
+        ):
+            return ()
+        return tuple(item for item in DEVICE_CONTROL_V2_CAPABILITIES if item in values)
 
     def _aware(self, value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=UTC)

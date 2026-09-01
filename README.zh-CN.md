@@ -116,6 +116,12 @@ curl http://localhost:8000/readyz
 不含敏感数据的测试显式启用该能力。生产部署还必须显式选择非零的终态 session 和设备 session
 审计保留天数，且审计保留期不得短于 session 保留期。
 
+Computer Use v2 对新 generation 默认启用。只有 Node 广告完整必需的
+`observation_mode_v2`、`ax_state_v2`、`adaptive_settle_v2` 基础集合时，Server 才会协商
+v2，并带上双方支持的 `clipboard_payload_v2` 等扩展。缺失、部分、未知或畸形集合会原子回退
+到 v1。设置 `DEVICE_CONTROL_V2_ENABLED=false` 可在紧急情况下强制新 generation 使用 v1；
+活跃 generation 不会原地改变 capability 集合。
+
 用户 API 在 `/api/v1/port-forwards` 下提供创建、列表、详情、重连和停止操作；Node API 提供 redeem、renew 和 release。Connection token 只返回一次并带 `Cache-Control: no-store`，仅作为短期 Redis 值保存，客户端不得记录日志或持久化。
 
 ## 容器

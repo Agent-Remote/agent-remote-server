@@ -121,9 +121,11 @@ and device-session-audit retention periods; audit retention cannot be shorter th
 retention. Development may explicitly enable the capability only for non-sensitive test data.
 
 Computer Use v2 is enabled for new generations by default. The Server negotiates v2 only when the
-Node advertises the complete canonical capability set; missing, partial, malformed, or older sets
-fall back atomically to v1. Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created
-generations during an emergency. Active generations never change capability sets in place.
+Node advertises the complete required `observation_mode_v2`, `ax_state_v2`, and
+`adaptive_settle_v2` base, then includes supported extensions such as
+`clipboard_payload_v2`. Missing, partial, unknown, or malformed sets fall back atomically to v1.
+Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created generations during an
+emergency. Active generations never change capability sets in place.
 
 Schema 8 Apple and Community manifests may carry the optional artifact-bound v2 quality digest.
 That digest supports release-quality auditing but is not runtime authorization. General signed

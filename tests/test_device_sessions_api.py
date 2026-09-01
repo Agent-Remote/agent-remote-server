@@ -55,6 +55,18 @@ _DIGEST = "a" * 64
         ["adaptive_settle_v2", "ax_state_v2"],
         "adaptive_settle_v2",
         ["adaptive_settle_v2", 7, "observation_mode_v2"],
+        [
+            "adaptive_settle_v2",
+            "ax_state_v2",
+            "observation_mode_v2",
+            "unknown_v2",
+        ],
+        [
+            "adaptive_settle_v2",
+            "ax_state_v2",
+            "observation_mode_v2",
+            "observation_mode_v2",
+        ],
         None,
     ],
 )
@@ -80,6 +92,7 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
             "device_control": {
                 "capabilities": [
                     "observation_mode_v2",
+                    "clipboard_payload_v2",
                     "adaptive_settle_v2",
                     "ax_state_v2",
                 ]
@@ -88,6 +101,7 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
     ) == (
         "adaptive_settle_v2",
         "ax_state_v2",
+        "clipboard_payload_v2",
         "observation_mode_v2",
     )
 
@@ -100,6 +114,7 @@ def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() ->
             "capabilities": [
                 "adaptive_settle_v2",
                 "ax_state_v2",
+                "clipboard_payload_v2",
                 "observation_mode_v2",
             ]
         }
@@ -109,6 +124,7 @@ def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() ->
     assert service._negotiated_v2_capabilities(runtime_capabilities) == (
         "adaptive_settle_v2",
         "ax_state_v2",
+        "clipboard_payload_v2",
         "observation_mode_v2",
     )
 

@@ -86,9 +86,10 @@ record's `report_sha256` to match a real file inside the bounded raw security-te
 the record digest can become `computer_use_v2_evidence_sha256`.
 
 `DEVICE_CONTROL_V2_ENABLED` defaults to `true`. For each new generation the Server selects v2 only
-when the assigned Node advertises every canonical capability; missing, partial, malformed, or
-unknown capability sets fall back atomically to v1. Set the switch to `false` for emergency
-rollback of new generations. Active generations never change capabilities in place. The Server
+when the assigned Node advertises the complete required `observation_mode_v2`, `ax_state_v2`, and
+`adaptive_settle_v2` base, then includes recognized extensions such as `clipboard_payload_v2`.
+Missing, partial, malformed, or unknown capability sets fall back atomically to v1. Set the switch
+to `false` for emergency rollback of new generations. Active generations never change capabilities in place. The Server
 still verifies the general manifest at startup, during device-control progression, and before relay
 establishment, so missing, future-dated, revoked, or invalid supply-chain evidence remains fail closed.
 
