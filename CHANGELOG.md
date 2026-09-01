@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.10 - 2026-09-01
+
+- feat(device-control): negotiate optional v2 capabilities (d26efd3)
+
 ## v0.2.9 - 2026-09-01
 
 - feat(device-control): make release evidence permanent (c337556)
