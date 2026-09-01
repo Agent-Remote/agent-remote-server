@@ -6,7 +6,7 @@ if not _version:
     try:
         _version = version("agent-remote-server")
     except PackageNotFoundError:
-        _version = "0.2.8"
+        _version = "0.2.9"
 
 __version__: str = _version
 

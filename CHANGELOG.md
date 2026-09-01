@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.9 - 2026-09-01
+
+- feat(device-control): make release evidence permanent (c337556)
+
 ## v0.2.8 - 2026-08-19
 
 - feat: support certified release compositions (2631f86)
