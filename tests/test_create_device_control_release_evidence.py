@@ -61,6 +61,55 @@ def write_draft(path: Path) -> None:
     path.chmod(0o600)
 
 
+def write_permanent_draft(path: Path) -> None:
+    """写入不含过期时间、绑定根版本组合的 schema 8 draft。"""
+
+    components = {
+        name: {
+            "repository": f"Agent-Remote/{name}",
+            "version": version,
+            "commit": character * 40,
+            "release_workflow": "release.yml",
+        }
+        for name, version, character in (
+            ("agent-remote-server", __version__, "1"),
+            ("agent-remote-node", "2.3.4", "2"),
+            ("agent-remote-cli", "3.4.5", "3"),
+            ("agent-remote-admin-web", "4.5.6", "4"),
+            ("agent-remote-device", "5.6.7", "5"),
+        )
+    }
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 8,
+                "release_version": __version__,
+                "issued_at": "2026-07-31T00:00:00+00:00",
+                "distribution_version": "9.8.7",
+                "release_manifest_sha256": _DIGEST,
+                "components": components,
+                "server_sha256": _DIGEST,
+                "node_sha256": _DIGEST,
+                "application_sha256": _DIGEST,
+                "proxy_sha256": _DIGEST,
+                "sbom_sha256": _DIGEST,
+                "provenance_sha256": _DIGEST,
+                "security_tests_sha256": _DIGEST,
+                "security_review_sha256": _DIGEST,
+                "signing_notarization_sha256": _DIGEST,
+                "outbound_policy_sha256": _DIGEST,
+                "local_claude_isolation_sha256": _DIGEST,
+                "stop_revocation_sha256": _DIGEST,
+                "compatibility_sha256": _DIGEST,
+                "ci_run_url": "https://ci.example.test/runs/permanent",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+
+
 def run_creator(draft: Path, private_key: Path, output: Path) -> subprocess.CompletedProcess[str]:
     """运行发布证据生成器并返回完成结果。"""
 
@@ -104,6 +153,35 @@ def test_creator_writes_a_verifiable_owner_only_manifest(tmp_path: Path) -> None
         public_key_base64=base64.b64encode(raw_public_key).decode("ascii"),
     )
     assert manifest.release_version == __version__
+
+
+def test_creator_writes_permanent_schema_8_manifest(tmp_path: Path) -> None:
+    """当前生成器必须输出与根版本绑定且永久有效的 schema 8 清单。"""
+
+    key = Ed25519PrivateKey.generate()
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "permanent-draft.json"
+    output_path = tmp_path / "permanent-evidence.json"
+    write_private_key(key_path, key)
+    write_permanent_draft(draft_path)
+
+    result = run_creator(draft_path, key_path, output_path)
+
+    assert result.returncode == 0, result.stderr
+    raw_manifest = json.loads(output_path.read_text(encoding="utf-8"))
+    assert raw_manifest["schema_version"] == 8
+    assert raw_manifest["distribution_version"] == "9.8.7"
+    assert "expires_at" not in raw_manifest
+    raw_public_key = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    manifest = verify_device_control_release_evidence(
+        evidence_path=str(output_path),
+        public_key_base64=base64.b64encode(raw_public_key).decode("ascii"),
+        now=datetime(2036, 7, 31, tzinfo=UTC),
+    )
+    assert manifest.expires_at is None
 
 
 def test_creator_rejects_group_readable_key_and_existing_output(tmp_path: Path) -> None:

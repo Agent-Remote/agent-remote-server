@@ -79,12 +79,12 @@ def require_current_device_control_release(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     """
-    拒绝缺少当前有效生产发布证据的设备控制推进操作
+    拒绝缺少已验证生产发布证据的设备控制推进操作
 
     :param request (Request): 当前请求对象
     :param settings (Settings): 应用配置
 
-    :raises ApiError: 生产发布证据缺失、尚未生效或已经过期
+    :raises ApiError: 生产发布证据缺失、尚未生效或旧版证据已经过期
     """
 
     evidence: DeviceControlReleaseEvidence | None = getattr(

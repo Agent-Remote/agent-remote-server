@@ -110,8 +110,9 @@ curl http://localhost:8000/readyz
 
 清单 schema 和 Ed25519 规范签名载荷见 `docs/device-control-release-evidence.md`。
 
-设备控制默认关闭。`AGENT_REMOTE_ENV=production` 时，启用该功能必须提供未过期、绑定当前服务端
-精确版本并由固定 Ed25519 公钥验证通过的发布证据清单；公钥使用 Base64 编码。开发环境只能为
+设备控制默认关闭。`AGENT_REMOTE_ENV=production` 时，启用该功能必须提供随根版本一起发布的 schema 8
+证据清单，并绑定精确的根分发版本、Server/组件/制品组合且由固定 Ed25519 公钥验证通过；schema 8
+没有 `expires_at` 字段，对同一签名组合永久有效。公钥使用 Base64 编码。开发环境只能为
 不含敏感数据的测试显式启用该能力。生产部署还必须显式选择非零的终态 session 和设备 session
 审计保留天数，且审计保留期不得短于 session 保留期。
 

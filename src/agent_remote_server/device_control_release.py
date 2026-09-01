@@ -16,7 +16,8 @@ from agent_remote_server import __version__
 
 _SHA256_HEX_LENGTH = 64
 _MAXIMUM_MANIFEST_BYTES = 65_536
-_MAXIMUM_EVIDENCE_LIFETIME_DAYS = 30
+_PERMANENT_SCHEMA_VERSION = 8
+_LEGACY_MAXIMUM_EVIDENCE_LIFETIME_DAYS = 30
 _SUPPORTED_NODE_TARGETS = {
     "linux-amd64-glibc",
     "linux-arm64-glibc",
@@ -146,7 +147,9 @@ class DeviceControlReleaseEvidence(BaseModel):
         default=None, description="生产部署组合固定的组件版本与源码身份"
     )
     issued_at: datetime = Field(..., description="发布证据签发时间")
-    expires_at: datetime = Field(..., description="发布证据失效时间")
+    expires_at: datetime | None = Field(
+        default=None, description="旧版发布证据失效时间；永久 schema 不提供此字段"
+    )
     server_sha256: str = Field(..., description="服务端发布制品摘要")
     node_sha256: str | None = Field(default=None, description="旧版单 Node 发布制品摘要")
     application_sha256: str = Field(..., description="所选发布配置验证后的 macOS 应用制品摘要")
@@ -208,7 +211,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         :raises ValueError: 格式版本不受支持
         """
 
-        if value not in {1, 2, 3, 4, 5, 6, 7}:
+        if value not in {1, 2, 3, 4, 5, 6, 7, _PERMANENT_SCHEMA_VERSION}:
             raise ValueError("unsupported device control release evidence schema version")
         return value
 
@@ -237,16 +240,29 @@ class DeviceControlReleaseEvidence(BaseModel):
             self.release_manifest_sha256,
             self.components,
         )
-        if self.schema_version <= 4 and any(value is not None for value in composition_fields):
+        if self.schema_version < _PERMANENT_SCHEMA_VERSION and self.expires_at is None:
+            raise ValueError("legacy release evidence requires expires_at")
+        if self.schema_version == _PERMANENT_SCHEMA_VERSION:
+            if "expires_at" in self.model_fields_set:
+                raise ValueError("permanent release evidence must not contain expires_at")
+            if any(value is None for value in composition_fields):
+                raise ValueError("permanent release evidence requires the certified manifest")
+        elif self.schema_version <= 4 and any(value is not None for value in composition_fields):
             raise ValueError("legacy release evidence cannot contain a release composition")
-        if self.schema_version in {5, 6, 7} and any(value is None for value in composition_fields):
+        elif self.schema_version in {5, 6, 7} and any(
+            value is None for value in composition_fields
+        ):
             raise ValueError("release composition schemas require the certified manifest")
-        if self.schema_version in {5, 6, 7}:
+        if self.schema_version in {5, 6, 7, _PERMANENT_SCHEMA_VERSION}:
             assert self.components is not None
             server = self.components["agent-remote-server"]
             if server.version != self.release_version:
                 raise ValueError("release evidence server component version does not match")
-        if self.schema_version in {1, 7}:
+        apple_schema = self.schema_version in {1, 7} or (
+            self.schema_version == _PERMANENT_SCHEMA_VERSION
+            and self.release_profile == "apple-developer-id"
+        )
+        if apple_schema:
             if (
                 self.release_profile != "apple-developer-id"
                 or not self.apple_notarized
@@ -270,7 +286,7 @@ class DeviceControlReleaseEvidence(BaseModel):
             or self.proxy_artifacts_sha256 is not None
         ):
             raise ValueError("schema version 2 requires one Node release target")
-        if self.schema_version in {3, 4, 5, 6} and (
+        if self.schema_version in {3, 4, 5, 6, _PERMANENT_SCHEMA_VERSION} and (
             self.node_sha256 is not None
             or self.proxy_sha256 is not None
             or self.node_artifacts_sha256 is None
@@ -516,6 +532,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         excluded = {"signature"} if exclude_signature else set()
         if self.distribution_version is None:
             excluded.update({"distribution_version", "release_manifest_sha256", "components"})
+        if self.schema_version == _PERMANENT_SCHEMA_VERSION:
+            excluded.add("expires_at")
         payload = self.model_dump(
             mode="json",
             exclude=excluded,
@@ -536,7 +554,7 @@ def verify_device_control_release_evidence(
     now: datetime | None = None,
 ) -> DeviceControlReleaseEvidence:
     """
-    验证生产设备控制发布证据的签名、版本和有效期
+    验证生产设备控制发布证据的签名、版本和签发时间
 
     :param evidence_path (str): 发布证据清单路径
     :param public_key_base64 (str): Base64 编码的 Ed25519 原始公钥
@@ -544,7 +562,7 @@ def verify_device_control_release_evidence(
 
     :return DeviceControlReleaseEvidence: 已通过全部校验的发布证据
 
-    :raises DeviceControlReleaseEvidenceError: 配置缺失、签名无效、版本不符或证据已过期
+    :raises DeviceControlReleaseEvidenceError: 配置缺失、签名无效、版本不符或清单时间无效
     """
 
     if not evidence_path or not public_key_base64:
@@ -570,13 +588,18 @@ def verify_device_control_release_evidence(
         raise DeviceControlReleaseEvidenceError("release evidence verification time must be aware")
     if manifest.issued_at > verification_time:
         raise DeviceControlReleaseEvidenceError("device control release evidence is not yet valid")
-    maximum_expiry = manifest.issued_at + timedelta(days=_MAXIMUM_EVIDENCE_LIFETIME_DAYS)
-    if manifest.expires_at <= manifest.issued_at or manifest.expires_at > maximum_expiry:
-        raise DeviceControlReleaseEvidenceError(
-            "device control release evidence lifetime is invalid"
-        )
-    if manifest.expires_at <= verification_time:
-        raise DeviceControlReleaseEvidenceError("device control release evidence has expired")
+    if manifest.schema_version < _PERMANENT_SCHEMA_VERSION:
+        if manifest.expires_at is None:
+            raise DeviceControlReleaseEvidenceError(
+                "legacy device control release evidence expiry is missing"
+            )
+        maximum_expiry = manifest.issued_at + timedelta(days=_LEGACY_MAXIMUM_EVIDENCE_LIFETIME_DAYS)
+        if manifest.expires_at <= manifest.issued_at or manifest.expires_at > maximum_expiry:
+            raise DeviceControlReleaseEvidenceError(
+                "device control release evidence lifetime is invalid"
+            )
+        if manifest.expires_at <= verification_time:
+            raise DeviceControlReleaseEvidenceError("device control release evidence has expired")
     return manifest
 
 
@@ -588,14 +611,14 @@ def ensure_device_control_release_evidence_current(
     now: datetime | None = None,
 ) -> None:
     """
-    在运行期间确认生产设备控制仍有当前有效的发布证据
+    在运行期间确认生产设备控制仍有已验证的发布证据
 
     :param environment (str): 当前部署环境
     :param enabled (bool): 是否配置启用设备控制
     :param evidence (DeviceControlReleaseEvidence): 启动时已验证的发布证据
     :param now (datetime): 可选的当前时间，供确定性验证使用
 
-    :raises DeviceControlReleaseEvidenceError: 生产证据缺失、尚未生效或已经过期
+    :raises DeviceControlReleaseEvidenceError: 生产证据缺失或尚未生效
     """
 
     if environment.strip().lower() != "production" or not enabled:
@@ -609,5 +632,10 @@ def ensure_device_control_release_evidence_current(
         raise DeviceControlReleaseEvidenceError("release evidence verification time must be aware")
     if evidence.issued_at > verification_time:
         raise DeviceControlReleaseEvidenceError("device control release evidence is not yet valid")
-    if evidence.expires_at <= verification_time:
-        raise DeviceControlReleaseEvidenceError("device control release evidence has expired")
+    if evidence.schema_version < _PERMANENT_SCHEMA_VERSION:
+        if evidence.expires_at is None:
+            raise DeviceControlReleaseEvidenceError(
+                "legacy device control release evidence expiry is missing"
+            )
+        if evidence.expires_at <= verification_time:
+            raise DeviceControlReleaseEvidenceError("device control release evidence has expired")

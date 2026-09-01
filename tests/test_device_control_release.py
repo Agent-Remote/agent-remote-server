@@ -24,7 +24,7 @@ _DIGEST = "a" * 64
 def create_signed_evidence(
     path: Path,
     *,
-    expires_at: datetime,
+    expires_at: datetime | None = None,
     issued_at: datetime | None = None,
     release_version: str = __version__,
     schema_version: int = 2,
@@ -45,12 +45,12 @@ def create_signed_evidence(
             "node_artifacts_sha256": target_digests,
             "proxy_artifacts_sha256": target_digests,
         }
-        if schema_version in {3, 4, 5, 6}
+        if schema_version in {3, 4, 5, 6, 8} and not apple_profile
         else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
     )
     profile_fields: dict[str, object]
     if apple_profile:
-        if schema_version not in {1, 7}:
+        if schema_version not in {1, 7, 8}:
             raise ValueError("Apple test evidence requires an Apple schema")
         profile_fields = {
             "security_tests_sha256": _DIGEST,
@@ -92,34 +92,44 @@ def create_signed_evidence(
                 )
             },
         }
-        if schema_version in {5, 6, 7}
+        if schema_version in {5, 6, 7, 8}
         else {}
     )
-    manifest = DeviceControlReleaseEvidence.model_validate(
-        {
-            "schema_version": schema_version,
-            "production_ready": True,
-            "release_version": release_version,
-            "issued_at": issued_at or expires_at - timedelta(days=1),
-            "expires_at": expires_at,
-            "server_sha256": _DIGEST,
-            "application_sha256": _DIGEST,
-            "sbom_sha256": _DIGEST,
-            "provenance_sha256": _DIGEST,
-            "signing_notarization_sha256": _DIGEST,
-            "ci_run_url": "https://ci.example.test/runs/123",
-            "signature": "pending",
-            **release_artifacts,
-            **profile_fields,
-            **composition_fields,
-        }
+    if schema_version < 8 and expires_at is None:
+        raise ValueError("legacy test evidence requires an expiry")
+    effective_issued_at = issued_at or (
+        expires_at - timedelta(days=1)
+        if expires_at is not None
+        else datetime(2026, 7, 30, tzinfo=UTC)
     )
+    evidence_fields: dict[str, object] = {
+        "schema_version": schema_version,
+        "production_ready": True,
+        "release_version": release_version,
+        "issued_at": effective_issued_at,
+        "server_sha256": _DIGEST,
+        "application_sha256": _DIGEST,
+        "sbom_sha256": _DIGEST,
+        "provenance_sha256": _DIGEST,
+        "signing_notarization_sha256": _DIGEST,
+        "ci_run_url": "https://ci.example.test/runs/123",
+        "signature": "pending",
+        **release_artifacts,
+        **profile_fields,
+        **composition_fields,
+    }
+    if expires_at is not None:
+        evidence_fields["expires_at"] = expires_at
+    manifest = DeviceControlReleaseEvidence.model_validate(evidence_fields)
     signature = private_key.sign(manifest.signing_payload())
     signed_manifest = manifest.model_copy(
         update={"signature": base64.b64encode(signature).decode("ascii")}
     )
     path.write_text(
-        json.dumps(signed_manifest.model_dump(mode="json"), sort_keys=True),
+        json.dumps(
+            signed_manifest.model_dump(mode="json", exclude_none=schema_version == 8),
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
     public_key = private_key.public_key().public_bytes(
@@ -130,7 +140,7 @@ def create_signed_evidence(
 
 
 def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
-    """有效签名、版本和有效期应允许生产发布。"""
+    """旧版有效签名、版本和有效期应允许迁移期生产发布。"""
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -144,6 +154,48 @@ def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
 
     assert evidence.release_version == __version__
     assert evidence.release_profile == "community-local-trust"
+
+
+def test_release_evidence_schema_8_is_permanent_and_release_bound(tmp_path: Path) -> None:
+    """schema 8 应与根发布组合绑定且不因验证时间推移而失效。"""
+
+    issued_at = datetime(2026, 7, 31, tzinfo=UTC)
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(
+        evidence_path,
+        schema_version=8,
+        issued_at=issued_at,
+    )
+
+    evidence = verify_device_control_release_evidence(
+        evidence_path=str(evidence_path),
+        public_key_base64=public_key,
+        now=datetime(2036, 7, 31, tzinfo=UTC),
+    )
+
+    assert evidence.schema_version == 8
+    assert evidence.distribution_version == "9.8.7"
+    assert evidence.expires_at is None
+    assert "expires_at" not in json.loads(evidence_path.read_text(encoding="utf-8"))
+    ensure_device_control_release_evidence_current(
+        environment="production",
+        enabled=True,
+        evidence=evidence,
+        now=datetime(2036, 7, 31, tzinfo=UTC),
+    )
+
+
+def test_release_evidence_schema_8_rejects_expiry_field(tmp_path: Path) -> None:
+    """永久 schema 不得重新引入 expires_at 字段。"""
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    with pytest.raises(ValueError, match="must not contain expires_at"):
+        create_signed_evidence(
+            tmp_path / "release-evidence.json",
+            schema_version=8,
+            issued_at=now,
+            expires_at=now + timedelta(days=1),
+        )
 
 
 def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> None:

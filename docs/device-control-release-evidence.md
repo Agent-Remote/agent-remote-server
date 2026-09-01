@@ -3,11 +3,14 @@
 Production device control remains disabled unless server startup verifies a release-evidence
 manifest. The manifest is an approval record for exact external evidence; it does not perform or
 replace notarization, outbound-policy activation, isolation observation, compatibility testing, or
-independent security review.
+independent security review. New releases use schema 8, which is shipped with the matching root
+release and is permanently valid for that signed release composition. Schema 8 has no `expires_at`
+field; deployment, key rotation, explicit revocation, or replacement of the pinned artifacts ends
+authorization instead of a clock.
 
 ## Manifest
 
-Schema version 1 contains exactly these fields:
+Schema versions 1-7 are legacy migration formats. Schema version 1 contains exactly these fields:
 
 - `schema_version`: integer `1`.
 - `release_version`: exact `agent-remote-server` version.
@@ -54,16 +57,23 @@ Server binary. Schema 5 does not carry optional Computer Use v2 evidence; schema
 
 Schema 7 is the independently versioned Apple Developer ID profile. It preserves all schema 1
 signing, notarization, policy, review, and external-gate requirements while adding the same root
-distribution and component identity binding. Legacy schemas 1-4 remain verifiable so existing
-short-lived evidence does not become invalid during migration. New independently versioned
-compositions must use schemas 5-7.
+distribution and component identity binding. Legacy schemas 1-7 remain verifiable so existing
+short-lived evidence does not become invalid during migration.
+
+Schema version 8 is the only format emitted by current release workflows. It always requires
+`distribution_version`, `release_manifest_sha256`, and the complete `components` map, and binds the
+exact Server version to the root release composition. Apple schema 8 uses the selected Node/proxy
+target; Community schema 8 uses all supported target mappings. `issued_at` remains audit metadata and
+must not be in the future. `expires_at` is forbidden, omitted from the canonical payload, and never
+used as an authorization condition. Schemas 1-7 remain accepted only for rolling migration and keep
+their original 30-day expiry rules.
 
 ## Computer Use v2 capability negotiation
 
 The Apple-profile release assembler validates the artifact-specific Computer Use v2 report and
-binds its record digest as `computer_use_v2_evidence_sha256`. Community schema 4 binds the
+binds its record digest as `computer_use_v2_evidence_sha256`. Community schema 8 binds the
 equivalent protected report to the exact Server, application, and selected Node/proxy target;
-Community schema versions 2 and 3 require the field to be `null`. A valid general device-control
+Schema 8 may omit the optional field. A valid general device-control
 manifest is sufficient for production capability negotiation; the optional digest records a
 stricter runtime quality assessment.
 
@@ -80,7 +90,7 @@ when the assigned Node advertises every canonical capability; missing, partial, 
 unknown capability sets fall back atomically to v1. Set the switch to `false` for emergency
 rollback of new generations. Active generations never change capabilities in place. The Server
 still verifies the general manifest at startup, during device-control progression, and before relay
-establishment, so expired or invalid supply-chain evidence remains fail closed.
+establishment, so missing, future-dated, revoked, or invalid supply-chain evidence remains fail closed.
 
 ## Signature
 
@@ -91,8 +101,8 @@ configuration pins the raw 32-byte Ed25519 public key as Base64 in
 
 Set `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH` to the manifest path. With
 `AGENT_REMOTE_ENV=production` and `DEVICE_CONTROL_ENABLED=true`, any missing configuration,
-malformed manifest, version mismatch, invalid signature, future issue time, excessive lifetime, or
-expiry stops application creation. Development can explicitly enable the capability without this
+malformed manifest, version mismatch, invalid signature, future issue time, or missing release
+composition stops application creation. Development can explicitly enable the capability without this
 manifest only for synthetic, non-sensitive testing.
 
 Create a manifest from an owner-only unsigned draft and an owner-only PKCS#8 Ed25519 private key:

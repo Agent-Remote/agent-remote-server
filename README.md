@@ -113,8 +113,10 @@ The manifest schema and canonical Ed25519 signing payload are documented in
 `docs/device-control-release-evidence.md`.
 
 Device control defaults to disabled. When `AGENT_REMOTE_ENV=production`, enabling it requires a
-non-expired release-evidence manifest bound to the exact server version and signed by the pinned
-Base64-encoded Ed25519 public key. Operators must also choose explicit non-zero terminal-session
+schema 8 release-evidence manifest shipped with the exact root distribution, bound to the exact
+Server/component/artifact composition, and signed by the pinned Base64-encoded Ed25519 public key.
+Schema 8 is permanently valid for that signed composition and has no `expires_at` field. Operators
+must also choose explicit non-zero terminal-session
 and device-session-audit retention periods; audit retention cannot be shorter than session
 retention. Development may explicitly enable the capability only for non-sensitive test data.
 
@@ -123,7 +125,7 @@ Node advertises the complete canonical capability set; missing, partial, malform
 fall back atomically to v1. Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created
 generations during an emergency. Active generations never change capability sets in place.
 
-Apple schema 1 and Community schema 4 may carry the optional artifact-bound v2 quality digest.
+Schema 8 Apple and Community manifests may carry the optional artifact-bound v2 quality digest.
 That digest supports release-quality auditing but is not runtime authorization. General signed
 production release evidence remains mandatory whenever device control is enabled in production.
 

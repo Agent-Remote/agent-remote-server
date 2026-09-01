@@ -111,8 +111,9 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   notarization, outbound allowlist, compatibility, and security review. The reduced
   `community-local-trust` profile requires explicit risk acceptance, project self-signing,
   official-runner automation, manual installation trust, and application-enforced egress.
-  Production startup additionally requires a non-expired Ed25519-signed release-evidence manifest
-  bound to the exact server version. The manifest pins the server, Node, application, proxy, SBOM, provenance,
+  Production startup additionally requires an Ed25519-signed release-evidence manifest bound to the
+  exact root distribution and server version. Schema 8 is permanently valid for that signed
+  version/component/artifact combination; it has no time-based expiry. The manifest pins the server, Node, application, proxy, SBOM, provenance,
   security-test, review or risk-acceptance, signing, outbound-policy, local-Claude-isolation,
   stop/revocation, and compatibility evidence digests. Schema 2 additionally pins community
   signing, official-runner automation, and risk-acceptance digests. Schema 3 binds every supported
@@ -121,7 +122,7 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Computer Use v2 is enabled by default for new generations. The Server negotiates it only when the
   assigned Node advertises the complete canonical capability set; partial, unknown, or malformed
   capability sets fall back atomically to v1. `device_control_v2_enabled=false` is the emergency
-  switch for new generations. Optional schema 4 quality evidence does not authorize runtime
+  switch for new generations. Optional schema 8 quality evidence does not authorize runtime
   capabilities, and capabilities never change within an active generation.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal
