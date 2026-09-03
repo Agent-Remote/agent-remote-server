@@ -17,6 +17,7 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.device_token_ttl_seconds == 2_592_000
     assert settings.device_control_enabled is False
     assert settings.device_control_v2_enabled is True
+    assert settings.device_session_authorization_mode == "per_application_approval"
     assert settings.device_control_release_evidence_path == ""
     assert settings.device_control_release_public_key == ""
     assert settings.device_session_retention_days == 0
@@ -29,6 +30,19 @@ def test_device_control_v2_can_be_disabled_for_emergency_rollback() -> None:
     """v2 默认启用，同时保留显式紧急关闭开关。"""
 
     assert Settings(device_control_v2_enabled=False).device_control_v2_enabled is False
+
+
+def test_device_session_authorization_mode_is_closed_to_known_values() -> None:
+    """设备会话授权模式只接受显式的兼容或全信任值。"""
+
+    assert (
+        Settings(
+            device_session_authorization_mode="session_full_trust"
+        ).device_session_authorization_mode
+        == "session_full_trust"
+    )
+    with pytest.raises(ValidationError):
+        Settings(device_session_authorization_mode="unbounded")  # type: ignore[arg-type]
 
 
 def test_example_environment_uses_the_default_v2_switch() -> None:

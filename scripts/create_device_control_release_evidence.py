@@ -84,7 +84,10 @@ def main() -> None:
     parser.add_argument("--draft", type=Path, required=True)
     parser.add_argument("--private-key", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--public-key-output", type=Path)
     args = parser.parse_args()
+    manifest_written = False
+    public_key_written = False
     try:
         draft = _load_draft(args.draft)
         private_key = _load_private_key(args.private_key)
@@ -93,14 +96,22 @@ def main() -> None:
         manifest = unsigned.model_copy(
             update={"signature": base64.b64encode(signature).decode("ascii")}
         )
+        public_key_base64 = _raw_public_key_base64(private_key)
         _write_new_file(args.output, manifest.encoded_manifest())
+        manifest_written = True
         try:
             verify_device_control_release_evidence(
                 evidence_path=str(args.output),
-                public_key_base64=_raw_public_key_base64(private_key),
+                public_key_base64=public_key_base64,
             )
-        except ValueError:
-            args.output.unlink(missing_ok=True)
+            if args.public_key_output is not None:
+                _write_new_file(args.public_key_output, public_key_base64.encode("ascii"))
+                public_key_written = True
+        except (OSError, ValueError):
+            if manifest_written:
+                args.output.unlink(missing_ok=True)
+            if public_key_written and args.public_key_output is not None:
+                args.public_key_output.unlink(missing_ok=True)
             raise
     except (OSError, ValueError, ValidationError) as exc:
         parser.exit(2, f"release evidence creation failed: {exc}\n")

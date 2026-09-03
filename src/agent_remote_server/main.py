@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ensure_device_control_release_evidence_current(
             environment=app_settings.environment,
             enabled=app_settings.device_control_enabled,
+            authorization_mode=app_settings.device_session_authorization_mode,
             evidence=device_control_release_evidence,
         )
     configure_logging(app_settings.log_level)

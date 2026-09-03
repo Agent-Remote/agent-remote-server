@@ -32,6 +32,7 @@ from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.device_sessions import (
     AbortDeviceActionRequest,
     ApproveDeviceSessionRequest,
+    AuthorizationMode,
     ClaimDeviceSessionRequest,
     CreateDeviceSessionRequest,
     DeviceControlPolicyData,
@@ -75,6 +76,7 @@ async def get_device_control_policy(
     :return DeviceControlPolicyResponse: 不含连接材料的设备控制部署策略响应
     """
 
+    full_trust = settings.device_session_authorization_mode == "session_full_trust"
     return DeviceControlPolicyResponse(
         data=DeviceControlPolicyData(
             enabled=settings.device_control_enabled,
@@ -85,7 +87,14 @@ async def get_device_control_policy(
             relay_maximum_frame_bytes=settings.device_relay_max_frame_bytes,
             relay_maximum_bytes_per_second=settings.device_relay_max_bytes_per_second,
             relay_maximum_connection_seconds=settings.device_relay_max_connection_seconds,
-            local_approval_required=True,
+            authorization_mode=settings.device_session_authorization_mode,
+            authorization_policy_version=1,
+            application_scope=(
+                "all_user_gui_applications" if full_trust else "approved_applications"
+            ),
+            control_level="full_control" if full_trust else "approved_level",
+            clipboard_scope=("global_plain_text" if full_trust else "per_application_approval"),
+            application_launch=full_trust,
         ),
         request_id=get_request_id(),
     )
@@ -109,6 +118,14 @@ def _data(device_session: DeviceSession) -> DeviceSessionData:
         platform="macos",
         status=cast(DeviceSessionStatus, device_session.status),
         generation=device_session.generation,
+        authorization_mode=cast(AuthorizationMode, device_session.authorization_mode),
+        authorization_policy_version=device_session.authorization_policy_version,
+        authorized_at=(
+            device_session.authorized_at
+            if device_session.authorized_at is None
+            or device_session.authorized_at.tzinfo is not None
+            else device_session.authorized_at.replace(tzinfo=UTC)
+        ),
         lease_until=device_session.lease_until,
         expires_at=device_session.expires_at,
         lock_acquired_at=device_session.lock_acquired_at,
@@ -202,6 +219,7 @@ async def claim_device_session(
     result = await DeviceSessionService(session, settings, relay_hub).claim(
         token=token,
         tool_session_id=payload.tool_session_id,
+        device_capabilities=tuple(payload.device_capabilities),
     )
     return DeviceSessionResponse(data=_data(result.device_session), request_id=get_request_id())
 
@@ -678,6 +696,7 @@ async def relay_device_ciphertext(
         ensure_device_control_release_evidence_current(
             environment=settings.environment,
             enabled=settings.device_control_enabled,
+            authorization_mode=settings.device_session_authorization_mode,
             evidence=evidence,
         )
     except DeviceControlReleaseEvidenceError:

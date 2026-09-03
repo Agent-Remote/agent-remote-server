@@ -62,7 +62,7 @@ def write_draft(path: Path) -> None:
 
 
 def write_permanent_draft(path: Path) -> None:
-    """写入不含过期时间、绑定根版本组合的 schema 8 draft。"""
+    """写入不含过期时间、绑定根版本组合的 schema 9 draft。"""
 
     components = {
         name: {
@@ -82,7 +82,7 @@ def write_permanent_draft(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": 8,
+                "schema_version": 9,
                 "release_version": __version__,
                 "issued_at": "2026-07-31T00:00:00+00:00",
                 "distribution_version": "9.8.7",
@@ -110,20 +110,28 @@ def write_permanent_draft(path: Path) -> None:
     path.chmod(0o600)
 
 
-def run_creator(draft: Path, private_key: Path, output: Path) -> subprocess.CompletedProcess[str]:
+def run_creator(
+    draft: Path,
+    private_key: Path,
+    output: Path,
+    public_key_output: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
     """运行发布证据生成器并返回完成结果。"""
 
+    command = [
+        sys.executable,
+        "scripts/create_device_control_release_evidence.py",
+        "--draft",
+        str(draft),
+        "--private-key",
+        str(private_key),
+        "--output",
+        str(output),
+    ]
+    if public_key_output is not None:
+        command.extend(("--public-key-output", str(public_key_output)))
     return subprocess.run(
-        [
-            sys.executable,
-            "scripts/create_device_control_release_evidence.py",
-            "--draft",
-            str(draft),
-            "--private-key",
-            str(private_key),
-            "--output",
-            str(output),
-        ],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -155,8 +163,8 @@ def test_creator_writes_a_verifiable_owner_only_manifest(tmp_path: Path) -> None
     assert manifest.release_version == __version__
 
 
-def test_creator_writes_permanent_schema_8_manifest(tmp_path: Path) -> None:
-    """当前生成器必须输出与根版本绑定且永久有效的 schema 8 清单。"""
+def test_creator_writes_permanent_schema_9_manifest(tmp_path: Path) -> None:
+    """当前生成器必须输出与根版本绑定且永久有效的 schema 9 清单。"""
 
     key = Ed25519PrivateKey.generate()
     key_path = tmp_path / "release-key.pem"
@@ -169,7 +177,7 @@ def test_creator_writes_permanent_schema_8_manifest(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     raw_manifest = json.loads(output_path.read_text(encoding="utf-8"))
-    assert raw_manifest["schema_version"] == 8
+    assert raw_manifest["schema_version"] == 9
     assert raw_manifest["distribution_version"] == "9.8.7"
     assert "expires_at" not in raw_manifest
     raw_public_key = key.public_key().public_bytes(
@@ -182,6 +190,51 @@ def test_creator_writes_permanent_schema_8_manifest(tmp_path: Path) -> None:
         now=datetime(2036, 7, 31, tzinfo=UTC),
     )
     assert manifest.expires_at is None
+
+
+def test_creator_writes_the_verified_raw_public_key(tmp_path: Path) -> None:
+    """可选公钥输出必须对应实际签名密钥并保持 owner-only。"""
+
+    key = Ed25519PrivateKey.generate()
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "draft.json"
+    output_path = tmp_path / "evidence.json"
+    public_key_path = tmp_path / "public-key.txt"
+    write_private_key(key_path, key)
+    write_draft(draft_path)
+
+    result = run_creator(draft_path, key_path, output_path, public_key_path)
+
+    assert result.returncode == 0, result.stderr
+    assert public_key_path.stat().st_mode & 0o777 == 0o600
+    expected = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    encoded = public_key_path.read_text(encoding="ascii")
+    assert encoded == base64.b64encode(expected).decode("ascii") + "\n"
+    verify_device_control_release_evidence(
+        evidence_path=str(output_path),
+        public_key_base64=encoded.strip(),
+    )
+
+
+def test_creator_preserves_existing_public_key_output(tmp_path: Path) -> None:
+    """已有公钥目标必须导致失败，且不得留下配套 manifest 或覆盖目标。"""
+
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "draft.json"
+    output_path = tmp_path / "evidence.json"
+    public_key_path = tmp_path / "public-key.txt"
+    write_private_key(key_path, Ed25519PrivateKey.generate())
+    write_draft(draft_path)
+    public_key_path.write_text("preserve\n", encoding="ascii")
+
+    result = run_creator(draft_path, key_path, output_path, public_key_path)
+
+    assert result.returncode == 2
+    assert public_key_path.read_text(encoding="ascii") == "preserve\n"
+    assert not output_path.exists()
 
 
 def test_creator_rejects_group_readable_key_and_existing_output(tmp_path: Path) -> None:

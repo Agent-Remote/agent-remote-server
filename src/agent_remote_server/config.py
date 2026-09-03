@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -106,6 +107,13 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEVICE_CONTROL_V2_ENABLED",
         description="是否为新设备控制 generation 自动协商 Computer Use v2",
+    )
+    device_session_authorization_mode: Literal["per_application_approval", "session_full_trust"] = (
+        Field(
+            default="per_application_approval",
+            validation_alias="DEVICE_SESSION_AUTHORIZATION_MODE",
+            description="新设备控制会话使用的服务端授权模式",
+        )
     )
     device_control_release_evidence_path: str = Field(
         default="",

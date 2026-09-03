@@ -2,6 +2,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+from sqlalchemy import CheckConstraint
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -88,6 +89,20 @@ def test_model_metadata_registers_core_indexes() -> None:
     assert index_names >= EXPECTED_INDEXES
 
 
+def test_device_session_authorized_at_is_exactly_bound_to_full_trust() -> None:
+    table = Base.metadata.tables["device_sessions"]
+    constraint = next(
+        item
+        for item in table.constraints
+        if isinstance(item, CheckConstraint)
+        and item.name == "device_sessions_full_trust_authorized_at_ck"
+    )
+
+    expression = str(constraint.sqltext)
+    assert "authorization_mode = 'session_full_trust' and authorized_at is not null" in expression
+    assert "authorization_mode = 'per_application_approval' and authorized_at is null" in expression
+
+
 def test_initial_migration_revision_identity() -> None:
     migration_path = Path("migrations/versions/0001_core_schema.py")
     migration_globals = runpy.run_path(str(migration_path))
@@ -150,6 +165,82 @@ def test_session_device_control_migration_revision_identity() -> None:
 
     assert migration_globals["revision"] == "0015_session_device_control"
     assert migration_globals["down_revision"] == "0014_device_sessions"
+
+
+def test_device_session_authorization_migration_revision_identity() -> None:
+    """授权元数据迁移必须接在 binding rebind 迁移之后。"""
+
+    migration_path = Path("migrations/versions/0017_device_session_authorization.py")
+    migration_globals = runpy.run_path(str(migration_path))
+
+    assert migration_globals["revision"] == "0017_device_authorization"
+    assert migration_globals["down_revision"] == "0016_device_binding_rebind"
+
+
+def test_device_session_authorization_migration_updates_and_reverses_all_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """授权迁移必须先回填历史记录，并可完整删除新增字段与约束。"""
+
+    migration_globals = runpy.run_path("migrations/versions/0017_device_session_authorization.py")
+    operations: list[tuple[str, str]] = []
+    migration_op = migration_globals["op"]
+
+    monkeypatch.setattr(
+        migration_op,
+        "add_column",
+        lambda table, column: operations.append(("add_column", f"{table}.{column.name}")),
+    )
+    monkeypatch.setattr(
+        migration_op,
+        "execute",
+        lambda statement: operations.append(("execute", str(statement))),
+    )
+    monkeypatch.setattr(
+        migration_op,
+        "alter_column",
+        lambda table, column, **_kwargs: operations.append(("alter_column", f"{table}.{column}")),
+    )
+    monkeypatch.setattr(
+        migration_op,
+        "create_check_constraint",
+        lambda name, _table, _condition: operations.append(("create_check", name)),
+    )
+    monkeypatch.setattr(
+        migration_op,
+        "drop_constraint",
+        lambda name, _table, **_kwargs: operations.append(("drop_check", name)),
+    )
+    monkeypatch.setattr(
+        migration_op,
+        "drop_column",
+        lambda table, column: operations.append(("drop_column", f"{table}.{column}")),
+    )
+
+    migration_globals["upgrade"]()
+    assert operations[:3] == [
+        ("add_column", "device_sessions.authorization_mode"),
+        ("add_column", "device_sessions.authorization_policy_version"),
+        ("add_column", "device_sessions.authorized_at"),
+    ]
+    backfill_index = next(
+        index
+        for index, operation in enumerate(operations)
+        if operation[0] == "execute" and "per_application_approval" in operation[1]
+    )
+    first_not_null_index = next(
+        index for index, operation in enumerate(operations) if operation[0] == "alter_column"
+    )
+    assert backfill_index < first_not_null_index
+    assert ("create_check", "device_sessions_full_trust_authorized_at_ck") in operations
+
+    operations.clear()
+    migration_globals["downgrade"]()
+    assert operations[-3:] == [
+        ("drop_column", "device_sessions.authorized_at"),
+        ("drop_column", "device_sessions.authorization_policy_version"),
+        ("drop_column", "device_sessions.authorization_mode"),
+    ]
 
 
 def test_migration_revision_ids_fit_alembic_version_column() -> None:

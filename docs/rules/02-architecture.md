@@ -73,18 +73,21 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   the request cannot override either identity.
 - At most one non-terminal binding may exist for a tool session and, in the first release, for a
   device. Claiming stops conflicting bindings with reason `rebound`, preserves their audit
-  history, and creates a new `pending_device` record that requires fresh local approval.
-- Only the bound device token may report the local connection, submit local application
-  approval, acquire the machine lock, renew the lease, reconnect, or invoke device-side stop.
-  The owning user and an administrator may end control, but cannot replace local approval.
+  history, and creates a new `pending_device` record whose authorization comes from the fresh
+  local session selection.
+- Only the bound device token may report the local connection, install the Server-selected
+  session authorization, acquire the machine lock, renew the lease, reconnect, or invoke
+  device-side stop. The owning user and an administrator may end control, but cannot replace
+  local session selection or choose a stronger authorization mode.
 - Reconnect and current-action abort increment the generation and clear the old lease while
   retaining an acquired machine lock. Only explicit session end, confirmed remote-session
   failure, or lease expiry releases the lock. Stop increments the generation and clears both.
 - Generation is a positive signed 64-bit value. Non-terminal sessions are capped at
   `9223372036854775806`, reserving `9223372036854775807` for a final stop transition; an
   exhausted generation is rejected before state, audit, or Node-task mutation.
-- The control plane stores lifecycle and audit metadata only. Application approvals contain a
-  SHA-256 stable-identifier digest, control level, result, and clipboard boolean; GUI content,
+- The control plane stores lifecycle and authorization metadata only. New bindings explicitly
+  store authorization mode, policy version, and authorized time; historical application approvals
+  remain compatibility data. Application names, bundle identifiers, clipboard content, GUI content,
   input, coordinates, titles, images, certificates, and plaintext relay payloads are forbidden.
 - Relay and one-time connection material are separate short-lived infrastructure concerns and
   must not be added to the business session row.
@@ -114,8 +117,11 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   `community-local-trust` profile requires explicit risk acceptance, project self-signing,
   official-runner automation, manual installation trust, and application-enforced egress.
   Production startup additionally requires an Ed25519-signed release-evidence manifest bound to the
-  exact root distribution and server version. Schema 8 is permanently valid for that signed
-  version/component/artifact combination; it has no time-based expiry. The manifest pins the server, Node, application, proxy, SBOM, provenance,
+  exact root distribution and server version. Current schema 9 is permanently valid for that signed
+  version/component/artifact combination; it has no time-based expiry. Already issued schema 8
+  manifests retain the same permanent verification semantics, but may authorize only the legacy
+  `per_application_approval` policy. Production `session_full_trust` requires schema 9 at startup
+  and throughout guarded HTTP and relay operations. The manifest pins the server, Node, application, proxy, SBOM, provenance,
   security-test, review or risk-acceptance, signing, outbound-policy, local-Claude-isolation,
   stop/revocation, and compatibility evidence digests. Schema 2 additionally pins community
   signing, official-runner automation, and risk-acceptance digests. Schema 3 binds every supported
@@ -124,9 +130,19 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Computer Use v2 is enabled by default for new generations. The Server negotiates it only when the
   assigned Node advertises the complete required capability base, then includes recognized optional
   extensions. Partial, unknown, or malformed capability sets fall back atomically to v1.
-  `device_control_v2_enabled=false` is the emergency switch for new generations. Optional schema 8
+  `device_control_v2_enabled=false` is the emergency switch for new generations. Optional schema 9
   quality evidence does not authorize runtime capabilities, and capabilities never change within an
   active generation.
+- `session_full_trust` additionally requires the complete set `session_full_trust_v1`,
+  `application_launch_v1`, `global_clipboard_v1`, `clipboard_payload_v2`, and the three v2 base
+  capabilities from Node/proxy, plus the exact Device claim capability `session_full_trust_v1`.
+  Capability validation follows the binding's persisted authorization mode, not a later deployment
+  policy value. Legacy bindings filter out all three full-trust-only capability names; active
+  same-generation lease renewal preserves its mode even if the v2 switch later closes.
+  Legacy policy accepts a missing Device capability field; full-trust policy rejects missing,
+  duplicate, unknown, or mixed Device capabilities with an upgrade error before creating or reusing
+  a binding. Missing or mixed Node capabilities make the candidate uncontrollable instead of
+  falling back to different authorization semantics.
 - Production device control requires explicit non-zero retention periods for terminal device-session
   metadata and device-session audit metadata. A bounded background service deletes only terminal
   sessions older than the configured stop-time cutoff and audit rows whose target type is

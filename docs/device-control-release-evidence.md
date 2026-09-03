@@ -3,8 +3,8 @@
 Production device control remains disabled unless server startup verifies a release-evidence
 manifest. The manifest is an approval record for exact external evidence; it does not perform or
 replace notarization, outbound-policy activation, isolation observation, compatibility testing, or
-independent security review. New releases use schema 8, which is shipped with the matching root
-release and is permanently valid for that signed release composition. Schema 8 has no `expires_at`
+independent security review. New releases use schema 9, which is shipped with the matching root
+release and is permanently valid for that signed release composition. Schema 9 has no `expires_at`
 field; deployment, key rotation, explicit revocation, or replacement of the pinned artifacts ends
 authorization instead of a clock.
 
@@ -60,7 +60,8 @@ signing, notarization, policy, review, and external-gate requirements while addi
 distribution and component identity binding. Legacy schemas 1-7 remain verifiable so existing
 short-lived evidence does not become invalid during migration.
 
-Schema version 8 is the only format emitted by current release workflows. It always requires
+Schema version 8 is the first permanent format and remains verifiable for every already issued
+exact composition. It requires
 `distribution_version`, `release_manifest_sha256`, and the complete `components` map, and binds the
 exact Server version to the root release composition. Apple schema 8 uses the selected Node/proxy
 target; Community schema 8 uses all supported target mappings. `issued_at` remains audit metadata and
@@ -68,12 +69,23 @@ must not be in the future. `expires_at` is forbidden, omitted from the canonical
 used as an authorization condition. Schemas 1-7 remain accepted only for rolling migration and keep
 their original 30-day expiry rules.
 
+Permanent verification does not widen the policy certified by an older schema. In production,
+schema 8 and earlier evidence can authorize only `per_application_approval`; configuring
+`session_full_trust` requires a verified schema 9 manifest at startup and on every HTTP or relay
+operation guarded by the runtime release check.
+
+Schema version 9 is the only format emitted by current release workflows. Its signed manifest
+fields and permanent composition binding match schema 8, while its root assembler requires the
+session-full-trust external scenarios and five-tool public MCP surface. This preserves permanent
+verification of schema 8 without allowing a new release to claim the obsolete per-application
+approval gate.
+
 ## Computer Use v2 capability negotiation
 
 The Apple-profile release assembler validates the artifact-specific Computer Use v2 report and
-binds its record digest as `computer_use_v2_evidence_sha256`. Community schema 8 binds the
+binds its record digest as `computer_use_v2_evidence_sha256`. Community schema 9 binds the
 equivalent protected report to the exact Server, application, and selected Node/proxy target;
-Schema 8 may omit the optional field. A valid general device-control
+Schema 9 may omit the optional field. A valid general device-control
 manifest is sufficient for production capability negotiation; the optional digest records a
 stricter runtime quality assessment.
 
@@ -112,13 +124,17 @@ Create a manifest from an owner-only unsigned draft and an owner-only PKCS#8 Ed2
 uv run python scripts/create_device_control_release_evidence.py \
   --draft release-evidence-draft.json \
   --private-key /secure/release-evidence-key.pem \
-  --output release-evidence.json
+  --output release-evidence.json \
+  --public-key-output release-evidence-public-key.txt
 ```
 
 The command refuses symbolic links, group/world-readable inputs, oversized inputs, non-Ed25519
 keys, signed drafts, and existing output paths. It verifies the completed manifest with the same
-runtime verifier before succeeding. The private key must remain in the release environment and
-must never be copied into a server image, deployment manifest, artifact, log, or repository.
+runtime verifier before succeeding. When `--public-key-output` is present, the command writes the
+canonical Base64 raw Ed25519 public key with the same owner-only, create-new semantics, and removes
+the newly created manifest if the public-key output cannot be completed. The private key must remain
+in the release environment and must never be copied into a server image, deployment manifest,
+artifact, log, or repository.
 
 The server release workflow publishes an immutable OCI image digest together with a downloadable
 SPDX SBOM, GitHub build-provenance bundle, release metadata, and SHA-256 checksum file. Use the

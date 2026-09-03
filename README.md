@@ -102,6 +102,8 @@ Environment variables:
 - `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
 - `DEVICE_CONTROL_ENABLED`
 - `DEVICE_CONTROL_V2_ENABLED` (defaults to `true`; emergency rollback switch for new generations)
+- `DEVICE_SESSION_AUTHORIZATION_MODE` (`per_application_approval` during compatibility rollout;
+  set to `session_full_trust` only for a fully capable signed component combination)
 - `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
 - `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
 - `DEVICE_SESSION_RETENTION_DAYS`
@@ -112,10 +114,13 @@ See `.env.example`.
 The manifest schema and canonical Ed25519 signing payload are documented in
 `docs/device-control-release-evidence.md`.
 
-Device control defaults to disabled. When `AGENT_REMOTE_ENV=production`, enabling it requires a
-schema 8 release-evidence manifest shipped with the exact root distribution, bound to the exact
+Device control defaults to disabled. When `AGENT_REMOTE_ENV=production`, current releases require a
+schema 9 release-evidence manifest shipped with the exact root distribution, bound to the exact
 Server/component/artifact composition, and signed by the pinned Base64-encoded Ed25519 public key.
-Schema 8 is permanently valid for that signed composition and has no `expires_at` field. Operators
+Schema 9 is permanently valid for that signed composition and has no `expires_at` field. Already
+issued schema 8 manifests remain permanently verifiable for their exact signed compositions, but
+they authorize only the legacy `per_application_approval` policy; production `session_full_trust`
+fails closed unless the verified manifest is schema 9. Operators
 must also choose explicit non-zero terminal-session
 and device-session-audit retention periods; audit retention cannot be shorter than session
 retention. Development may explicitly enable the capability only for non-sensitive test data.
@@ -127,7 +132,7 @@ Node advertises the complete required `observation_mode_v2`, `ax_state_v2`, and
 Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created generations during an
 emergency. Active generations never change capability sets in place.
 
-Schema 8 Apple and Community manifests may carry the optional artifact-bound v2 quality digest.
+Schema 9 Apple and Community manifests may carry the optional artifact-bound v2 quality digest.
 That digest supports release-quality auditing but is not runtime authorization. General signed
 production release evidence remains mandatory whenever device control is enabled in production.
 

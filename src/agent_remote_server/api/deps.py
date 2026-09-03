@@ -96,6 +96,7 @@ def require_current_device_control_release(
         ensure_device_control_release_evidence_current(
             environment=settings.environment,
             enabled=settings.device_control_enabled,
+            authorization_mode=settings.device_session_authorization_mode,
             evidence=evidence,
         )
     except DeviceControlReleaseEvidenceError as exc:

@@ -25,6 +25,7 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.schemas.device_sessions import (
+    AuthorizationMode,
     DeviceApprovalItem,
     DeviceSessionCandidateData,
 )
@@ -44,10 +45,21 @@ REQUIRED_DEVICE_CONTROL_V2_CAPABILITIES = (
 )
 DEVICE_CONTROL_V2_CAPABILITIES = (
     "adaptive_settle_v2",
+    "application_launch_v1",
+    "ax_state_v2",
+    "clipboard_payload_v2",
+    "global_clipboard_v1",
+    "observation_mode_v2",
+    "session_full_trust_v1",
+)
+LEGACY_DEVICE_CONTROL_V2_CAPABILITIES = (
+    "adaptive_settle_v2",
     "ax_state_v2",
     "clipboard_payload_v2",
     "observation_mode_v2",
 )
+FULL_TRUST_DEVICE_CONTROL_CAPABILITIES = DEVICE_CONTROL_V2_CAPABILITIES
+FULL_TRUST_DEVICE_CAPABILITIES = ("session_full_trust_v1",)
 
 
 @dataclass(frozen=True)
@@ -133,6 +145,12 @@ class DeviceSessionService:
                 message="Legacy device-session creation is restricted to administrators.",
                 status_code=403,
             )
+        if self._settings.device_session_authorization_mode != "per_application_approval":
+            raise ApiError(
+                code="DEVICE_CONTROL_CLAIM_REQUIRED",
+                message="Session full trust must be granted by selection in the Device app.",
+                status_code=409,
+            )
         device = await self._repository.get_device(device_id)
         if device is None or device.user_id != user.id or device.status != "active":
             raise ApiError(
@@ -186,6 +204,9 @@ class DeviceSessionService:
             platform="macos",
             status="pending_device",
             generation=1,
+            authorization_mode="per_application_approval",
+            authorization_policy_version=1,
+            authorized_at=None,
             expires_at=now + timedelta(seconds=self._settings.device_session_max_ttl_seconds),
         )
         try:
@@ -261,7 +282,13 @@ class DeviceSessionService:
             )
         return candidates
 
-    async def claim(self, *, token: AuthToken, tool_session_id: UUID) -> DeviceSessionClaimResult:
+    async def claim(
+        self,
+        *,
+        token: AuthToken,
+        tool_session_id: UUID,
+        device_capabilities: tuple[str, ...] = (),
+    ) -> DeviceSessionClaimResult:
         """
         当前设备原子 claim 一个远端 Claude session，并撤销冲突的旧绑定
 
@@ -276,6 +303,15 @@ class DeviceSessionService:
                 code="DEVICE_CONTROL_DISABLED",
                 message="Device control is disabled by deployment policy.",
                 status_code=503,
+            )
+        if (
+            self._settings.device_session_authorization_mode == "session_full_trust"
+            and device_capabilities != FULL_TRUST_DEVICE_CAPABILITIES
+        ):
+            raise ApiError(
+                code="DEVICE_CONTROL_DEVICE_UPGRADE_REQUIRED",
+                message="The Device app does not support session full trust.",
+                status_code=409,
             )
         device_id = self._require_device_token(token)
         await self._repository.acquire_user_claim_lock(token.user_id)
@@ -363,6 +399,7 @@ class DeviceSessionService:
             )
 
         now = self._now()
+        authorization_mode = self._settings.device_session_authorization_mode
         device_session = DeviceSession(
             user_id=token.user_id,
             device_id=device.id,
@@ -372,6 +409,9 @@ class DeviceSessionService:
             platform="macos",
             status="pending_device",
             generation=1,
+            authorization_mode=authorization_mode,
+            authorization_policy_version=1,
+            authorized_at=now if authorization_mode == "session_full_trust" else None,
             expires_at=now + timedelta(seconds=self._settings.device_session_max_ttl_seconds),
         )
         try:
@@ -383,6 +423,8 @@ class DeviceSessionService:
                 device_session,
                 {"rebound_count": len(revoked)},
             )
+            if authorization_mode == "session_full_trust":
+                await self._audit_full_trust_authorized(device_session)
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
@@ -527,7 +569,7 @@ class DeviceSessionService:
         self, *, token: AuthToken, device_session_id: UUID, generation: int
     ) -> DeviceSession:
         """
-        由绑定设备确认通道已连接并等待本机用户审批
+        由绑定设备确认本机执行基础设施已就绪并按授权模式推进状态
 
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
@@ -541,7 +583,34 @@ class DeviceSessionService:
         await self._require_not_expired(device_session)
         if device_session.status != "pending_device":
             raise self._state_conflict()
-        device_session.status = "pending_user_approval"
+        if device_session.authorization_mode == "session_full_trust":
+            tool_session = await self._require_tool_session(device_session.binding_tool_session_id)
+            self._validate_claimable_tool_session(tool_session)
+            node = await self._repository.get_node(device_session.node_id)
+            if (
+                node is None
+                or node.status not in {"healthy", "degraded"}
+                or not self._supports_device_control(
+                    node.runtime_capabilities,
+                    tool_session.runtime_backend,
+                    authorization_mode=cast(AuthorizationMode, device_session.authorization_mode),
+                )
+            ):
+                raise ApiError(
+                    code="DEVICE_CONTROL_NODE_UNAVAILABLE",
+                    message="The assigned node lacks the complete full-trust capability set.",
+                    status_code=409,
+                )
+            device_session.status = "active"
+            device_session.lease_until = min(
+                self._now() + timedelta(seconds=self._settings.device_session_lease_seconds),
+                self._aware(device_session.expires_at),
+            )
+            await self._enqueue_context_update(device_session)
+        elif device_session.authorization_mode == "per_application_approval":
+            device_session.status = "pending_user_approval"
+        else:
+            raise self._state_conflict()
         await self._audit(
             device_session.user_id, "device_session.device_connected", device_session, {}
         )
@@ -570,6 +639,12 @@ class DeviceSessionService:
         device_session = await self._require_device(token, device_session_id, for_update=True)
         self._require_generation(device_session, generation)
         await self._require_not_expired(device_session)
+        if device_session.authorization_mode != "per_application_approval":
+            raise ApiError(
+                code="DEVICE_CONTROL_AUTHORIZATION_MODE_CONFLICT",
+                message="Full-trust device sessions do not accept application approvals.",
+                status_code=409,
+            )
         if device_session.status != "pending_user_approval":
             raise self._state_conflict()
         if len({item.application_digest for item in approvals}) != len(approvals):
@@ -677,7 +752,10 @@ class DeviceSessionService:
             self._now() + timedelta(seconds=self._settings.device_session_lease_seconds),
             self._aware(device_session.expires_at),
         )
-        await self._enqueue_context_update(device_session)
+        await self._enqueue_context_update(
+            device_session,
+            preserve_active_capabilities=True,
+        )
         await self._session.commit()
         return device_session
 
@@ -1021,6 +1099,20 @@ class DeviceSessionService:
                 binding.generation,
             )
 
+    async def _audit_full_trust_authorized(self, device_session: DeviceSession) -> None:
+        """
+        记录不含应用或剪贴板内容的会话级全信任授权事件
+
+        :param device_session (DeviceSession): 已由本机选择授权的设备会话
+        """
+
+        await self._audit(
+            device_session.user_id,
+            "device_session.full_trust_authorized",
+            device_session,
+            {"authorization_policy_version": device_session.authorization_policy_version},
+        )
+
     async def _enqueue_activation(
         self,
         device_session: DeviceSession,
@@ -1036,6 +1128,8 @@ class DeviceSessionService:
                 status="pending",
                 payload={
                     "protocol_version": 1,
+                    "authorization_mode": device_session.authorization_mode,
+                    "authorization_policy_version": device_session.authorization_policy_version,
                     "user_id": str(device_session.user_id),
                     "device_id": str(device_session.device_id),
                     "tool_session_id": str(device_session.binding_tool_session_id),
@@ -1069,7 +1163,12 @@ class DeviceSessionService:
             )
         )
 
-    async def _enqueue_context_update(self, device_session: DeviceSession) -> None:
+    async def _enqueue_context_update(
+        self,
+        device_session: DeviceSession,
+        *,
+        preserve_active_capabilities: bool = False,
+    ) -> None:
         if device_session.lease_until is None:
             raise RuntimeError("active device session omitted its lease")
         lease_until = self._aware(device_session.lease_until)
@@ -1077,6 +1176,8 @@ class DeviceSessionService:
         node = await self._repository.get_node(device_session.node_id)
         capabilities = self._negotiated_v2_capabilities(
             node.runtime_capabilities if node is not None else {},
+            authorization_mode=cast(AuthorizationMode, device_session.authorization_mode),
+            v2_enabled=True if preserve_active_capabilities else None,
         )
         await self._repository.add_task(
             NodeTask(
@@ -1089,6 +1190,8 @@ class DeviceSessionService:
                 status="pending",
                 payload={
                     "protocol_version": 1,
+                    "authorization_mode": device_session.authorization_mode,
+                    "authorization_policy_version": device_session.authorization_policy_version,
                     "user_id": str(device_session.user_id),
                     "device_id": str(device_session.device_id),
                     "tool_session_id": str(device_session.binding_tool_session_id),
@@ -1239,7 +1342,11 @@ class DeviceSessionService:
         )
 
     def _supports_device_control(
-        self, runtime_capabilities: dict[str, object], runtime_backend: str
+        self,
+        runtime_capabilities: dict[str, object],
+        runtime_backend: str,
+        *,
+        authorization_mode: AuthorizationMode | None = None,
     ) -> bool:
         capability = runtime_capabilities.get("device_control")
         if not isinstance(capability, dict) or capability.get("supported") is not True:
@@ -1247,7 +1354,7 @@ class DeviceSessionService:
         protocols = capability.get("protocol_versions")
         platforms = capability.get("platforms")
         backends = capability.get("backends")
-        return (
+        supported = (
             isinstance(protocols, list)
             and 1 in protocols
             and isinstance(platforms, list)
@@ -1255,12 +1362,27 @@ class DeviceSessionService:
             and isinstance(backends, list)
             and runtime_backend in backends
         )
+        if not supported:
+            return False
+        effective_mode = authorization_mode or self._settings.device_session_authorization_mode
+        if effective_mode == "session_full_trust":
+            return self._negotiated_v2_capabilities(
+                runtime_capabilities,
+                authorization_mode=effective_mode,
+            ) == (FULL_TRUST_DEVICE_CONTROL_CAPABILITIES)
+        return True
 
     def _negotiated_v2_capabilities(
         self,
         runtime_capabilities: dict[str, object],
+        *,
+        authorization_mode: AuthorizationMode | None = None,
+        v2_enabled: bool | None = None,
     ) -> tuple[str, ...]:
-        if not self._settings.device_control_v2_enabled:
+        effective_v2_enabled = (
+            self._settings.device_control_v2_enabled if v2_enabled is None else v2_enabled
+        )
+        if not effective_v2_enabled:
             return ()
         capability = runtime_capabilities.get("device_control")
         if not isinstance(capability, dict):
@@ -1271,13 +1393,24 @@ class DeviceSessionService:
         ):
             return ()
         values = set(cast(list[str], advertised))
+        effective_mode = authorization_mode or self._settings.device_session_authorization_mode
+        required_capabilities = (
+            FULL_TRUST_DEVICE_CONTROL_CAPABILITIES
+            if effective_mode == "session_full_trust"
+            else REQUIRED_DEVICE_CONTROL_V2_CAPABILITIES
+        )
         if (
             len(values) != len(advertised)
             or not values.issubset(DEVICE_CONTROL_V2_CAPABILITIES)
-            or not all(item in values for item in REQUIRED_DEVICE_CONTROL_V2_CAPABILITIES)
+            or not all(item in values for item in required_capabilities)
         ):
             return ()
-        return tuple(item for item in DEVICE_CONTROL_V2_CAPABILITIES if item in values)
+        allowed_capabilities = (
+            FULL_TRUST_DEVICE_CONTROL_CAPABILITIES
+            if effective_mode == "session_full_trust"
+            else LEGACY_DEVICE_CONTROL_V2_CAPABILITIES
+        )
+        return tuple(item for item in allowed_capabilities if item in values)
 
     def _aware(self, value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=UTC)

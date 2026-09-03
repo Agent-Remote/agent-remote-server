@@ -27,7 +27,11 @@ from agent_remote_server.device_control_limits import (
     MAX_DEVICE_SESSION_GENERATION,
 )
 from agent_remote_server.device_control_release import DeviceControlReleaseEvidence
-from agent_remote_server.device_relay_store import InMemoryDeviceRelayStore
+from agent_remote_server.device_relay_store import (
+    DeviceRelayBinding,
+    DeviceRelayTicketClaims,
+    InMemoryDeviceRelayStore,
+)
 from agent_remote_server.errors import ApiError
 from agent_remote_server.main import create_app
 from agent_remote_server.models import (
@@ -95,6 +99,9 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
                     "clipboard_payload_v2",
                     "adaptive_settle_v2",
                     "ax_state_v2",
+                    "session_full_trust_v1",
+                    "application_launch_v1",
+                    "global_clipboard_v1",
                 ]
             }
         },
@@ -133,6 +140,42 @@ def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() ->
         device_control_v2_enabled=False,
     )
     assert service._negotiated_v2_capabilities(runtime_capabilities) == ()
+
+
+def test_device_session_full_trust_requires_the_complete_capability_set() -> None:
+    """全信任模式缺少 launch 或全局剪贴板能力时必须拒绝。"""
+
+    complete = [
+        "adaptive_settle_v2",
+        "application_launch_v1",
+        "ax_state_v2",
+        "clipboard_payload_v2",
+        "global_clipboard_v1",
+        "observation_mode_v2",
+        "session_full_trust_v1",
+    ]
+    runtime_capabilities: dict[str, object] = {
+        "device_control": {
+            "supported": True,
+            "protocol_versions": [1],
+            "platforms": ["macos"],
+            "backends": ["native"],
+            "capabilities": complete,
+        }
+    }
+    service = DeviceSessionService.__new__(DeviceSessionService)
+    service._settings = Settings(
+        secret_key="test-secret",
+        device_session_authorization_mode="session_full_trust",
+    )
+
+    assert service._negotiated_v2_capabilities(runtime_capabilities) == tuple(complete)
+    assert service._supports_device_control(runtime_capabilities, "native")
+
+    capability = cast(dict[str, object], runtime_capabilities["device_control"])
+    capability["capabilities"] = [item for item in complete if item != "global_clipboard_v1"]
+    assert service._negotiated_v2_capabilities(runtime_capabilities) == ()
+    assert not service._supports_device_control(runtime_capabilities, "native")
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -305,6 +348,77 @@ def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
     assert stopped.json()["data"]["status"] == "stopped"
 
 
+def test_runtime_full_trust_rejects_pre_schema_9_evidence(client: TestClient) -> None:
+    """策略运行期漂移到全信任时，HTTP 推进操作必须立即 fail closed。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client,
+        token,
+        project_key="sha256:legacy-release-evidence",
+    )
+    device_id, device_token = register_device(client, token)
+    created = client.post(
+        "/api/v1/device-sessions",
+        headers=auth_header(token),
+        json={"device_id": device_id, "tool_session_id": tool_session_id},
+    )
+    assert created.status_code == 200
+
+    app = cast(FastAPI, client.app)
+    app.state.settings.environment = "production"
+    app.state.settings.device_session_authorization_mode = "session_full_trust"
+    app.state.device_control_release_evidence = current_release_evidence_without_v2()
+
+    connected = client.post(
+        f"/api/v1/device-sessions/{created.json()['data']['id']}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+    assert connected.status_code == 503
+    assert connected.json()["error"]["code"] == "DEVICE_CONTROL_RELEASE_EVIDENCE_EXPIRED"
+
+
+def test_relay_runtime_full_trust_rejects_pre_schema_9_evidence(
+    client: TestClient,
+) -> None:
+    """旧 schema 证据不得在生产全信任策略下建立 relay WebSocket。"""
+
+    app = cast(FastAPI, client.app)
+    device_session_id = uuid4()
+    relay_ticket = "drelay_schema_8_gate_test"
+    claims = DeviceRelayTicketClaims(
+        binding=DeviceRelayBinding(
+            user_id=uuid4(),
+            device_id=uuid4(),
+            tool_session_id=uuid4(),
+            device_session_id=device_session_id,
+            node_id=uuid4(),
+            generation=1,
+        ),
+        role="device",
+        credential_id=uuid4(),
+    )
+
+    store = cast(InMemoryDeviceRelayStore, app.state.device_relay_store)
+    token_hash = hash_token(app.state.settings.secret_key, relay_ticket)
+    asyncio.run(store.issue_ticket(token_hash=token_hash, claims=claims, ttl=60))
+    app.state.settings.environment = "production"
+    app.state.settings.device_session_authorization_mode = "session_full_trust"
+    app.state.device_control_release_evidence = current_release_evidence_without_v2()
+
+    with (
+        pytest.raises(WebSocketDisconnect) as rejected,
+        client.websocket_connect(
+            f"/api/v1/device-sessions/{device_session_id}/relay",
+            headers=auth_header(relay_ticket),
+        ),
+    ):
+        pass
+    assert rejected.value.code == 1008
+    assert asyncio.run(store.consume_ticket(token_hash=token_hash)) == claims
+
+
 def test_runtime_v2_does_not_require_specialized_release_evidence(client: TestClient) -> None:
     """当前通用生产证据允许完整能力集合自动协商 v2。"""
 
@@ -371,6 +485,8 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
     assert activation_task.task_type == "activate_device_control"
     assert activation_task.payload == {
         "protocol_version": 1,
+        "authorization_mode": "per_application_approval",
+        "authorization_policy_version": 1,
         "user_id": str(body["user_id"]),
         "device_id": device_id,
         "tool_session_id": tool_session_id,
@@ -501,6 +617,8 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
             )
             assert lifecycle_tasks[1].payload == {
                 "protocol_version": 1,
+                "authorization_mode": "per_application_approval",
+                "authorization_policy_version": 1,
                 "user_id": str(body["user_id"]),
                 "device_id": device_id,
                 "tool_session_id": tool_session_id,
@@ -520,6 +638,317 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
                 assert forbidden not in serialized_payloads
 
     asyncio.run(verify_persistence())
+
+
+def test_full_trust_claim_connects_directly_without_approval_rows(client: TestClient) -> None:
+    """全信任 claim 应直接激活并只持久化授权元数据。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client, token, project_key="sha256:full-trust-direct-activation"
+    )
+    device_id, device_token = register_device(client, token)
+    complete_capabilities = [
+        "adaptive_settle_v2",
+        "application_launch_v1",
+        "ax_state_v2",
+        "clipboard_payload_v2",
+        "global_clipboard_v1",
+        "observation_mode_v2",
+        "session_full_trust_v1",
+    ]
+
+    async def enable_full_trust() -> None:
+        app = cast(FastAPI, client.app)
+        app.state.settings.device_session_authorization_mode = "session_full_trust"
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            node = await session.get(Node, tool_session.node_id)
+            assert node is not None
+            node.runtime_capabilities = {
+                "device_control": {
+                    "supported": True,
+                    "protocol_versions": [1],
+                    "platforms": ["macos"],
+                    "backends": [tool_session.runtime_backend],
+                    "capabilities": complete_capabilities,
+                }
+            }
+            await session.commit()
+
+    asyncio.run(enable_full_trust())
+    old_device_claim = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={"tool_session_id": tool_session_id},
+    )
+    assert old_device_claim.status_code == 409
+    assert old_device_claim.json()["error"]["code"] == "DEVICE_CONTROL_DEVICE_UPGRADE_REQUIRED"
+
+    claimed = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={
+            "tool_session_id": tool_session_id,
+            "device_capabilities": ["session_full_trust_v1"],
+        },
+    )
+    assert claimed.status_code == 200
+    claimed_data = claimed.json()["data"]
+    assert claimed_data["device_id"] == device_id
+    assert claimed_data["authorization_mode"] == "session_full_trust"
+    assert claimed_data["authorization_policy_version"] == 1
+    assert claimed_data["authorized_at"] is not None
+    assert claimed_data["status"] == "pending_device"
+    authorized_at = claimed_data["authorized_at"]
+
+    device_session_id = claimed_data["id"]
+
+    async def switch_policy_and_remove_full_trust_capability() -> None:
+        app = cast(FastAPI, client.app)
+        app.state.settings.device_session_authorization_mode = "per_application_approval"
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            node = await session.get(Node, tool_session.node_id)
+            assert node is not None
+            node.runtime_capabilities = {
+                "device_control": {
+                    "supported": True,
+                    "protocol_versions": [1],
+                    "platforms": ["macos"],
+                    "backends": [tool_session.runtime_backend],
+                    "capabilities": [
+                        item for item in complete_capabilities if item != "global_clipboard_v1"
+                    ],
+                }
+            }
+            await session.commit()
+
+    asyncio.run(switch_policy_and_remove_full_trust_capability())
+    incompatible_connected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+    assert incompatible_connected.status_code == 409
+    assert incompatible_connected.json()["error"]["code"] == "DEVICE_CONTROL_NODE_UNAVAILABLE"
+
+    async def restore_full_trust_capabilities() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            node = await session.get(Node, tool_session.node_id)
+            assert node is not None
+            node.runtime_capabilities = {
+                "device_control": {
+                    "supported": True,
+                    "protocol_versions": [1],
+                    "platforms": ["macos"],
+                    "backends": [tool_session.runtime_backend],
+                    "capabilities": complete_capabilities,
+                }
+            }
+            await session.commit()
+
+    asyncio.run(restore_full_trust_capabilities())
+    connected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+    assert connected.status_code == 200
+    assert connected.json()["data"]["status"] == "active"
+    assert connected.json()["data"]["lease_until"] is not None
+
+    app = cast(FastAPI, client.app)
+    app.state.settings.device_control_v2_enabled = False
+    renewed = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/renew",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+    assert renewed.status_code == 200
+    app.state.settings.device_control_v2_enabled = True
+
+    incompatible_approve = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/approve",
+        headers=auth_header(device_token),
+        json={
+            "generation": 1,
+            "approvals": [
+                {
+                    "application_digest": "b" * 64,
+                    "control_level": "full_control",
+                    "approval_result": "allowed",
+                    "clipboard_allowed": True,
+                }
+            ],
+        },
+    )
+    assert incompatible_approve.status_code == 409
+    assert (
+        incompatible_approve.json()["error"]["code"] == "DEVICE_CONTROL_AUTHORIZATION_MODE_CONFLICT"
+    )
+
+    reconnected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/reconnect",
+        headers=auth_header(device_token),
+        json={"generation": 1},
+    )
+    assert reconnected.status_code == 200
+    assert reconnected.json()["data"]["generation"] == 2
+    assert reconnected.json()["data"]["authorization_mode"] == "session_full_trust"
+    assert reconnected.json()["data"]["authorization_policy_version"] == 1
+    assert reconnected.json()["data"]["authorized_at"] == authorized_at
+
+    connected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 2},
+    )
+    assert connected.status_code == 200
+    assert connected.json()["data"]["status"] == "active"
+
+    aborted = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/abort",
+        headers=auth_header(device_token),
+        json={"generation": 2, "reason": "esc"},
+    )
+    assert aborted.status_code == 200
+    assert aborted.json()["data"]["generation"] == 3
+    assert aborted.json()["data"]["authorization_mode"] == "session_full_trust"
+    assert aborted.json()["data"]["authorization_policy_version"] == 1
+    assert aborted.json()["data"]["authorized_at"] == authorized_at
+
+    connected = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 3},
+    )
+    assert connected.status_code == 200
+    assert connected.json()["data"]["status"] == "active"
+
+    async def expire_full_trust_binding() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            record = await session.get(DeviceSession, UUID(device_session_id))
+            assert record is not None
+            record.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await session.commit()
+
+    asyncio.run(expire_full_trust_binding())
+    expired = client.post(
+        f"/api/v1/device-sessions/{device_session_id}/device-connected",
+        headers=auth_header(device_token),
+        json={"generation": 3},
+    )
+    assert expired.status_code == 409
+    assert expired.json()["error"]["code"] == "DEVICE_CONTROL_SESSION_EXPIRED"
+
+    fetched = client.get(f"/api/v1/device-sessions/{device_session_id}", headers=auth_header(token))
+    assert fetched.status_code == 200
+    assert fetched.json()["data"]["status"] == "expired"
+    assert fetched.json()["data"]["authorization_mode"] == "session_full_trust"
+    assert fetched.json()["data"]["authorization_policy_version"] == 1
+    assert fetched.json()["data"]["authorized_at"] == authorized_at
+
+    async def verify_full_trust_persistence() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            approval = await session.scalar(
+                select(DeviceSessionApproval).where(
+                    DeviceSessionApproval.device_session_id == UUID(device_session_id)
+                )
+            )
+            assert approval is None
+            audit = await session.scalar(
+                select(AuditLog).where(
+                    AuditLog.target_id == device_session_id,
+                    AuditLog.action == "device_session.full_trust_authorized",
+                )
+            )
+            assert audit is not None
+            assert audit.details["authorization_policy_version"] == 1
+            assert "application" not in repr(audit.details).lower()
+            context_tasks = list(
+                await session.scalars(
+                    select(NodeTask).where(
+                        NodeTask.task_id.startswith(
+                            f"update_device_control_context:{device_session_id}:1:"
+                        )
+                    )
+                )
+            )
+            assert context_tasks
+            for context_task in context_tasks:
+                assert context_task.payload["capabilities"] == complete_capabilities
+                assert context_task.payload["authorization_mode"] == "session_full_trust"
+                assert context_task.payload["authorization_policy_version"] == 1
+            for generation in (2, 3):
+                activation_task = await session.scalar(
+                    select(NodeTask).where(
+                        NodeTask.task_id
+                        == f"activate_device_control:{device_session_id}:{generation}"
+                    )
+                )
+                assert activation_task is not None
+                assert activation_task.payload["authorization_mode"] == "session_full_trust"
+                assert activation_task.payload["authorization_policy_version"] == 1
+
+    asyncio.run(verify_full_trust_persistence())
+
+
+def test_full_trust_claim_rejects_an_incomplete_node_capability_set(
+    client: TestClient,
+) -> None:
+    """全信任模式不能用缺少全局剪贴板能力的 Node 创建绑定。"""
+
+    token = bootstrap(client)
+    tool_session_id = create_running_tool_session(
+        client, token, project_key="sha256:full-trust-incomplete-node"
+    )
+    _, device_token = register_device(client, token)
+
+    async def configure_incomplete_capabilities() -> None:
+        app = cast(FastAPI, client.app)
+        app.state.settings.device_session_authorization_mode = "session_full_trust"
+        async with app.state.session_factory() as session:
+            tool_session = await session.get(Session, UUID(tool_session_id))
+            assert tool_session is not None
+            node = await session.get(Node, tool_session.node_id)
+            assert node is not None
+            node.runtime_capabilities = {
+                "device_control": {
+                    "supported": True,
+                    "protocol_versions": [1],
+                    "platforms": ["macos"],
+                    "backends": [tool_session.runtime_backend],
+                    "capabilities": [
+                        "adaptive_settle_v2",
+                        "application_launch_v1",
+                        "ax_state_v2",
+                        "clipboard_payload_v2",
+                        "observation_mode_v2",
+                        "session_full_trust_v1",
+                    ],
+                }
+            }
+            await session.commit()
+
+    asyncio.run(configure_incomplete_capabilities())
+    claim = client.post(
+        "/api/v1/device-sessions/claim",
+        headers=auth_header(device_token),
+        json={
+            "tool_session_id": tool_session_id,
+            "device_capabilities": ["session_full_trust_v1"],
+        },
+    )
+    assert claim.status_code == 409
+    assert claim.json()["error"]["code"] == "DEVICE_CONTROL_NODE_UNAVAILABLE"
 
 
 def test_device_can_list_candidates_and_rebind_a_running_claude_session(
@@ -1232,8 +1661,44 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
         "relay_maximum_frame_bytes": 1_048_576,
         "relay_maximum_bytes_per_second": 8_388_608,
         "relay_maximum_connection_seconds": 900,
-        "local_approval_required": True,
+        "authorization_mode": "per_application_approval",
+        "authorization_policy_version": 1,
+        "application_scope": "approved_applications",
+        "control_level": "approved_level",
+        "clipboard_scope": "per_application_approval",
+        "application_launch": False,
     }
+
+    app = cast(FastAPI, client.app)
+    app.state.settings.device_session_authorization_mode = "session_full_trust"
+    full_trust_policy = client.get(
+        "/api/v1/device-sessions/policy", headers=auth_header(admin_token)
+    )
+    assert full_trust_policy.status_code == 200
+    assert full_trust_policy.json()["data"] == {
+        "enabled": True,
+        "platform": "macos",
+        "protocol_version": 1,
+        "lease_seconds": 60,
+        "maximum_ttl_seconds": 3600,
+        "relay_maximum_frame_bytes": 1_048_576,
+        "relay_maximum_bytes_per_second": 8_388_608,
+        "relay_maximum_connection_seconds": 900,
+        "authorization_mode": "session_full_trust",
+        "authorization_policy_version": 1,
+        "application_scope": "all_user_gui_applications",
+        "control_level": "full_control",
+        "clipboard_scope": "global_plain_text",
+        "application_launch": True,
+    }
+    remote_full_trust = client.post(
+        "/api/v1/device-sessions",
+        headers=auth_header(admin_token),
+        json={"device_id": str(uuid4()), "tool_session_id": str(uuid4())},
+    )
+    assert remote_full_trust.status_code == 409
+    assert remote_full_trust.json()["error"]["code"] == "DEVICE_CONTROL_CLAIM_REQUIRED"
+    app.state.settings.device_session_authorization_mode = "per_application_approval"
 
     async def transfer_session() -> None:
         app = cast(FastAPI, client.app)

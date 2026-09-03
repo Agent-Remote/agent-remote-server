@@ -21,6 +21,7 @@ DeviceSessionStatus = Literal[
 ]
 ToolSessionStatus = Literal["running", "active", "detached"]
 ControlLevel = Literal["view_only", "click_only", "full_control"]
+AuthorizationMode = Literal["per_application_approval", "session_full_trust"]
 
 
 class CreateDeviceSessionRequest(BaseModel):
@@ -38,6 +39,11 @@ class ClaimDeviceSessionRequest(BaseModel):
     """
 
     tool_session_id: UUID = Field(..., description="待绑定的远端 Claude session ID")
+    device_capabilities: list[str] = Field(
+        default_factory=list,
+        max_length=16,
+        description="当前 Device APP 明确支持的授权能力",
+    )
 
 
 class DeviceSessionCandidateData(BaseModel):
@@ -94,6 +100,9 @@ class DeviceSessionData(BaseModel):
     generation: int = Field(
         ..., ge=1, le=MAX_DEVICE_SESSION_GENERATION, description="连接与撤销代次"
     )
+    authorization_mode: AuthorizationMode = Field(..., description="设备会话授权模式")
+    authorization_policy_version: int = Field(..., ge=1, description="设备会话授权策略版本")
+    authorized_at: datetime | None = Field(default=None, description="本机选择产生授权的时间")
     lease_until: datetime | None = Field(default=None, description="当前短期租约到期时间")
     expires_at: datetime = Field(..., description="会话最晚到期时间")
     lock_acquired_at: datetime | None = Field(default=None, description="机器锁获取时间")
@@ -267,7 +276,18 @@ class DeviceControlPolicyData(BaseModel):
     relay_maximum_connection_seconds: int = Field(
         ..., ge=1, description="中继配对后单次连接最长秒数"
     )
-    local_approval_required: Literal[True] = Field(..., description="是否强制要求本机用户审批")
+    authorization_mode: AuthorizationMode = Field(..., description="服务端选择的设备会话授权模式")
+    authorization_policy_version: int = Field(..., ge=1, description="设备会话授权策略版本")
+    application_scope: Literal["approved_applications", "all_user_gui_applications"] = Field(
+        ..., description="授权允许解析的本机应用范围"
+    )
+    control_level: Literal["approved_level", "full_control"] = Field(
+        ..., description="授权允许的应用控制等级"
+    )
+    clipboard_scope: Literal["per_application_approval", "global_plain_text"] = Field(
+        ..., description="授权允许的剪贴板读取范围"
+    )
+    application_launch: bool = Field(..., description="是否允许安全启动已安装 GUI 应用")
 
 
 class DeviceControlPolicyResponse(BaseModel):

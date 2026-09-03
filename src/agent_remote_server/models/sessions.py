@@ -151,6 +151,19 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("platform = 'macos'", name="device_sessions_platform_ck"),
         CheckConstraint(
+            "authorization_mode in ('per_application_approval', 'session_full_trust')",
+            name="device_sessions_authorization_mode_ck",
+        ),
+        CheckConstraint(
+            "authorization_policy_version = 1",
+            name="device_sessions_authorization_policy_version_ck",
+        ),
+        CheckConstraint(
+            "(authorization_mode = 'session_full_trust' and authorized_at is not null) or "
+            "(authorization_mode = 'per_application_approval' and authorized_at is null)",
+            name="device_sessions_full_trust_authorized_at_ck",
+        ),
+        CheckConstraint(
             f"generation between 1 and {MAX_DEVICE_SESSION_GENERATION}",
             name="device_sessions_generation_ck",
         ),
@@ -201,6 +214,11 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
     platform: Mapped[str] = mapped_column(String(32), nullable=False, default="macos")
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    authorization_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="per_application_approval"
+    )
+    authorization_policy_version: Mapped[int] = mapped_column(nullable=False, default=1)
+    authorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lock_acquired_at: Mapped[datetime | None] = mapped_column(

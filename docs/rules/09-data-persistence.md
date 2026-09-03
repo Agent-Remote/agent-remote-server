@@ -20,7 +20,8 @@ Runtime selection persistence:
 - `tool_accounts.runtime_backend` is nullable until first binding and is then treated as pinned state.
 - `sessions` stores the effective backend, neutral runtime resource ID, and optional replacement relationship.
 - `device_sessions` stores the exact user/device/tool-session/node binding, macOS platform,
-  lifecycle state, generation, bounded lease, expiry, machine-lock time, and stop metadata.
+  lifecycle state, generation, bounded lease, expiry, machine-lock time, stop metadata,
+  `authorization_mode`, `authorization_policy_version`, and `authorized_at`.
   Generation uses `BIGINT`; database checks enforce the shared signed 64-bit protocol limit and
   reserve its maximum value for terminal state only.
 - Partial unique indexes allow only one non-terminal `device_sessions` row per
@@ -29,8 +30,8 @@ Runtime selection persistence:
 - `device_sessions.tool_session_reference_id` preserves the original Claude session UUID for
   terminal history. The relational `tool_session_id` uses `ON DELETE SET NULL`, so deleting an
   inactive tool session cannot cascade-delete device binding history before retention cleanup.
-- `device_session_approvals` stores only the application stable-identifier SHA-256 digest,
-  approved control level, result, clipboard boolean, and audit correlation ID.
+- `device_session_approvals` stores only legacy `per_application_approval` data. New
+  `session_full_trust` bindings never insert wildcard, sentinel, empty-digest, or Device-identity rows.
 - `sessions.device_control_protocol_version` records only whether the managed MCP configuration
   was included at session creation; it contains no connection or authorization material.
 - Terminal `device_sessions` and their approval summaries are eligible for bounded retention

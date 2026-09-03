@@ -45,12 +45,12 @@ def create_signed_evidence(
             "node_artifacts_sha256": target_digests,
             "proxy_artifacts_sha256": target_digests,
         }
-        if schema_version in {3, 4, 5, 6, 8} and not apple_profile
+        if schema_version in {3, 4, 5, 6, 8, 9} and not apple_profile
         else {"node_sha256": _DIGEST, "proxy_sha256": _DIGEST}
     )
     profile_fields: dict[str, object]
     if apple_profile:
-        if schema_version not in {1, 7, 8}:
+        if schema_version not in {1, 7, 8, 9}:
             raise ValueError("Apple test evidence requires an Apple schema")
         profile_fields = {
             "security_tests_sha256": _DIGEST,
@@ -92,7 +92,7 @@ def create_signed_evidence(
                 )
             },
         }
-        if schema_version in {5, 6, 7, 8}
+        if schema_version in {5, 6, 7, 8, 9}
         else {}
     )
     if schema_version < 8 and expires_at is None:
@@ -127,7 +127,7 @@ def create_signed_evidence(
     )
     path.write_text(
         json.dumps(
-            signed_manifest.model_dump(mode="json", exclude_none=schema_version == 8),
+            signed_manifest.model_dump(mode="json", exclude_none=schema_version >= 8),
             sort_keys=True,
         ),
         encoding="utf-8",
@@ -180,6 +180,7 @@ def test_release_evidence_schema_8_is_permanent_and_release_bound(tmp_path: Path
     ensure_device_control_release_evidence_current(
         environment="production",
         enabled=True,
+        authorization_mode="per_application_approval",
         evidence=evidence,
         now=datetime(2036, 7, 31, tzinfo=UTC),
     )
@@ -196,6 +197,70 @@ def test_release_evidence_schema_8_rejects_expiry_field(tmp_path: Path) -> None:
             issued_at=now,
             expires_at=now + timedelta(days=1),
         )
+
+
+def test_release_evidence_schema_9_is_current_and_keeps_schema_8_compatible(
+    tmp_path: Path,
+) -> None:
+    """schema 9 应使用永久组合约束，同时不撤销 schema 8 支持。"""
+
+    issued_at = datetime(2026, 7, 31, tzinfo=UTC)
+    for schema_version in (8, 9):
+        evidence_path = tmp_path / f"release-evidence-{schema_version}.json"
+        public_key = create_signed_evidence(
+            evidence_path,
+            schema_version=schema_version,
+            issued_at=issued_at,
+        )
+        evidence = verify_device_control_release_evidence(
+            evidence_path=str(evidence_path),
+            public_key_base64=public_key,
+            now=datetime(2036, 7, 31, tzinfo=UTC),
+        )
+        assert evidence.schema_version == schema_version
+        assert evidence.expires_at is None
+
+
+def test_session_full_trust_requires_schema_9_release_evidence(tmp_path: Path) -> None:
+    """生产全信任策略不得复用逐应用时代签发的 schema 8 证据。"""
+
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    evidence_by_schema: dict[int, DeviceControlReleaseEvidence] = {}
+    for schema_version in (8, 9):
+        evidence_path = tmp_path / f"release-evidence-{schema_version}.json"
+        public_key = create_signed_evidence(
+            evidence_path,
+            schema_version=schema_version,
+            issued_at=now,
+        )
+        evidence_by_schema[schema_version] = verify_device_control_release_evidence(
+            evidence_path=str(evidence_path),
+            public_key_base64=public_key,
+            now=now,
+        )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="requires schema 9"):
+        ensure_device_control_release_evidence_current(
+            environment="production",
+            enabled=True,
+            authorization_mode="session_full_trust",
+            evidence=evidence_by_schema[8],
+            now=now,
+        )
+    ensure_device_control_release_evidence_current(
+        environment="production",
+        enabled=True,
+        authorization_mode="per_application_approval",
+        evidence=evidence_by_schema[8],
+        now=now,
+    )
+    ensure_device_control_release_evidence_current(
+        environment="production",
+        enabled=True,
+        authorization_mode="session_full_trust",
+        evidence=evidence_by_schema[9],
+        now=now,
+    )
 
 
 def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> None:
@@ -540,6 +605,26 @@ def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path
     assert app.state.settings.device_control_enabled is True
 
 
+def test_production_full_trust_rejects_schema_8_at_startup(tmp_path: Path) -> None:
+    """启动门禁不得让旧审批证据授权新的会话级全信任策略。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(evidence_path, schema_version=8)
+    settings = Settings(
+        secret_key="test-secret",
+        environment="production",
+        device_control_enabled=True,
+        device_session_authorization_mode="session_full_trust",
+        device_session_retention_days=30,
+        device_session_audit_retention_days=90,
+        device_control_release_evidence_path=str(evidence_path),
+        device_control_release_public_key=public_key,
+    )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="requires schema 9"):
+        create_app(settings)
+
+
 def test_production_default_v2_accepts_general_release_evidence(tmp_path: Path) -> None:
     """生产默认 v2 只依赖当前通用发布证据，不要求专项验收摘要。"""
 
@@ -765,6 +850,7 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
         ensure_device_control_release_evidence_current(
             environment="production",
             enabled=True,
+            authorization_mode="per_application_approval",
             evidence=evidence,
             now=now,
         )
@@ -772,6 +858,7 @@ def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
     ensure_device_control_release_evidence_current(
         environment="development",
         enabled=True,
+        authorization_mode="session_full_trust",
         evidence=None,
         now=now,
     )
