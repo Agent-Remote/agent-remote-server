@@ -45,7 +45,14 @@ class _FakeWebSocket:
 async def test_device_relay_hub_enforces_frame_and_rate_limits_for_both_peers() -> None:
     """验证超帧和超速密文会同时关闭设备端与代理端。"""
 
-    async def run_case(*, frame_limit: int, byte_rate: int, payload: bytes, code: int) -> None:
+    async def run_case(
+        *,
+        frame_limit: int,
+        byte_rate: int,
+        payloads: list[bytes],
+        code: int,
+        forwarded: list[bytes],
+    ) -> None:
         hub = DeviceRelayHub(
             maximum_frame_bytes=frame_limit,
             pair_timeout_seconds=1,
@@ -54,7 +61,8 @@ async def test_device_relay_hub_enforces_frame_and_rate_limits_for_both_peers() 
         )
         device = _FakeWebSocket()
         proxy = _FakeWebSocket()
-        device.messages.put_nowait({"type": "websocket.receive", "bytes": payload})
+        for payload in payloads:
+            device.messages.put_nowait({"type": "websocket.receive", "bytes": payload})
         binding = _binding()
         await asyncio.gather(
             hub.connect(_claims(binding, "device"), cast(WebSocket, device)),
@@ -63,10 +71,48 @@ async def test_device_relay_hub_enforces_frame_and_rate_limits_for_both_peers() 
         assert device.accepted and proxy.accepted
         assert code in device.close_codes
         assert code in proxy.close_codes
-        assert proxy.sent == []
+        assert proxy.sent == forwarded
 
-    await run_case(frame_limit=4, byte_rate=8, payload=b"12345", code=1009)
-    await run_case(frame_limit=8, byte_rate=4, payload=b"12345", code=1008)
+    await run_case(
+        frame_limit=4,
+        byte_rate=8,
+        payloads=[b"12345"],
+        code=1009,
+        forwarded=[],
+    )
+    await run_case(
+        frame_limit=4,
+        byte_rate=8,
+        payloads=[b"1234", b"5678", b"9012", b"3456", b"7"],
+        code=1008,
+        forwarded=[b"1234", b"5678", b"9012", b"3456"],
+    )
+
+
+async def test_device_relay_hub_allows_a_bounded_multiframe_burst() -> None:
+    """验证图片响应可在持续速率限制内使用有界突发容量。"""
+
+    hub = DeviceRelayHub(
+        maximum_frame_bytes=4,
+        pair_timeout_seconds=1,
+        maximum_bytes_per_second=8,
+        maximum_connection_seconds=1,
+    )
+    device = _FakeWebSocket()
+    proxy = _FakeWebSocket()
+    for payload in [b"1234", b"5678", b"9012"]:
+        device.messages.put_nowait({"type": "websocket.receive", "bytes": payload})
+    device.messages.put_nowait({"type": "websocket.disconnect", "code": 1000})
+    binding = _binding()
+
+    await asyncio.gather(
+        hub.connect(_claims(binding, "device"), cast(WebSocket, device)),
+        hub.connect(_claims(binding, "proxy"), cast(WebSocket, proxy)),
+    )
+
+    assert proxy.sent == [b"1234", b"5678", b"9012"]
+    assert 1008 not in device.close_codes
+    assert 1008 not in proxy.close_codes
 
 
 async def test_device_relay_hub_expires_both_peers_after_the_connection_limit() -> None:

@@ -93,7 +93,9 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   ticket exactly once; none of these values enter SQL or structured logs.
 - The device relay consumes role-bound tickets atomically, pairs only opposite roles with the
   same complete session binding and generation, accepts binary frames only, and enforces explicit
-  per-frame, per-direction byte-rate, peer-wait, and connection-lifetime limits. When either peer
+  per-frame, per-direction byte-rate, peer-wait, and connection-lifetime limits. The byte-rate
+  limiter permits a bounded two-second burst so encrypted image frames can arrive together;
+  sustained excess still closes both peers. When either peer
   disconnects or reaches a connection limit, the relay closes both endpoints so the surviving
   side cannot retain a dead one-time generation. It never parses or persists the nested TLS byte
   stream.

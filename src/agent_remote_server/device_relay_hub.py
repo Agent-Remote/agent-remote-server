@@ -10,6 +10,8 @@ from agent_remote_server.device_relay_store import DeviceRelayRole, DeviceRelayT
 
 logger = logging.getLogger(__name__)
 
+_RATE_LIMIT_BURST_SECONDS = 2
+
 
 class _RelayBindingClosed(Exception):
     """当前 relay binding 已被控制面撤销。"""
@@ -180,8 +182,9 @@ class DeviceRelayHub:
         destination: WebSocket,
     ) -> None:
         loop = asyncio.get_running_loop()
-        window_started = loop.time()
-        window_bytes = 0
+        burst_capacity = self._maximum_bytes_per_second * _RATE_LIMIT_BURST_SECONDS
+        available_bytes = float(burst_capacity)
+        last_refill = loop.time()
         total_bytes = 0
         frame_count = 0
         while True:
@@ -218,15 +221,18 @@ class DeviceRelayHub:
                 await destination.close(code=1009)
                 return
             now = loop.time()
-            if now - window_started >= 1:
-                window_started = now
-                window_bytes = 0
-            window_bytes += len(data)
-            if window_bytes > self._maximum_bytes_per_second:
+            elapsed = max(0.0, now - last_refill)
+            available_bytes = min(
+                float(burst_capacity),
+                available_bytes + elapsed * self._maximum_bytes_per_second,
+            )
+            last_refill = now
+            if len(data) > available_bytes:
                 self._log_forward_end(key, role, "rate_limit", frame_count, total_bytes, 1008)
                 await source.close(code=1008)
                 await destination.close(code=1008)
                 return
+            available_bytes -= len(data)
             frame_count += 1
             total_bytes += len(data)
             try:
