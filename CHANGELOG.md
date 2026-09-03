@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.11 - 2026-09-03
+
+- feat: add session full-trust authorization (a8681ab)
+- fix(device-relay): allow bounded transfer bursts (f0c1b8b)
+
 ## v0.2.10 - 2026-09-01
 
 - feat(device-control): negotiate optional v2 capabilities (d26efd3)
