@@ -22,11 +22,12 @@ class _RecordingRevocationBus:
 
 
 class _FakeWebSocket:
-    def __init__(self) -> None:
+    def __init__(self, *, send_error: Exception | None = None) -> None:
         self.messages: asyncio.Queue[dict[str, object]] = asyncio.Queue()
         self.sent: list[bytes] = []
         self.close_codes: list[int] = []
         self.accepted = False
+        self.send_error = send_error
 
     async def accept(self) -> None:
         self.accepted = True
@@ -35,6 +36,8 @@ class _FakeWebSocket:
         return await self.messages.get()
 
     async def send_bytes(self, data: bytes) -> None:
+        if self.send_error is not None:
+            raise self.send_error
         self.sent.append(data)
 
     async def close(self, code: int = 1000) -> None:
@@ -201,6 +204,30 @@ async def _assert_peer_closed_after_disconnect(
 
     assert disconnected.accepted and peer.accepted
     assert 1011 in peer.close_codes
+
+
+async def test_device_relay_hub_cleans_up_when_peer_send_breaks() -> None:
+    """传输层 broken pipe 不应冒泡成未处理 websocket 异常。"""
+
+    hub = DeviceRelayHub(
+        maximum_frame_bytes=16,
+        pair_timeout_seconds=1,
+        maximum_bytes_per_second=16,
+        maximum_connection_seconds=1,
+    )
+    device = _FakeWebSocket()
+    proxy = _FakeWebSocket(send_error=BrokenPipeError("peer closed"))
+    device.messages.put_nowait({"type": "websocket.receive", "bytes": b"frame"})
+    binding = _binding()
+
+    await asyncio.gather(
+        hub.connect(_claims(binding, "device"), cast(WebSocket, device)),
+        hub.connect(_claims(binding, "proxy"), cast(WebSocket, proxy)),
+    )
+
+    assert device.close_codes
+    assert proxy.close_codes
+    assert proxy.sent == []
 
 
 def _claims(binding: DeviceRelayBinding, role: DeviceRelayRole) -> DeviceRelayTicketClaims:

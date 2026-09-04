@@ -190,14 +190,14 @@ class DeviceRelayHub:
         while True:
             try:
                 message = await source.receive()
-            except WebSocketDisconnect as error:
+            except (WebSocketDisconnect, ConnectionError, OSError, RuntimeError) as error:
                 self._log_forward_end(
                     key,
                     role,
-                    "source_disconnected",
+                    "source_transport_error",
                     frame_count,
                     total_bytes,
-                    error.code,
+                    getattr(error, "code", None),
                 )
                 return
             if message["type"] == "websocket.disconnect":
@@ -237,14 +237,14 @@ class DeviceRelayHub:
             total_bytes += len(data)
             try:
                 await destination.send_bytes(data)
-            except WebSocketDisconnect as error:
+            except (WebSocketDisconnect, ConnectionError, OSError, RuntimeError) as error:
                 self._log_forward_end(
                     key,
                     role,
-                    "destination_disconnected",
+                    "destination_transport_error",
                     frame_count,
                     total_bytes,
-                    error.code,
+                    getattr(error, "code", None),
                 )
                 return
 
