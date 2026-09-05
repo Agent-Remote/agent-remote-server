@@ -25,6 +25,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "aiosqlite>=0.20,<1",
+    "httpx2>=2.12,<3",
     "mypy>=1.14,<2",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.25,<1",
@@ -42,6 +43,7 @@ packages = ["src/agent_remote_server"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning"]
 
 [tool.ruff]
 line-length = 100
