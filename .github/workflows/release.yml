@@ -17,15 +17,22 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: astral-sh/setup-uv@v8.3.1
       - uses: actions/setup-python@v6.3.0
         with:
           python-version: "3.13"
+      - uses: astral-sh/setup-uv@v8.3.1
+        with:
+          enable-cache: true
       - name: Resolve release version
         id: version
         env:
@@ -84,6 +91,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - uses: sigstore/cosign-installer@v4.0.0
       - name: Sign and verify server vulnerability report
         env:

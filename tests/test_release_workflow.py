@@ -39,3 +39,32 @@ def test_ci_enforces_every_server_quality_contract() -> None:
 
     for fragment in required_fragments:
         assert fragment in workflow
+
+
+def test_ci_and_release_preserve_performance_contracts() -> None:
+    """CI 与发布流程必须保留可复现依赖、缓存、超时和路径分流。"""
+
+    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    prepare = Path(".github/workflows/prepare-release.yml").read_text(encoding="utf-8")
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    for workflow in (ci, release, prepare):
+        assert "concurrency:" in workflow
+        assert "timeout-minutes:" in workflow
+    for fragment in (
+        "dorny/paths-filter@v4.0.3",
+        "enable-cache: true",
+        "uv sync --frozen",
+        "fail_ci_if_error: false",
+    ):
+        assert fragment in ci
+    assert "cache-from: type=gha" in release
+    assert "cache-to: type=gha,mode=max" in release
+    assert "COPY pyproject.toml uv.lock ./" in dockerfile
+    assert "ENV UV_HTTP_RETRIES=10" in dockerfile
+    assert "ENV UV_HTTP_TIMEOUT=60" in dockerfile
+    assert "uv sync --frozen --no-dev --no-install-project" in dockerfile
+    assert dockerfile.index("uv sync --frozen --no-dev --no-install-project") < dockerfile.index(
+        "COPY README.md LICENSE ./"
+    )
