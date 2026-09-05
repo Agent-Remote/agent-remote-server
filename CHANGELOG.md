@@ -2,6 +2,12 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.12 - 2026-09-05
+
+- fix(ci): eliminate server deprecation warnings (94a1013)
+- ci: optimize workflow execution (103d7b1)
+- fix(device-relay): handle transport send failures (02e4b3d)
+
 ## v0.2.11 - 2026-09-03
 
 - feat: add session full-trust authorization (a8681ab)
