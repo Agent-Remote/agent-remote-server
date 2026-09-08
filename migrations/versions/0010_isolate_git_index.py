@@ -1,4 +1,4 @@
-"""isolate workspace git index
+"""隔离工作区 Git 索引
 
 Revision ID: 0010_isolate_git_index
 Revises: 0009_windows_device_platform

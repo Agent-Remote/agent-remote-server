@@ -145,6 +145,7 @@ class DeviceSessionRepository:
 
         :param tool_session_id (UUID): 候选远端工具 session ID
         :param device_id (UUID): 当前认证设备 ID
+        :param for_update (bool): 是否获取数据库行锁
 
         :return Sequence[DeviceSession]: 需要在 claim 事务中处理的 live 绑定
         """

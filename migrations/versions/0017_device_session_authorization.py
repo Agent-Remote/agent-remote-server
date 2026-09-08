@@ -1,4 +1,4 @@
-"""Add explicit device-session authorization metadata.
+"""添加显式设备会话授权元数据。
 
 Revision ID: 0017_device_authorization
 Revises: 0016_device_binding_rebind

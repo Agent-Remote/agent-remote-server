@@ -97,6 +97,7 @@ class PortForwardRepository:
         列出待对账的非终态转发 ID
 
         :param limit (int): 最大批量数
+        :param after_id (UUID | None): 上一页最后一个记录 ID
 
         :return Sequence: 转发 ID
         """
@@ -143,7 +144,7 @@ class PortForwardRepository:
 
         :param session_id (UUID): 工具会话 ID
 
-        :return Session: session 实体
+        :return Session: 工具会话实体
         """
 
         return await self._session.get(Session, session_id)

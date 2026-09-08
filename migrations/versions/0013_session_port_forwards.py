@@ -1,4 +1,4 @@
-"""add session port forwards
+"""添加会话端口转发
 
 Revision ID: 0013_session_port_forwards
 Revises: 0012_device_cli_version

@@ -22,16 +22,16 @@ from test_sessions_api import (
 from agent_remote_server import __version__
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
-from agent_remote_server.device_control_limits import (
+from agent_remote_server.device_control.limits import (
     MAX_ACTIVE_DEVICE_SESSION_GENERATION,
     MAX_DEVICE_SESSION_GENERATION,
 )
-from agent_remote_server.device_control_release import DeviceControlReleaseEvidence
-from agent_remote_server.device_relay_store import (
+from agent_remote_server.device_control.relay_store import (
     DeviceRelayBinding,
     DeviceRelayTicketClaims,
     InMemoryDeviceRelayStore,
 )
+from agent_remote_server.device_control.release import DeviceControlReleaseEvidence
 from agent_remote_server.errors import ApiError
 from agent_remote_server.main import create_app
 from agent_remote_server.models import (
@@ -142,7 +142,10 @@ def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() ->
     assert service._negotiated_v2_capabilities(runtime_capabilities) == ()
 
 
-def test_device_session_full_trust_requires_the_complete_capability_set() -> None:
+@pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
+def test_device_session_full_trust_requires_the_complete_capability_set(
+    runtime_backend: str,
+) -> None:
     """全信任模式缺少 launch 或全局剪贴板能力时必须拒绝。"""
 
     complete = [
@@ -159,7 +162,7 @@ def test_device_session_full_trust_requires_the_complete_capability_set() -> Non
             "supported": True,
             "protocol_versions": [1],
             "platforms": ["macos"],
-            "backends": ["native"],
+            "backends": [runtime_backend],
             "capabilities": complete,
         }
     }
@@ -170,12 +173,12 @@ def test_device_session_full_trust_requires_the_complete_capability_set() -> Non
     )
 
     assert service._negotiated_v2_capabilities(runtime_capabilities) == tuple(complete)
-    assert service._supports_device_control(runtime_capabilities, "native")
+    assert service._supports_device_control(runtime_capabilities, runtime_backend)
 
     capability = cast(dict[str, object], runtime_capabilities["device_control"])
     capability["capabilities"] = [item for item in complete if item != "global_clipboard_v1"]
     assert service._negotiated_v2_capabilities(runtime_capabilities) == ()
-    assert not service._supports_device_control(runtime_capabilities, "native")
+    assert not service._supports_device_control(runtime_capabilities, runtime_backend)
 
 
 async def create_schema(app: FastAPI) -> None:
@@ -1097,7 +1100,7 @@ def test_device_claiming_another_claude_rebounds_its_current_binding(
 
 
 def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> None:
-    """Expired live rows must not be returned by claim's idempotent fast path."""
+    """claim 的幂等快速路径不得返回已经过期的 live 记录。"""
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1141,7 +1144,7 @@ def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> Non
 
 
 def test_candidates_do_not_advertise_expired_current_device(client: TestClient) -> None:
-    """Candidate ownership is cleared as soon as its binding TTL has elapsed."""
+    """binding TTL 到期后必须立即清除候选项的占用信息。"""
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(

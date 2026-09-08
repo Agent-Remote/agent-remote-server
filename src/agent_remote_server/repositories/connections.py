@@ -138,7 +138,7 @@ class ConnectionRepository:
 
         :param session_id (UUID): 工具会话 ID
 
-        :return Session: session 实体
+        :return Session: 工具会话实体
         """
 
         return await self._session.get(Session, session_id)

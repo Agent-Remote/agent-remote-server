@@ -54,7 +54,7 @@ async def enroll_wireguard_peer(
     :param user (User): 当前用户
     :param token (AuthToken): 当前设备令牌
 
-    :return EnrollWireGuardPeerResponse: peer 登记结果
+    :return EnrollWireGuardPeerResponse: 对端登记结果
     """
 
     result = await ConnectionService(session, settings).enroll_wireguard_peer(

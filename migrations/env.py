@@ -21,10 +21,18 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
+    """
+    获取 Alembic 使用的数据库连接地址
+
+    :return str: 数据库连接地址
+    """
+
     return get_settings().database_url
 
 
 def run_migrations_offline() -> None:
+    """执行不建立数据库连接的离线迁移。"""
+
     context.configure(
         url=get_url(),
         target_metadata=target_metadata,
@@ -37,6 +45,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """
+    在给定数据库连接上执行迁移
+
+    :param connection (Connection): 当前数据库连接
+    """
+
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
@@ -44,6 +58,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    """创建异步数据库连接并执行在线迁移。"""
+
     section = config.get_section(config.config_ini_section, {})
     section["sqlalchemy.url"] = get_url()
     connectable = async_engine_from_config(

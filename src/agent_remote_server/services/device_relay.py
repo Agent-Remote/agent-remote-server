@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
-from agent_remote_server.device_relay_store import (
+from agent_remote_server.device_control.relay_store import (
     DeviceRelayBinding,
     DeviceRelayRole,
     DeviceRelayStore,
@@ -77,6 +77,8 @@ class DeviceRelayService:
         :param spki_sha256 (str): 本端临时证书 SPKI 摘要
 
         :return IssuedDeviceRelayMaterial: 本代设备角色连接材料
+
+        :raises ApiError: 当前设备凭据与目标设备控制会话不匹配
         """
 
         device_session = await self._require_session(device_session_id)
@@ -111,6 +113,8 @@ class DeviceRelayService:
         :param spki_sha256 (str): proxy 临时证书 SPKI 摘要
 
         :return IssuedDeviceRelayMaterial: 本代 proxy 角色连接材料
+
+        :raises ApiError: 当前 Node 与目标设备控制会话不匹配
         """
 
         device_session = await self._require_session(device_session_id)

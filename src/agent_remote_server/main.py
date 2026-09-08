@@ -11,19 +11,26 @@ from agent_remote_server.api.health import router as health_router
 from agent_remote_server.api.routes import api_router
 from agent_remote_server.config import Settings, get_settings
 from agent_remote_server.db import create_engine, create_session_factory
-from agent_remote_server.device_control_release import (
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_revocation import create_device_relay_revocation_bus
+from agent_remote_server.device_control.relay_store import create_device_relay_store
+from agent_remote_server.device_control.release import (
     ensure_device_control_release_evidence_current,
+    ensure_ego_browser_release_evidence_current,
     verify_device_control_release_evidence,
 )
-from agent_remote_server.device_control_retention import run_device_control_retention
-from agent_remote_server.device_relay_hub import DeviceRelayHub
-from agent_remote_server.device_relay_revocation import create_device_relay_revocation_bus
-from agent_remote_server.device_relay_store import create_device_relay_store
+from agent_remote_server.device_control.retention import run_device_control_retention
+from agent_remote_server.ego_browser.cleanup import run_ego_browser_cleanup
+from agent_remote_server.ego_browser.relay import (
+    create_ego_browser_relay_hub,
+    create_ego_browser_relay_store,
+    create_ego_browser_revocation_bus,
+)
 from agent_remote_server.errors import ApiError, api_error_handler
 from agent_remote_server.logging import configure_logging
 from agent_remote_server.middleware.request_id import RequestIdMiddleware
-from agent_remote_server.port_forward_cleanup import run_port_forward_cleanup
-from agent_remote_server.port_forward_tokens import create_port_forward_token_store
+from agent_remote_server.port_forwarding.cleanup import run_port_forward_cleanup
+from agent_remote_server.port_forwarding.tokens import create_port_forward_token_store
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -39,20 +46,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app_settings = settings or get_settings()
     device_control_release_evidence = None
-    if (
-        app_settings.environment.strip().lower() == "production"
-        and app_settings.device_control_enabled
+    production = app_settings.environment.strip().lower() == "production"
+    if production and (
+        app_settings.device_control_enabled or app_settings.ego_browser_bridge_enabled
     ):
         device_control_release_evidence = verify_device_control_release_evidence(
             evidence_path=app_settings.device_control_release_evidence_path,
             public_key_base64=app_settings.device_control_release_public_key,
         )
-        ensure_device_control_release_evidence_current(
-            environment=app_settings.environment,
-            enabled=app_settings.device_control_enabled,
-            authorization_mode=app_settings.device_session_authorization_mode,
-            evidence=device_control_release_evidence,
-        )
+        if app_settings.device_control_enabled:
+            ensure_device_control_release_evidence_current(
+                environment=app_settings.environment,
+                enabled=app_settings.device_control_enabled,
+                authorization_mode=app_settings.device_session_authorization_mode,
+                evidence=device_control_release_evidence,
+            )
+        if app_settings.ego_browser_bridge_enabled:
+            ensure_ego_browser_release_evidence_current(
+                environment=app_settings.environment,
+                enabled=app_settings.ego_browser_bridge_enabled,
+                evidence=device_control_release_evidence,
+                expected_release_profile=app_settings.ego_browser_expected_release_profile,
+                expected_signer_certificate_sha256=(
+                    app_settings.ego_browser_expected_signer_certificate_sha256
+                ),
+                expected_wrapper_version=app_settings.ego_browser_expected_wrapper_version,
+                expected_skill_version=app_settings.ego_browser_expected_skill_version,
+                expected_skill_tree_sha256=app_settings.ego_browser_expected_skill_tree_sha256,
+                expected_skill_commit=app_settings.ego_browser_expected_skill_commit,
+                expected_local_runtime_version=(
+                    app_settings.ego_browser_expected_local_runtime_version
+                ),
+                expected_protocol_version=app_settings.ego_browser_expected_protocol_version,
+                expected_learning_bundle_signing_key_id=(
+                    app_settings.ego_browser_expected_learning_bundle_signing_key_id
+                ),
+                expected_learning_bundle_digest=(
+                    app_settings.ego_browser_expected_learning_bundle_digest or None
+                ),
+                expected_distribution_version=(
+                    app_settings.ego_browser_expected_distribution_version or None
+                ),
+                expected_release_manifest_sha256=(
+                    app_settings.ego_browser_expected_root_manifest_sha256 or None
+                ),
+                expected_bridge_artifact_digests={
+                    "ego_browser_release_manifest_sha256": (
+                        app_settings.ego_browser_expected_bridge_release_manifest_sha256
+                    ),
+                    "ego_browser_release_archive_sha256": (
+                        app_settings.ego_browser_expected_bridge_release_archive_sha256
+                    ),
+                    "ego_browser_signing_evidence_sha256": (
+                        app_settings.ego_browser_expected_bridge_signing_evidence_sha256
+                    ),
+                    "ego_browser_learning_bundle_sha256": (
+                        app_settings.ego_browser_expected_learning_bundle_digest
+                    ),
+                    "ego_browser_sigstore_sha256": (
+                        app_settings.ego_browser_expected_bridge_sigstore_sha256
+                    ),
+                    "ego_browser_provenance_sha256": (
+                        app_settings.ego_browser_expected_bridge_provenance_sha256
+                    ),
+                },
+            )
     configure_logging(app_settings.log_level)
 
     @asynccontextmanager
@@ -64,16 +122,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         device_control_retention_task = asyncio.create_task(
             run_device_control_retention(current_app, cleanup_stop)
         )
+        ego_browser_cleanup_task = asyncio.create_task(
+            run_ego_browser_cleanup(current_app, cleanup_stop)
+        )
         await current_app.state.device_relay_revocation_bus.start(
             current_app.state.device_relay_hub.close_binding_remote
+        )
+        await current_app.state.ego_browser_revocation_bus.start(
+            current_app.state.ego_browser_relay_hub.close_binding_remote
         )
         try:
             yield
         finally:
             cleanup_stop.set()
-            await asyncio.gather(port_forward_cleanup_task, device_control_retention_task)
+            await asyncio.gather(
+                port_forward_cleanup_task,
+                device_control_retention_task,
+                ego_browser_cleanup_task,
+            )
             await current_app.state.device_relay_store.close()
             await current_app.state.device_relay_revocation_bus.close()
+            await current_app.state.ego_browser_relay_hub.close()
+            await current_app.state.ego_browser_relay_store.close()
+            await current_app.state.ego_browser_revocation_bus.close()
             await current_app.state.port_forward_token_store.close()
             await current_app.state.database_engine.dispose()
 
@@ -87,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = app_settings
     app.state.device_control_release_evidence = device_control_release_evidence
+    app.state.ego_browser_release_evidence = device_control_release_evidence
     app.state.database_engine = create_engine(app_settings)
     app.state.session_factory = create_session_factory(app_settings, app.state.database_engine)
     app.state.port_forward_token_store = create_port_forward_token_store(app_settings)
@@ -98,6 +170,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         maximum_bytes_per_second=app_settings.device_relay_max_bytes_per_second,
         maximum_connection_seconds=app_settings.device_relay_max_connection_seconds,
         revocation_bus=app.state.device_relay_revocation_bus,
+    )
+    app.state.ego_browser_relay_store = create_ego_browser_relay_store(app_settings)
+    app.state.ego_browser_revocation_bus = create_ego_browser_revocation_bus(app_settings)
+    app.state.ego_browser_relay_hub = create_ego_browser_relay_hub(
+        app_settings,
+        revocation_bus=app.state.ego_browser_revocation_bus,
     )
 
     app.add_middleware(

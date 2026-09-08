@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.config import Settings
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuditLog, AuthToken, Node, PortForward, Session, User
-from agent_remote_server.port_forward_tokens import (
+from agent_remote_server.port_forwarding.tokens import (
     PortForwardTokenClaims,
     PortForwardTokenStore,
 )
@@ -136,12 +136,14 @@ class PortForwardService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前设备 token
         :param session_id (UUID): 工具 session ID
-        :param remote_port (int): Runtime 远端端口
+        :param remote_port (int): 运行时远端端口
         :param local_port (int): 客户端请求的本地端口
         :param client_instance_id (str): CLI 实例 ID
         :param ttl_seconds (int): 请求有效秒数
 
         :return CreatedPortForward: 新建端口转发结果
+
+        :raises ApiError: 设备身份、工具 session、节点能力、端口、配额或有效期不符合转发策略
         """
 
         device_id = self._require_device_token(token)
@@ -223,6 +225,8 @@ class PortForwardService:
         :param all_users (bool): 是否列出全部用户
 
         :return list: 端口转发列表
+
+        :raises ApiError: 非管理员请求查看全部用户的端口转发
         """
 
         if all_users and user.role != "admin":
@@ -269,6 +273,8 @@ class PortForwardService:
         :param forward_id (UUID): 端口转发 ID
 
         :return IssuedPortForwardConnection: 一次性连接凭证
+
+        :raises ApiError: 转发不存在、已终止、无运行授权或不属于当前设备
         """
 
         device_id = self._require_device_token(token)
@@ -337,6 +343,8 @@ class PortForwardService:
         :param connect_token (str): 一次性连接 token
 
         :return RedeemedPortForward: Node 授权结果
+
+        :raises ApiError: 转发、SSH 身份、连接 token、会话状态或运行授权校验失败
         """
 
         port_forward = await self._repository.get_for_update(forward_id)

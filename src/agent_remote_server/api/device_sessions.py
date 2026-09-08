@@ -18,13 +18,13 @@ from agent_remote_server.api.deps import (
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.device_control_release import (
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_store import DeviceRelayStore, DeviceRelayTicketClaims
+from agent_remote_server.device_control.release import (
     DeviceControlReleaseEvidence,
     DeviceControlReleaseEvidenceError,
     ensure_device_control_release_evidence_current,
 )
-from agent_remote_server.device_relay_hub import DeviceRelayHub
-from agent_remote_server.device_relay_store import DeviceRelayStore, DeviceRelayTicketClaims
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, DeviceSession, Node, User
 from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
@@ -204,7 +204,7 @@ async def claim_device_session(
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
 ) -> DeviceSessionResponse:
     """
-    由当前 Device APP 原子 claim 一个远端 Claude session
+    由当前设备应用原子认领一个远端 Claude 会话
 
     :param payload (ClaimDeviceSessionRequest): 待 claim 的远端 session
     :param _release_gate (None): 当前生产发布证据门禁
@@ -567,8 +567,11 @@ async def stop_device_session(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前认证令牌
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
 
     :return DeviceSessionResponse: 已停止的设备控制会话响应
+
+    :raises ApiError: 当前令牌类型不支持停止设备控制
     """
 
     service = DeviceSessionService(session, settings, relay_hub)

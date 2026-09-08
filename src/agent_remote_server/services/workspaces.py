@@ -28,7 +28,7 @@ def _managed_sync_excludes(exclude: list[str]) -> list[str]:
 @dataclass(frozen=True)
 class SyncSessionResult:
     """
-    同步 session 创建结果
+    同步会话创建结果
     """
 
     sync_session: SyncSession
@@ -38,7 +38,7 @@ class SyncSessionResult:
 
 class WorkspaceService:
     """
-    workspace 和同步 session 服务
+    工作区和同步会话服务
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
@@ -50,11 +50,11 @@ class WorkspaceService:
 
     async def list_workspaces(self, *, user: User) -> list[Workspace]:
         """
-        列出用户 workspace
+        列出用户工作区
 
         :param user (User): 当前用户
 
-        :return list: workspace 列表
+        :return list: 工作区列表
         """
 
         return list(await self._repository.list_workspaces_for_user(user.id))
@@ -72,18 +72,20 @@ class WorkspaceService:
         git_sync_policy: dict[str, object],
     ) -> Workspace:
         """
-        创建或复用 workspace
+        创建或复用工作区
 
         :param user (User): 当前用户
         :param token (AuthToken): 当前令牌
         :param device_id (UUID): 设备 ID
-        :param project_key (str): 项目 key
+        :param project_key (str): 项目键
         :param local_start_path (str): 本地启动路径
         :param display_name (str): 显示名称
         :param sync_git (bool): 是否同步 .git 目录
         :param git_sync_policy (dict): Git 同步策略
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
+
+        :raises ApiError: 令牌与设备不匹配，或目标设备未处于启用状态
         """
 
         self._require_token_device(token=token, device_id=device_id)
@@ -124,12 +126,12 @@ class WorkspaceService:
 
     async def get_workspace(self, *, user: User, workspace_id: UUID) -> Workspace:
         """
-        读取用户 workspace
+        读取用户工作区
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         return await self._require_workspace(user=user, workspace_id=workspace_id)
@@ -145,7 +147,7 @@ class WorkspaceService:
         git_sync_policy: dict[str, object] | None,
     ) -> Workspace:
         """
-        更新 workspace 元数据
+        更新工作区元数据
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
@@ -154,7 +156,7 @@ class WorkspaceService:
         :param sync_git (bool): 是否同步 .git 目录
         :param git_sync_policy (dict): Git 同步策略
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         workspace = await self._require_workspace(user=user, workspace_id=workspace_id)
@@ -178,10 +180,12 @@ class WorkspaceService:
 
     async def delete_workspace(self, *, user: User, workspace_id: UUID) -> None:
         """
-        删除没有同步或工具 session 的 workspace
+        删除没有同步或工具会话的工作区
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
+
+        :raises ApiError: 工作区不存在或仍有关联的同步或工具会话
         """
 
         workspace = await self._require_workspace(user=user, workspace_id=workspace_id)
@@ -203,11 +207,11 @@ class WorkspaceService:
 
     async def list_sync_sessions(self, *, user: User) -> list[SyncSessionResult]:
         """
-        列出用户同步 session
+        列出用户同步会话
 
         :param user (User): 当前用户
 
-        :return list: 同步 session 结果
+        :return list: 同步会话结果
         """
 
         items = list(await self._repository.list_sync_sessions_for_user(user.id))
@@ -229,7 +233,7 @@ class WorkspaceService:
         exclude: list[str],
     ) -> SyncSessionResult:
         """
-        创建或复用同步 session
+        创建或复用同步会话
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
@@ -239,7 +243,9 @@ class WorkspaceService:
         :param sync_git (bool): 是否同步 .git 目录
         :param exclude (list): 排除规则
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
+
+        :raises ApiError: 同步模式、工作区或目标节点不满足创建条件
         """
 
         if sync_mode != "two_way":
@@ -301,12 +307,12 @@ class WorkspaceService:
 
     async def get_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """
-        读取同步 session
+        读取同步会话
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
         """
 
         sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
@@ -317,10 +323,12 @@ class WorkspaceService:
 
     async def delete_sync_session(self, *, user: User, sync_session_id: UUID) -> None:
         """
-        删除失败或已暂停的同步 session
+        删除失败或已暂停的同步会话
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
+
+        :raises ApiError: 同步会话不存在或尚未暂停、失败
         """
 
         sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
@@ -342,12 +350,12 @@ class WorkspaceService:
 
     async def pause_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """
-        暂停同步 session
+        暂停同步会话
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
         """
 
         return await self._transition_sync_session(
@@ -360,12 +368,12 @@ class WorkspaceService:
 
     async def resume_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """
-        恢复同步 session
+        恢复同步会话
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
         """
 
         result = await self._transition_sync_session(
@@ -389,12 +397,12 @@ class WorkspaceService:
 
     async def resolve_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """
-        标记同步冲突已解决
+        标记同步会话冲突已解决
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
         """
 
         return await self._transition_sync_session(
@@ -407,12 +415,12 @@ class WorkspaceService:
 
     async def reset_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
         """
-        重置同步 session
+        重置同步会话
 
         :param user (User): 当前用户
-        :param sync_session_id (UUID): 同步 session ID
+        :param sync_session_id (UUID): 同步会话 ID
 
-        :return SyncSessionResult: 同步 session 结果
+        :return SyncSessionResult: 同步会话结果
         """
 
         result = await self._transition_sync_session(

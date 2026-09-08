@@ -8,6 +8,7 @@ from agent_remote_server.api import (
     developer_credentials,
     device_sessions,
     devices,
+    ego_browser,
     network,
     node_api,
     nodes,
@@ -26,6 +27,8 @@ api_router.include_router(users.router)
 api_router.include_router(devices.router)
 api_router.include_router(device_sessions.router)
 api_router.include_router(device_sessions.node_router)
+api_router.include_router(ego_browser.router)
+api_router.include_router(ego_browser.node_router)
 api_router.include_router(network.router)
 api_router.include_router(nodes.router)
 api_router.include_router(workspaces.router)

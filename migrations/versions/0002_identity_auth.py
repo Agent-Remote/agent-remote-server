@@ -1,4 +1,4 @@
-"""add identity auth tables
+"""添加身份认证数据表
 
 Revision ID: 0002_identity_auth
 Revises: 0001_core_schema

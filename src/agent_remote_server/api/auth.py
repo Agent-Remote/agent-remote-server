@@ -157,7 +157,7 @@ async def start_cli_login(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> CliLoginStartResponse:
     """
-    启动 CLI device-code 登录
+    启动 CLI 设备码登录
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
@@ -186,7 +186,7 @@ async def approve_cli_login(
     user: Annotated[User, Depends(get_current_user)],
 ) -> EmptyResponse:
     """
-    确认 CLI device-code 登录
+    确认 CLI 设备码登录
 
     :param payload (CliLoginApproveRequest): 确认请求
     :param settings (Settings): 应用配置
@@ -209,7 +209,7 @@ async def complete_cli_login(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AuthTokenResponse:
     """
-    完成 CLI device-code 登录
+    完成 CLI 设备码登录
 
     :param payload (CliLoginCompleteRequest): 完成请求
     :param settings (Settings): 应用配置

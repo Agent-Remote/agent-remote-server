@@ -8,7 +8,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -33,6 +34,7 @@ from agent_remote_server.security import (
     verify_totp_code,
 )
 from agent_remote_server.services.device_sessions import DeviceSessionService
+from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 
@@ -83,12 +85,14 @@ class IdentityService:
         session: AsyncSession,
         settings: Settings,
         relay_hub: DeviceRelayHub | None = None,
+        ego_browser_revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
         self._repository = IdentityRepository(session)
         self._node_repository = NodeRepository(session)
         self._relay_hub = relay_hub
+        self._ego_browser_revocation_publisher = ego_browser_revocation_publisher
 
     async def bootstrap_required(self) -> bool:
         """
@@ -114,6 +118,8 @@ class IdentityService:
         :param display_name (str): 显示名
 
         :return TokenIssue: 管理员登录令牌
+
+        :raises ApiError: 系统已经完成首个管理员初始化
         """
 
         if await self._repository.has_users():
@@ -159,6 +165,8 @@ class IdentityService:
         :param totp_code (str): TOTP 验证码
 
         :return TokenIssue: 登录令牌
+
+        :raises ApiError: 用户凭据无效或仍需有效的 TOTP 验证码
         """
 
         user = await self._repository.get_user_by_username(username)
@@ -251,7 +259,7 @@ class IdentityService:
 
     async def start_cli_login(self) -> CliLoginStart:
         """
-        启动 CLI device-code 登录
+        启动 CLI 设备码登录
 
         :return CliLoginStart: 登录码信息
         """
@@ -286,6 +294,8 @@ class IdentityService:
 
         :param user (User): 当前用户
         :param user_code (str): 用户确认码
+
+        :raises ApiError: CLI 登录码不存在或不再可确认
         """
 
         cli_code = await self._repository.get_cli_login_by_user_code(user_code)
@@ -312,6 +322,8 @@ class IdentityService:
         :param device_code (str): 设备代码
 
         :return TokenIssue: 登录令牌
+
+        :raises ApiError: CLI 登录码不存在、已过期、未获批准或已不可使用
         """
 
         cli_code = await self._repository.get_cli_login_by_device_hash(
@@ -412,11 +424,22 @@ class IdentityService:
         """
 
         user = await self._require_user(user_id)
+        ego_browser_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
         if display_name is not None:
             user.display_name = display_name
         if status is not None:
             user.status = status
             if status != "active":
+                await ego_browser_service.revoke_for_user(
+                    user_id=user.id,
+                    reason="user_disabled",
+                    commit=False,
+                    publish=False,
+                )
                 await revoke_port_forwards(
                     self._session,
                     reason="user_revoked",
@@ -431,6 +454,7 @@ class IdentityService:
             details={"status": status} if status else {},
         )
         await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
         return user
 
     async def disable_user(self, *, actor: User, user_id: UUID) -> User:
@@ -445,6 +469,17 @@ class IdentityService:
 
         user = await self._require_user(user_id)
         user.status = "disabled"
+        ego_browser_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        await ego_browser_service.revoke_for_user(
+            user_id=user.id,
+            reason="user_disabled",
+            commit=False,
+            publish=False,
+        )
         await revoke_port_forwards(
             self._session,
             reason="user_revoked",
@@ -459,15 +494,16 @@ class IdentityService:
             details={},
         )
         await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
         return user
 
     async def setup_totp(self, *, user: User) -> str:
         """
-        创建并保存 TOTP secret
+        创建并保存 TOTP 密钥
 
         :param user (User): 当前用户
 
-        :return str: 明文 secret
+        :return str: 明文密钥
         """
 
         secret = generate_totp_secret()
@@ -489,6 +525,8 @@ class IdentityService:
 
         :param user (User): 当前用户
         :param code (str): TOTP 验证码
+
+        :raises ApiError: TOTP 尚未设置或验证码无效
         """
 
         if user.encrypted_totp_secret is None:
@@ -535,6 +573,8 @@ class IdentityService:
         :param existing_device_id (UUID | None): 需要复用的现有设备 ID
 
         :return DeviceRegistrationResult: 注册结果
+
+        :raises ApiError: 指定的复用设备不存在或未处于启用状态
         """
 
         reused = existing_device_id is not None
@@ -655,6 +695,18 @@ class IdentityService:
             audit_action="device_session.device_revoke",
             commit=False,
         )
+        ego_browser_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        # 两类设备身份彼此独立；用户凭据撤销必须同步收回 live browser binding。
+        await ego_browser_service.revoke_for_user(
+            user_id=device.user_id,
+            reason="user_device_revoked",
+            commit=False,
+            publish=False,
+        )
         revoked_at = self._now()
         device.status = "revoked"
         for ssh_key in await self._repository.list_ssh_keys_for_device(device.id):
@@ -699,6 +751,7 @@ class IdentityService:
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).close_revoked_bindings(device_stop.revoked_bindings)
+        await ego_browser_service.publish_pending_revocations()
         return device
 
     async def delete_device(self, *, actor: User, device_id: UUID) -> None:
@@ -707,6 +760,8 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param device_id (UUID): 设备 ID
+
+        :raises ApiError: 设备未撤销或仍有关联工作区与控制历史
         """
 
         device = await self._require_visible_device(actor=actor, device_id=device_id)
@@ -746,6 +801,8 @@ class IdentityService:
         :param device_id (UUID): 设备 ID
 
         :return TokenIssue: 新设备令牌
+
+        :raises ApiError: 设备已经撤销
         """
 
         device = await self._require_visible_device(actor=actor, device_id=device_id)

@@ -92,6 +92,8 @@ class BrowserSessionService:
         :param locale (str): 区域设置
         :param ttl_seconds (int): TTL 秒数
         :return BrowserSession: 浏览器 session 实体
+
+        :raises ApiError: TTL 越界或未提供完整的浏览器区域配置
         """
 
         ttl = ttl_seconds or DEFAULT_BROWSER_TTL_SECONDS
@@ -190,6 +192,8 @@ class BrowserSessionService:
         :param user (User): 当前用户
         :param browser_session_id (UUID): 浏览器 session ID
         :return BrowserConnectInfo: 内嵌连接信息
+
+        :raises ApiError: 浏览器 session 尚未就绪
         """
 
         browser_session = await self.get_browser_session(
@@ -283,6 +287,8 @@ class BrowserSessionService:
 
         :param user (User): 当前用户
         :param browser_session_id (UUID): 浏览器 session ID
+
+        :raises ApiError: 浏览器 session 尚未进入可删除的终态
         """
 
         browser_session = await self._require_user_browser_session(
@@ -410,8 +416,7 @@ class BrowserSessionService:
                 json.dumps(value, separators=(",", ":")),
             )
         except Exception:
-            # Local tests and single-process demos may run without Redis. The opaque token
-            # remains short-lived by URL contract; stream validation will require Redis.
+            # 本地测试可不连接 Redis；URL 仍约束 token 短期有效，真实流校验必须使用 Redis。
             return
         finally:
             await client.aclose()

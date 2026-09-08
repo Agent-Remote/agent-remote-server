@@ -1,4 +1,4 @@
-"""add native runtime selection
+"""添加 Native Runtime 选择
 
 Revision ID: 0007_native_runtime
 Revises: 0006_workspace_git_sync_policy
@@ -18,6 +18,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """增加节点及会话的运行时配置字段。"""
+
     op.add_column(
         "nodes",
         sa.Column(
@@ -87,6 +89,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """移除节点及会话的运行时配置字段。"""
+
     op.drop_index("sessions_runtime_backend_idx", table_name="sessions")
     op.drop_constraint("sessions_replaces_session_id_fkey", "sessions", type_="foreignkey")
     op.drop_column("sessions", "replaces_session_id")

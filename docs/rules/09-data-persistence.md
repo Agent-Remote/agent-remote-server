@@ -42,6 +42,16 @@ Runtime selection persistence:
   undeletable while any retained binding references them; tool-session deletion instead nulls the
   relational foreign key while preserving `tool_session_reference_id`.
 - Migration task metadata and backup paths are non-secret operational metadata; account login state remains node-local.
+- `ego_browser_devices` stores only the independent device public keys, release and credential
+  profiles, version/capability metadata, monotonic helper-allowlist revision and roots digest,
+  verified learning-bundle digest, online state, and revocation metadata.
+- `ego_browser_bindings` stores the exact user/device/tool-session/node identity, full-trust policy,
+  platform and capability snapshot, generation, lease health, absolute TTL, and terminal metadata.
+  Partial unique indexes enforce one live binding per device and tool session while retaining
+  terminal history. It never stores scripts, output, artifacts, browser content, URLs, or paths.
+- Browser relay tickets, request sealing keys, encrypted frames, permits, proof challenges, and
+  connection state remain short-lived in Redis or process memory. The persistent request ledger
+  stores only outer request identity and terminal delivery state for replay prevention.
 
 ## Repository Layer
 
@@ -60,6 +70,8 @@ Redis is used for:
 - Polling throttles.
 - Short-lived task state.
 - Device relay key exchange, one-time tickets, and cross-worker binding revocation notifications.
+- Ego-browser role-bound relay tickets, cross-worker endpoint coordination, bounded old-generation
+  revocation markers, and notifications in an independent key namespace.
 
 ## Secrets
 
@@ -75,3 +87,5 @@ Do not persist:
   image hashes, plaintext relay payloads, or one-time connection secrets.
 - Device-control ephemeral certificates, SPKI pins, relay tickets, exporter context secrets, or
   encrypted relay frames. These remain short-lived in Redis or process memory only.
+- Ego-browser heredoc text, stdout/stderr, screenshots, browser state, local paths, per-request
+  session keys, key wraps, relay tickets, permits, or encrypted relay frames.

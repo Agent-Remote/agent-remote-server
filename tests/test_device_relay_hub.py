@@ -4,9 +4,9 @@ from uuid import UUID, uuid4
 
 from fastapi import WebSocket
 
-from agent_remote_server.device_relay_hub import DeviceRelayHub
-from agent_remote_server.device_relay_revocation import DeviceRelayRevocationPublisher
-from agent_remote_server.device_relay_store import (
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_revocation import DeviceRelayRevocationPublisher
+from agent_remote_server.device_control.relay_store import (
     DeviceRelayBinding,
     DeviceRelayRole,
     DeviceRelayTicketClaims,

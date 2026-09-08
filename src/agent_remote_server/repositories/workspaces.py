@@ -9,7 +9,7 @@ from agent_remote_server.models import Node, NodeTask, Session, SyncSession, Use
 
 class WorkspaceRepository:
     """
-    workspace 和同步 session 仓储
+    工作区和同步会话仓储
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -17,11 +17,11 @@ class WorkspaceRepository:
 
     async def add_workspace(self, workspace: Workspace) -> Workspace:
         """
-        新增 workspace
+        新增工作区
 
-        :param workspace (Workspace): workspace 实体
+        :param workspace (Workspace): 工作区实体
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         self._session.add(workspace)
@@ -30,21 +30,21 @@ class WorkspaceRepository:
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:
         """
-        按 ID 读取 workspace
+        按 ID 读取工作区
 
         :param workspace_id (UUID): 工作区 ID
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         return await self._session.get(Workspace, workspace_id)
 
     async def has_workspace_sessions(self, workspace_id: UUID) -> bool:
         """
-        判断 workspace 是否仍有同步或工具 session
+        判断工作区是否仍有同步或工具会话
 
         :param workspace_id (UUID): 工作区 ID
-        :return bool: 是否存在关联 session
+        :return bool: 是否存在关联会话
         """
 
         sync_id = await self._session.scalar(
@@ -61,9 +61,9 @@ class WorkspaceRepository:
 
     async def delete_workspace(self, workspace: Workspace) -> None:
         """
-        删除无 session 引用的 workspace
+        删除没有会话引用的工作区
 
-        :param workspace (Workspace): workspace 实体
+        :param workspace (Workspace): 工作区实体
         """
 
         await self._session.delete(workspace)
@@ -72,12 +72,12 @@ class WorkspaceRepository:
         self, *, user_id: UUID, project_key: str
     ) -> Workspace | None:
         """
-        按项目 key 读取 workspace
+        按项目键读取工作区
 
         :param user_id (UUID): 用户 ID
-        :param project_key (str): 项目 key
+        :param project_key (str): 项目键
 
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         return await self._session.scalar(
@@ -89,11 +89,11 @@ class WorkspaceRepository:
 
     async def list_workspaces_for_user(self, user_id: UUID) -> Sequence[Workspace]:
         """
-        列出用户 workspace
+        列出用户工作区
 
         :param user_id (UUID): 用户 ID
 
-        :return Sequence: workspace 列表
+        :return Sequence: 工作区列表
         """
 
         result = await self._session.scalars(
@@ -155,7 +155,7 @@ class WorkspaceRepository:
         self, *, workspace_id: UUID
     ) -> SyncSession | None:
         """
-        读取 workspace 当前同步 session
+        读取工作区当前同步会话
 
         :param workspace_id (UUID): 工作区 ID
 

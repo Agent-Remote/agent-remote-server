@@ -28,6 +28,9 @@
 - Task completion and failure reporting must be idempotent by `task_id`.
 - Repeated completion calls for the same `task_id` must not create duplicate result rows.
 - Task result payloads must not contain secrets, cookies, private keys, or tool login state.
+- `cancel_ego_browser_request` persistence accepts only its exact three-field, boolean completion
+  result. Malformed completions and all failure bodies are replaced with fixed content-free values
+  before storage and cancellation reconciliation.
 
 ## Reconciliation
 
@@ -46,3 +49,21 @@
 - Device-control activate, context-update, and deactivate tasks carry the complete binding.
   Delayed deactivation is a successful no-op when the active context belongs to a different
   `device_session_id` or newer generation; it must never stop the replacement bridge.
+
+## Ego Browser Broker
+
+- The authenticated Node daemon is the only remote component allowed to redeem a Node-role
+  ego-browser relay ticket. The wrapper uses an owner-only Unix socket and cannot open the relay or
+  declare user, device, tool-session, node, binding, or generation identity.
+- Heartbeat capability metadata pins the wrapper and protocol versions. Unknown, stale, malformed,
+  or incompatible metadata prevents claim instead of falling back to a remote browser or GUI path.
+- The broker allocates monotonic sequences and one-time permits, keeps tickets and sealing keys in
+  bounded memory, serializes relay writes, and dispatches out-of-order responses by the complete
+  binding/generation/request/sequence tuple.
+- The broker derives `agent-remote:<tool_session_id>` from its authenticated session context and
+  puts that exact Task Space label in each permit. The wrapper cannot replace it with an environment
+  value. The Server independently derives the same label when the binding is claimed, and the local
+  Bridge rejects a request label or Task Space scope that differs from its persisted binding.
+- Renewal carries the persisted allowlist revision and learning-bundle digest. Binding revocation,
+  policy drift, generation change, broker restart, or relay failure clears pending permits and
+  fails all affected callers without replaying heredoc scripts.

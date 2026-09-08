@@ -1,4 +1,4 @@
-"""Allow live device control bindings to be replaced.
+"""允许替换 live 设备控制 binding。
 
 Revision ID: 0016_device_binding_rebind
 Revises: 0015_session_device_control

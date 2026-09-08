@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from redis.asyncio import Redis
 
-from agent_remote_server.device_relay_store import (
+from agent_remote_server.device_control.relay_store import (
     DeviceRelayBinding,
     DeviceRelayTicketClaims,
     InMemoryDeviceRelayStore,

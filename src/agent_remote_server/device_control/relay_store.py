@@ -1,3 +1,5 @@
+"""存储设备控制 relay 的短期票据与密钥交换状态。"""
+
 import asyncio
 import json
 from collections.abc import Awaitable
@@ -9,6 +11,7 @@ from uuid import UUID
 from redis.asyncio import Redis
 
 from agent_remote_server.config import Settings
+from agent_remote_server.relay.binding import RelayBinding
 
 DeviceRelayRole = Literal["device", "proxy"]
 
@@ -25,6 +28,20 @@ class DeviceRelayBinding:
     device_session_id: UUID
     node_id: UUID
     generation: int
+
+    @property
+    def relay_binding(self) -> RelayBinding:
+        """
+        返回与设备会话字段解耦的通用 relay 身份。
+
+        :return RelayBinding: 与业务字段解耦的通用 relay 身份
+        """
+
+        return RelayBinding(
+            kind="device_control",
+            binding_id=self.device_session_id,
+            generation=self.generation,
+        )
 
 
 @dataclass(frozen=True)
@@ -282,7 +299,7 @@ class InMemoryDeviceRelayStore:
         """
 
         self._exchanges: dict[
-            tuple[UUID, int],
+            RelayBinding,
             tuple[dict[DeviceRelayRole, str], str, set[DeviceRelayRole], datetime],
         ] = {}
         self._tickets: dict[str, tuple[DeviceRelayTicketClaims, datetime]] = {}
@@ -311,7 +328,7 @@ class InMemoryDeviceRelayStore:
         :raises ValueError: 同一代次内设备中继 SPKI 发生变化
         """
 
-        key = (binding.device_session_id, binding.generation)
+        key = binding.relay_binding
         now = datetime.now(UTC)
         async with self._lock:
             pins, secret, issued, expires_at = self._exchanges.get(

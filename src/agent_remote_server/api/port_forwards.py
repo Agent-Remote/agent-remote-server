@@ -15,7 +15,7 @@ from agent_remote_server.api.deps import (
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.models import AuthToken, Node, PortForward, User
-from agent_remote_server.port_forward_tokens import PortForwardTokenStore
+from agent_remote_server.port_forwarding.tokens import PortForwardTokenStore
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.port_forwards import (
     CreatePortForwardRequest,

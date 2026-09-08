@@ -8,12 +8,14 @@ from agent_remote_server.api.deps import (
     get_current_token,
     get_current_user,
     get_device_relay_hub,
+    get_ego_browser_revocation_bus,
     get_session,
     get_settings,
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.models import AuthToken, Session, User, Workspace
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.connections import AttachSessionData, AttachSessionResponse
@@ -37,7 +39,7 @@ def session_data(tool_session: Session, workspace: Workspace | None = None) -> S
     :param tool_session (Session): 工具 session 实体
     :param workspace (Workspace | None): session 对应工作区
 
-    :return SessionData: session 响应数据
+    :return SessionData: 工具会话响应数据
     """
 
     create_task_id = f"create_tool_session:{tool_session.id}"
@@ -80,9 +82,9 @@ async def list_sessions(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param tool_type (str): 工具类型过滤
-    :param statuses (list): session 状态过滤
+    :param statuses (list): 工具会话状态过滤
 
-    :return SessionListResponse: session 列表响应
+    :return SessionListResponse: 工具会话列表响应
     """
 
     sessions = await ToolSessionService(session, settings).list_sessions(
@@ -111,7 +113,7 @@ async def create_session(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
 
-    :return SessionResponse: session 响应
+    :return SessionResponse: 工具会话响应
     """
 
     tool_session = await ToolSessionService(session, settings).create_session(
@@ -132,6 +134,9 @@ async def delete_inactive_sessions(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     删除当前用户全部已停止、已中断和失败的工具 session
@@ -139,11 +144,15 @@ async def delete_inactive_sessions(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await ToolSessionService(session, settings, relay_hub).delete_inactive_sessions(user=user)
+    await ToolSessionService(
+        session, settings, relay_hub, ego_browser_revocation_bus
+    ).delete_inactive_sessions(user=user)
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -164,7 +173,7 @@ async def get_current_project_session(
     :param tool_type (str): 工具类型
     :param project_key (str): 项目 key
 
-    :return SessionResponse: session 响应
+    :return SessionResponse: 工具会话响应
     """
 
     tool_session = await ToolSessionService(session, settings).get_current_project_session(
@@ -188,7 +197,7 @@ async def get_tool_session(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
 
-    :return SessionResponse: session 响应
+    :return SessionResponse: 工具会话响应
     """
 
     tool_session = await ToolSessionService(session, settings).get_session(
@@ -204,6 +213,9 @@ async def delete_session(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     删除已停止或已中断工具 session
@@ -212,13 +224,15 @@ async def delete_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await ToolSessionService(session, settings, relay_hub).delete_session(
-        user=user, session_id=session_id
-    )
+    await ToolSessionService(
+        session, settings, relay_hub, ego_browser_revocation_bus
+    ).delete_session(user=user, session_id=session_id)
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -229,6 +243,9 @@ async def stop_session(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> SessionResponse:
     """
     停止工具运行 session
@@ -237,13 +254,15 @@ async def stop_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
-    :return SessionResponse: session 响应
+    :return SessionResponse: 工具会话响应
     """
 
-    tool_session = await ToolSessionService(session, settings, relay_hub).stop_session(
-        user=user, session_id=session_id
-    )
+    tool_session = await ToolSessionService(
+        session, settings, relay_hub, ego_browser_revocation_bus
+    ).stop_session(user=user, session_id=session_id)
     return SessionResponse(data=session_data(tool_session), request_id=get_request_id())
 
 
@@ -264,7 +283,7 @@ async def attach_session(
     :param user (User): 当前用户
     :param token (AuthToken): 当前 token
 
-    :return AttachSessionResponse: attach 授权
+    :return AttachSessionResponse: 挂接授权
     """
 
     authorization = await ConnectionService(session, settings).authorize_attach(

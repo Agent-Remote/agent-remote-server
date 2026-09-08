@@ -102,7 +102,7 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
         json={
             "node_id": node_id,
             "registration_token": registration_token,
-            "version": "0.2.12",
+            "version": "0.2.13",
         },
     )
     assert register_response.status_code == 200
@@ -124,7 +124,7 @@ def heartbeat_payload(
 
     return {
         "node_id": node_id,
-        "version": "0.2.12",
+        "version": "0.2.13",
         "supported_tool_types": ["claude"],
         "wireguard_ip": "10.77.0.1",
         "wireguard_public_key": "node-wireguard-public-key",
@@ -257,6 +257,82 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
             assert results[0].status == "succeeded"
 
     asyncio.run(count_results())
+
+
+def test_ego_browser_cancel_task_results_are_content_free(client: TestClient) -> None:
+    """Browser 取消任务只持久化严格协议结果或固定失败信息。"""
+
+    admin_token = bootstrap(client)
+    node_id, node_token = create_and_register_node(client, admin_token)
+    completion_task_id = "cancel_ego_browser_request:content-safe-completion"
+    failure_task_id = "cancel_ego_browser_request:content-safe-failure"
+
+    async def create_tasks() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            service = NodeService(session, app.state.settings)
+            for task_id, request_id in (
+                (completion_task_id, "content-safe-completion"),
+                (failure_task_id, "content-safe-failure"),
+            ):
+                await service.create_task(
+                    node_id=UUID(node_id),
+                    task_id=task_id,
+                    task_type="cancel_ego_browser_request",
+                    payload={
+                        "binding_id": str(uuid4()),
+                        "generation": 1,
+                        "request_id": request_id,
+                        "sequence": 1,
+                    },
+                )
+
+    asyncio.run(create_tasks())
+
+    completed = client.post(
+        f"/api/v1/node-api/tasks/{completion_task_id}/complete",
+        headers=auth_header(node_token),
+        json={
+            "result": {
+                "status": "cancellation_completed",
+                "request_active": False,
+                "server_terminal_observed": False,
+            }
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    failed = client.post(
+        f"/api/v1/node-api/tasks/{failure_task_id}/fail",
+        headers=auth_header(node_token),
+        json={"error": {"message": "sensitive-browser-content", "page": "secret"}},
+    )
+    assert failed.status_code == 200, failed.text
+
+    async def verify_results() -> None:
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            completion = await session.scalar(
+                select(NodeTaskResult).where(NodeTaskResult.task_id == completion_task_id)
+            )
+            failure = await session.scalar(
+                select(NodeTaskResult).where(NodeTaskResult.task_id == failure_task_id)
+            )
+            assert completion is not None
+            assert completion.result == {
+                "status": "cancellation_completed",
+                "request_active": False,
+                "server_terminal_observed": False,
+            }
+            assert completion.error is None
+            assert failure is not None
+            assert failure.result is None
+            assert failure.error == {
+                "code": "EGO_BROWSER_CANCELLATION_FAILED",
+                "message": "Cancellation could not be confirmed.",
+            }
+            assert "sensitive-browser-content" not in str(failure.error)
+
+    asyncio.run(verify_results())
 
 
 def test_expired_running_node_task_is_released(client: TestClient) -> None:

@@ -80,6 +80,8 @@ async def get_audit_log(
     :param user (User): 当前用户
 
     :return AuditLogResponse: 审计日志响应
+
+    :raises ApiError: 审计日志不存在或当前用户不可见
     """
 
     audit_log = await IdentityRepository(session).get_audit_log(audit_log_id)

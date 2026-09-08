@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from pydantic import ValidationError
 
-from agent_remote_server.device_control_release import (
+from agent_remote_server.device_control.release import (
     DeviceControlReleaseEvidence,
     verify_device_control_release_evidence,
 )
@@ -97,7 +97,17 @@ def main() -> None:
             update={"signature": base64.b64encode(signature).decode("ascii")}
         )
         public_key_base64 = _raw_public_key_base64(private_key)
-        _write_new_file(args.output, manifest.encoded_manifest())
+        # Schema 9's canonical root verifier requires nullable compatibility fields
+        # to remain explicit JSON nulls; only the legacy formats may omit them.
+        encoded_manifest = (
+            manifest.encoded_manifest()
+            if manifest.schema_version >= 8
+            else json.dumps(
+                manifest.model_dump(mode="json", exclude_none=True),
+                sort_keys=True,
+            ).encode("utf-8")
+        )
+        _write_new_file(args.output, encoded_manifest)
         manifest_written = True
         try:
             verify_device_control_release_evidence(

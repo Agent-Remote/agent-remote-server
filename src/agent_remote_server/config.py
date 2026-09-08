@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from typing import Literal
 
@@ -181,6 +182,160 @@ class Settings(BaseSettings):
         le=900,
         description="设备中继配对后单次连接最长秒数",
     )
+    ego_browser_bridge_enabled: bool = Field(
+        default=False,
+        validation_alias="EGO_BROWSER_BRIDGE_ENABLED",
+        description="是否启用独立的本地 ego-browser Bridge 控制面",
+    )
+    ego_browser_require_device_pop: bool = Field(
+        default=False,
+        validation_alias="EGO_BROWSER_REQUIRE_DEVICE_POP",
+        description="设备注册和连接是否强制校验 Ed25519 proof-of-possession",
+    )
+    ego_browser_pop_challenge_ttl_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="ego-browser 设备 PoP 单次 challenge 有效秒数",
+    )
+    ego_browser_lease_seconds: int = Field(
+        default=60, ge=10, le=300, description="ego-browser binding 短租约秒数"
+    )
+    ego_browser_lease_renew_interval_seconds: int = Field(
+        default=20, ge=5, le=60, description="ego-browser binding 自动续租间隔"
+    )
+    ego_browser_lease_renew_failure_grace_seconds: int = Field(
+        default=10, ge=1, le=60, description="ego-browser 续租失败宽限秒数"
+    )
+    ego_browser_lease_admission_min_remaining_seconds: int = Field(
+        default=20, ge=1, le=120, description="ego-browser execute admission 最小剩余租约"
+    )
+    ego_browser_absolute_ttl_seconds: int = Field(
+        default=28_800, ge=60, le=28_800, description="ego-browser binding 绝对 TTL"
+    )
+    ego_browser_max_parallel_requests: int = Field(
+        default=4, ge=1, le=4, description="单个 ego-browser binding 最大并发请求数"
+    )
+    ego_browser_device_credential_ttl_seconds: int = Field(
+        default=86_400,
+        ge=300,
+        le=2_592_000,
+        description="独立 ego-browser Device Client 凭据有效秒数",
+    )
+    ego_browser_relay_ticket_ttl_seconds: int = Field(
+        default=30, ge=5, le=120, description="ego-browser relay 一次性票据有效秒数"
+    )
+    ego_browser_relay_pair_timeout_seconds: int = Field(
+        default=15, ge=5, le=60, description="ego-browser relay 等待对端连接秒数"
+    )
+    ego_browser_relay_max_frame_bytes: int = Field(
+        default=16_777_216,
+        ge=1_048_576,
+        le=16_777_216,
+        description="ego-browser outer envelope 最大字节数",
+    )
+    ego_browser_relay_max_bytes_per_second: int = Field(
+        default=33_554_432,
+        ge=1_048_576,
+        le=134_217_728,
+        description="ego-browser relay 每方向每秒最大密文字节数",
+    )
+    ego_browser_relay_max_connection_seconds: int = Field(
+        default=900, ge=30, le=900, description="ego-browser relay 单次连接最长秒数"
+    )
+    ego_browser_cleanup_interval_seconds: int = Field(
+        default=10, ge=1, le=300, description="ego-browser 租约和撤销 outbox 清理间隔"
+    )
+    ego_browser_cleanup_batch_size: int = Field(
+        default=100, ge=1, le=1_000, description="ego-browser 后台清理单批最大记录数"
+    )
+    ego_browser_expected_release_profile: Literal[
+        "development-local", "community-local-trust", "developer-id"
+    ] = Field(
+        default="development-local",
+        validation_alias="EGO_BROWSER_EXPECTED_RELEASE_PROFILE",
+        description="控制面接受的 ego-browser Bridge 发布 profile",
+    )
+    ego_browser_expected_signer_certificate_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_SIGNER_CERTIFICATE_SHA256",
+        description="受控发布物固定的 signer 证书 SHA-256",
+    )
+    ego_browser_expected_wrapper_version: str = Field(
+        default="0.1.0",
+        validation_alias="EGO_BROWSER_EXPECTED_WRAPPER_VERSION",
+        description="Node 上受信 ego-browser wrapper 的精确版本",
+    )
+    ego_browser_expected_skill_version: str = Field(
+        default="1.2.3",
+        validation_alias="EGO_BROWSER_EXPECTED_SKILL_VERSION",
+        description="Node 上官方 ego-browser Skill 的精确版本",
+    )
+    ego_browser_expected_skill_tree_sha256: str = Field(
+        default="262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c",
+        validation_alias="EGO_BROWSER_EXPECTED_SKILL_TREE_SHA256",
+        description="Node 上官方 ego-browser Skill 完整目录的 SHA-256",
+    )
+    ego_browser_expected_skill_commit: str = Field(
+        default="36053d07001a910cb806a15d42d00fdea1cdea3d",
+        validation_alias="EGO_BROWSER_EXPECTED_SKILL_COMMIT",
+        description="官方 ego-browser Skill 的不可变 commit SHA",
+    )
+    ego_browser_expected_local_runtime_version: str = Field(
+        default="0.4.7.4",
+        validation_alias="EGO_BROWSER_EXPECTED_LOCAL_RUNTIME_VERSION",
+        description="本机 ego-browser runtime 的精确版本",
+    )
+    ego_browser_expected_protocol_version: str = Field(
+        default="ego-browser-bridge-v1",
+        validation_alias="EGO_BROWSER_EXPECTED_PROTOCOL_VERSION",
+        description="Server 接受的 ego-browser Bridge 协议版本",
+    )
+    ego_browser_expected_learning_bundle_signing_key_id: str = Field(
+        default="ego-browser-learning-2026-01",
+        validation_alias="EGO_BROWSER_EXPECTED_LEARNING_BUNDLE_SIGNING_KEY_ID",
+        description="Server 接受的 Site Learning 签名密钥标识",
+    )
+    ego_browser_expected_learning_bundle_digest: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_LEARNING_BUNDLE_SHA256",
+        description="Server 接受的 Site Learning bundle SHA-256 摘要",
+    )
+    ego_browser_expected_distribution_version: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_DISTRIBUTION_VERSION",
+        description="Server 接受的根发行组合版本",
+    )
+    ego_browser_expected_root_manifest_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_ROOT_MANIFEST_SHA256",
+        description="Server 接受的根 release manifest SHA-256 摘要",
+    )
+    ego_browser_expected_bridge_release_manifest_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_BRIDGE_RELEASE_MANIFEST_SHA256",
+        description="Server 接受的 Bridge aggregate manifest SHA-256 摘要",
+    )
+    ego_browser_expected_bridge_release_archive_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_BRIDGE_RELEASE_ARCHIVE_SHA256",
+        description="Server 接受的 Bridge release archive SHA-256 摘要",
+    )
+    ego_browser_expected_bridge_signing_evidence_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_BRIDGE_SIGNING_EVIDENCE_SHA256",
+        description="Server 接受的 Bridge signing evidence SHA-256 摘要",
+    )
+    ego_browser_expected_bridge_sigstore_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_BRIDGE_SIGSTORE_SHA256",
+        description="Server 接受的 Bridge Sigstore evidence SHA-256 摘要",
+    )
+    ego_browser_expected_bridge_provenance_sha256: str = Field(
+        default="",
+        validation_alias="EGO_BROWSER_EXPECTED_BRIDGE_PROVENANCE_SHA256",
+        description="Server 接受的 Bridge provenance SHA-256 摘要",
+    )
 
     @model_validator(mode="after")
     def validate_coherent_policy(self) -> "Settings":
@@ -198,6 +353,12 @@ class Settings(BaseSettings):
             raise ValueError("port forward default TTL must not exceed maximum TTL")
         if self.device_relay_max_bytes_per_second < self.device_relay_max_frame_bytes:
             raise ValueError("device relay byte rate must not be smaller than one frame")
+        if self.ego_browser_relay_max_bytes_per_second < self.ego_browser_relay_max_frame_bytes:
+            raise ValueError("ego-browser relay byte rate must not be smaller than one frame")
+        if self.ego_browser_lease_admission_min_remaining_seconds >= self.ego_browser_lease_seconds:
+            raise ValueError("ego-browser admission window must be shorter than its lease")
+        if self.ego_browser_lease_renew_interval_seconds >= self.ego_browser_lease_seconds:
+            raise ValueError("ego-browser renewal interval must be shorter than its lease")
         if (
             self.device_session_audit_retention_days > 0
             and self.device_session_audit_retention_days < self.device_session_retention_days
@@ -214,6 +375,94 @@ class Settings(BaseSettings):
             )
         ):
             raise ValueError("production device control requires explicit metadata retention")
+        if self.environment.strip().lower() == "production" and self.ego_browser_bridge_enabled:
+            if not self.ego_browser_require_device_pop:
+                raise ValueError(
+                    "production ego-browser bridge requires device proof-of-possession"
+                )
+            if self.ego_browser_expected_release_profile not in {
+                "community-local-trust",
+                "developer-id",
+            }:
+                raise ValueError(
+                    "production ego-browser bridge requires a production release profile"
+                )
+            digest = self.ego_browser_expected_signer_certificate_sha256
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                raise ValueError(
+                    "production ego-browser bridge requires a pinned signer certificate"
+                )
+        for version in (
+            self.ego_browser_expected_wrapper_version,
+            self.ego_browser_expected_skill_version,
+            self.ego_browser_expected_local_runtime_version,
+        ):
+            if (
+                not version
+                or len(version) > 64
+                or any(
+                    character
+                    not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+                    for character in version
+                )
+            ):
+                raise ValueError("ego-browser expected versions are invalid")
+        skill_digest = self.ego_browser_expected_skill_tree_sha256
+        if len(skill_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in skill_digest
+        ):
+            raise ValueError("ego-browser expected Skill digest is invalid")
+        skill_commit = self.ego_browser_expected_skill_commit
+        if len(skill_commit) != 40 or any(
+            character not in "0123456789abcdef" for character in skill_commit
+        ):
+            raise ValueError("ego-browser expected Skill commit is invalid")
+        protocol = self.ego_browser_expected_protocol_version
+        if (
+            not protocol
+            or len(protocol) > 64
+            or any(
+                character
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+                for character in protocol
+            )
+        ):
+            raise ValueError("ego-browser expected protocol version is invalid")
+        key_id = self.ego_browser_expected_learning_bundle_signing_key_id
+        if (
+            not key_id
+            or len(key_id) > 128
+            or any(
+                character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+                for character in key_id
+            )
+        ):
+            raise ValueError("ego-browser expected learning key ID is invalid")
+        if (
+            self.ego_browser_expected_distribution_version
+            and re.fullmatch(
+                r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-.+][0-9A-Za-z.-]+)?$",
+                self.ego_browser_expected_distribution_version,
+            )
+            is None
+        ):
+            raise ValueError("ego-browser expected distribution version is invalid")
+        for digest in (
+            self.ego_browser_expected_learning_bundle_digest,
+            self.ego_browser_expected_root_manifest_sha256,
+            self.ego_browser_expected_bridge_release_manifest_sha256,
+            self.ego_browser_expected_bridge_release_archive_sha256,
+            self.ego_browser_expected_bridge_signing_evidence_sha256,
+            self.ego_browser_expected_bridge_sigstore_sha256,
+            self.ego_browser_expected_bridge_provenance_sha256,
+        ):
+            if digest and (
+                len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError("ego-browser expected release digest is invalid")
         return self
 
 

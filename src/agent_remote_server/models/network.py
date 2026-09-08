@@ -10,7 +10,7 @@ from agent_remote_server.models.mixins import IdMixin, TimestampMixin
 
 class WireGuardPeer(IdMixin, TimestampMixin, Base):
     """
-    WireGuard peer 记录
+    WireGuard 对端记录
     """
 
     __tablename__ = "wireguard_peers"

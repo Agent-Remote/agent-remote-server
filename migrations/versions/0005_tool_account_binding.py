@@ -1,4 +1,4 @@
-"""expand tool account binding states
+"""扩展工具账号绑定状态
 
 Revision ID: 0005_tool_account_binding
 Revises: 0004_connection_fields
@@ -29,6 +29,8 @@ NEW_STATES = (
 
 
 def upgrade() -> None:
+    """扩展工具账户绑定状态约束。"""
+
     op.drop_constraint("tool_accounts_status_ck", "tool_accounts", type_="check")
     op.create_check_constraint(
         "tool_accounts_status_ck",
@@ -38,6 +40,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """恢复旧版工具账户绑定状态约束。"""
+
     op.drop_constraint("tool_accounts_status_ck", "tool_accounts", type_="check")
     op.create_check_constraint(
         "tool_accounts_status_ck",

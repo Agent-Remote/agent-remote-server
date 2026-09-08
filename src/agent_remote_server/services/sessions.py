@@ -3,7 +3,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -21,6 +22,7 @@ from agent_remote_server.services.device_sessions import (
     DeviceSessionService,
     RevokedDeviceBinding,
 )
+from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTIVE_NODE_STATUSES
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
@@ -48,6 +50,7 @@ class ToolSessionService:
         session: AsyncSession,
         settings: Settings,
         relay_hub: DeviceRelayHub | None = None,
+        ego_browser_revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
@@ -55,6 +58,7 @@ class ToolSessionService:
         self._identity_repository = IdentityRepository(session)
         self._registry = ToolRegistry()
         self._relay_hub = relay_hub
+        self._ego_browser_revocation_publisher = ego_browser_revocation_publisher
 
     async def list_sessions(
         self, *, user: User, tool_type: str | None, statuses: list[str] | None
@@ -64,8 +68,10 @@ class ToolSessionService:
 
         :param user (User): 当前用户
         :param tool_type (str): 工具类型
-        :param statuses (list): session 状态过滤
+        :param statuses (list): 工具会话状态过滤
         :return list: 工具 session 与 workspace 列表
+
+        :raises ApiError: 状态过滤值不受支持
         """
 
         normalized_statuses = sorted(set(statuses or []))
@@ -92,6 +98,8 @@ class ToolSessionService:
         :param tool_type (str): 工具类型
         :param project_key (str): 项目 key
         :return Session: 工具 session 实体
+
+        :raises ApiError: 当前项目没有可恢复的工具 session
         """
 
         session = await self._repository.get_latest_project_session(
@@ -136,6 +144,8 @@ class ToolSessionService:
         :param argv (list): 工具 CLI 透传参数
         :param replaces_session_id (UUID | None): 被替代的中断会话 ID
         :return Session: 工具 session 实体
+
+        :raises ApiError: 工具账户、工作区、替代会话或可用节点不满足创建条件
         """
 
         template = self._registry.get(tool_type)
@@ -278,6 +288,19 @@ class ToolSessionService:
 
         tool_session = await self._require_user_session(user=user, session_id=session_id)
         if tool_session.status in {"stopped", "failed"}:
+            ego_service = EgoBrowserService(
+                self._session,
+                self._settings,
+                revocation_publisher=self._ego_browser_revocation_publisher,
+            )
+            await ego_service.revoke_for_tool_session(
+                tool_session_id=tool_session.id,
+                reason="tool_session_stop",
+                commit=False,
+                publish=False,
+            )
+            await self._session.commit()
+            await ego_service.publish_pending_revocations()
             return tool_session
         device_stop = await DeviceSessionService(
             self._session, self._settings, self._relay_hub
@@ -287,6 +310,17 @@ class ToolSessionService:
             actor_user_id=user.id,
             audit_action="device_session.session_stop",
             commit=False,
+        )
+        ego_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        await ego_service.revoke_for_tool_session(
+            tool_session_id=tool_session.id,
+            reason="tool_session_stop",
+            commit=False,
+            publish=False,
         )
         task_id = f"stop_tool_session:{tool_session.id}"
         existing = await self._repository.get_task_by_task_id(task_id)
@@ -325,6 +359,7 @@ class ToolSessionService:
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).close_revoked_bindings(device_stop.revoked_bindings)
+        await ego_service.publish_pending_revocations()
         return tool_session
 
     async def delete_session(self, *, user: User, session_id: UUID) -> None:
@@ -333,6 +368,8 @@ class ToolSessionService:
 
         :param user (User): 当前用户
         :param session_id (UUID): 工具 session ID
+
+        :raises ApiError: session 不属于当前用户或尚未进入可删除状态
         """
 
         tool_session = await self._require_user_session(user=user, session_id=session_id)
@@ -350,6 +387,17 @@ class ToolSessionService:
             actor_user_id=user.id,
             audit_action="device_session.session_stop",
             commit=False,
+        )
+        ego_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        await ego_service.revoke_for_tool_session(
+            tool_session_id=tool_session.id,
+            reason="tool_session_delete",
+            commit=False,
+            publish=False,
         )
         await revoke_port_forwards(
             self._session,
@@ -369,6 +417,7 @@ class ToolSessionService:
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).close_revoked_bindings(device_stop.revoked_bindings)
+        await ego_service.publish_pending_revocations()
 
     async def delete_inactive_sessions(self, *, user: User) -> int:
         """
@@ -387,6 +436,11 @@ class ToolSessionService:
         if not sessions:
             return 0
         revoked_bindings: list[RevokedDeviceBinding] = []
+        ego_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
         for tool_session in sessions:
             device_stop = await DeviceSessionService(
                 self._session, self._settings, self._relay_hub
@@ -398,6 +452,12 @@ class ToolSessionService:
                 commit=False,
             )
             revoked_bindings.extend(device_stop.revoked_bindings)
+            await ego_service.revoke_for_tool_session(
+                tool_session_id=tool_session.id,
+                reason="tool_session_bulk_delete",
+                commit=False,
+                publish=False,
+            )
             await revoke_port_forwards(
                 self._session,
                 reason="session_deleted",
@@ -419,6 +479,7 @@ class ToolSessionService:
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).close_revoked_bindings(revoked_bindings)
+        await ego_service.publish_pending_revocations()
         return len(sessions)
 
     async def _require_user_session(self, *, user: User, session_id: UUID) -> Session:

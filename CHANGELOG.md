@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.13 - 2026-09-08
+
+- Release metadata update.
+
 ## v0.2.12 - 2026-09-05
 
 - fix(ci): eliminate server deprecation warnings (94a1013)

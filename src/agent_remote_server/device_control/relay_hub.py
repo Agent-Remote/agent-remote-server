@@ -1,3 +1,5 @@
+"""配对设备控制端点并转发端到端加密帧。"""
+
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -5,8 +7,9 @@ from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from agent_remote_server.device_relay_revocation import DeviceRelayRevocationPublisher
-from agent_remote_server.device_relay_store import DeviceRelayRole, DeviceRelayTicketClaims
+from agent_remote_server.device_control.relay_revocation import DeviceRelayRevocationPublisher
+from agent_remote_server.device_control.relay_store import DeviceRelayRole, DeviceRelayTicketClaims
+from agent_remote_server.relay.binding import RelayBinding
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +55,7 @@ class DeviceRelayHub:
         self._maximum_bytes_per_second = maximum_bytes_per_second
         self._maximum_connection_seconds = maximum_connection_seconds
         self._revocation_bus = revocation_bus
-        self._pairs: dict[tuple[UUID, int], dict[DeviceRelayRole, _RelayEndpoint]] = {}
+        self._pairs: dict[RelayBinding, dict[DeviceRelayRole, _RelayEndpoint]] = {}
         self._lock = asyncio.Lock()
 
     async def connect(self, claims: DeviceRelayTicketClaims, websocket: WebSocket) -> None:
@@ -64,7 +67,7 @@ class DeviceRelayHub:
         """
 
         await websocket.accept()
-        key = (claims.binding.device_session_id, claims.binding.generation)
+        key = claims.binding.relay_binding
         loop = asyncio.get_running_loop()
         endpoint = _RelayEndpoint(
             websocket=websocket,
@@ -97,13 +100,13 @@ class DeviceRelayHub:
                 relay_close_code = 1008
                 logger.warning(
                     "device_relay_closed session=%s generation=%s role=%s reason=%s",
-                    key[0],
-                    key[1],
+                    key.binding_id,
+                    key.generation,
                     endpoint.role,
                     "connection_timeout",
                     extra={
-                        "device_session_id": str(key[0]),
-                        "generation": key[1],
+                        "device_session_id": str(key.binding_id),
+                        "generation": key.generation,
                         "relay_role": endpoint.role,
                         "relay_reason": "connection_timeout",
                     },
@@ -111,13 +114,13 @@ class DeviceRelayHub:
         except (TimeoutError, _RelayBindingClosed):
             logger.warning(
                 "device_relay_closed session=%s generation=%s role=%s reason=%s",
-                key[0],
-                key[1],
+                key.binding_id,
+                key.generation,
                 endpoint.role,
                 "pair_timeout_or_revoked",
                 extra={
-                    "device_session_id": str(key[0]),
-                    "generation": key[1],
+                    "device_session_id": str(key.binding_id),
+                    "generation": key.generation,
                     "relay_role": endpoint.role,
                     "relay_reason": "pair_timeout_or_revoked",
                 },
@@ -142,14 +145,19 @@ class DeviceRelayHub:
         publish: bool = True,
     ) -> None:
         """
-        主动关闭指定 device session generation 的两端 relay
+        主动关闭指定设备会话代次的两端中继
 
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 被撤销的连接代次
         :param code (int): WebSocket 关闭码
+        :param publish (bool): 是否向其他服务实例发布撤销事件
         """
 
-        key = (device_session_id, generation)
+        key = RelayBinding(
+            kind="device_control",
+            binding_id=device_session_id,
+            generation=generation,
+        )
         async with self._lock:
             pair = self._pairs.pop(key, None)
             endpoints = list(pair.values()) if pair is not None else []
@@ -176,7 +184,7 @@ class DeviceRelayHub:
 
     async def _forward(
         self,
-        key: tuple[UUID, int],
+        key: RelayBinding,
         role: DeviceRelayRole,
         source: WebSocket,
         destination: WebSocket,
@@ -250,7 +258,7 @@ class DeviceRelayHub:
 
     @staticmethod
     def _log_forward_end(
-        key: tuple[UUID, int],
+        key: RelayBinding,
         role: DeviceRelayRole,
         reason: str,
         frame_count: int,
@@ -262,16 +270,16 @@ class DeviceRelayHub:
                 "device_relay_forward_ended session=%s generation=%s role=%s "
                 "reason=%s frames=%s bytes=%s close_code=%s"
             ),
-            key[0],
-            key[1],
+            key.binding_id,
+            key.generation,
             role,
             reason,
             frame_count,
             total_bytes,
             close_code,
             extra={
-                "device_session_id": str(key[0]),
-                "generation": key[1],
+                "device_session_id": str(key.binding_id),
+                "generation": key.generation,
                 "relay_role": role,
                 "relay_reason": reason,
                 "relay_frame_count": frame_count,
@@ -280,7 +288,7 @@ class DeviceRelayHub:
             },
         )
 
-    async def _remove(self, key: tuple[UUID, int], endpoint: _RelayEndpoint) -> None:
+    async def _remove(self, key: RelayBinding, endpoint: _RelayEndpoint) -> None:
         async with self._lock:
             pair = self._pairs.get(key)
             if pair is None or pair.get(endpoint.role) is not endpoint:

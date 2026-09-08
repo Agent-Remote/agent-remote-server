@@ -7,11 +7,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
-from agent_remote_server.device_control_limits import (
+from agent_remote_server.device_control.limits import (
     MAX_ACTIVE_DEVICE_SESSION_GENERATION,
     MAX_DEVICE_SESSION_GENERATION,
 )
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -127,6 +127,8 @@ class DeviceSessionService:
         :param tool_session_id (UUID): 远端工具 session ID
 
         :return DeviceSession: 新建设备控制会话
+
+        :raises ApiError: 部署策略、身份、平台、工具会话、节点或唯一绑定约束不满足
         """
 
         if not self._settings.device_control_enabled:
@@ -230,6 +232,8 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
 
         :return list[DeviceSessionCandidateData]: 不含路径、凭据和 relay 材料的候选列表
+
+        :raises ApiError: 设备控制未启用或当前设备不可用
         """
 
         if not self._settings.device_control_enabled:
@@ -245,9 +249,7 @@ class DeviceSessionService:
                 code="COMMON_NOT_FOUND", message="Device was not found.", status_code=404
             )
 
-        # Candidate ownership must not advertise a binding whose absolute TTL
-        # has elapsed. Expire due rows synchronously so a device can re-claim
-        # the tool session without first hitting a stale idempotent binding.
+        # 候选列表先同步过期已越过绝对 TTL 的记录，设备才能直接重新认领而不命中陈旧 binding。
         await self.expire_due()
         candidates: list[DeviceSessionCandidateData] = []
         for (
@@ -267,8 +269,7 @@ class DeviceSessionService:
                     tool_type="claude",
                     tool_account_id=tool_session.tool_account_id,
                     workspace_id=tool_session.workspace_id,
-                    # workspace.display_name is the user-facing opaque label.  Do not
-                    # expose the raw project key, which may contain a local path.
+                    # 仅返回面向用户的不透明显示名，避免 project key 泄露本地路径。
                     project_key=workspace.display_name,
                     display_name=workspace.display_name,
                     status=cast(Literal["running", "active", "detached"], tool_session.status),
@@ -294,8 +295,11 @@ class DeviceSessionService:
 
         :param token (AuthToken): 当前设备认证令牌
         :param tool_session_id (UUID): 待绑定的远端 Claude session ID
+        :param device_capabilities (tuple[str, ...]): 本地设备声明的控制能力集合
 
         :return DeviceSessionClaimResult: 新绑定及需要立即关闭的旧 relay
+
+        :raises ApiError: 设备能力、身份、候选状态、节点能力或绑定约束不满足
         """
 
         if not self._settings.device_control_enabled:
@@ -459,6 +463,8 @@ class DeviceSessionService:
         :param user (User): 当前管理员用户
 
         :return list[DeviceSession]: 全部设备控制会话列表
+
+        :raises ApiError: 当前用户不是管理员
         """
 
         if user.role != "admin":
@@ -471,6 +477,8 @@ class DeviceSessionService:
 
         :param user (User): 当前用户
         :param device_session_id (UUID): 设备控制会话 ID
+
+        :raises ApiError: 会话不属于当前用户或尚未进入终态
         """
 
         device_session = await self._require(device_session_id, for_update=True)
@@ -529,6 +537,8 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
 
         :return list[DeviceSession]: 严格绑定当前设备的控制会话列表
+
+        :raises ApiError: 当前令牌不是有效的设备令牌
         """
 
         if token.token_type != "device" or token.user_device_id is None:
@@ -553,6 +563,8 @@ class DeviceSessionService:
         :param device_session_id (UUID): 设备控制会话 ID
 
         :return DeviceSession: 设备控制会话实体
+
+        :raises ApiError: 设备控制会话不存在或不属于当前用户
         """
 
         device_session = await self._require(device_session_id, for_update=True)
@@ -576,6 +588,8 @@ class DeviceSessionService:
         :param generation (int): 当前连接代次
 
         :return DeviceSession: 更新后的设备控制会话
+
+        :raises ApiError: 会话状态、授权模式或目标节点能力不允许建立连接
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -634,6 +648,8 @@ class DeviceSessionService:
         :param approvals (list[DeviceApprovalItem]): 本机应用审批摘要列表
 
         :return DeviceSession: 审批后的设备控制会话
+
+        :raises ApiError: 授权模式、会话状态或应用审批集合不合法
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -704,6 +720,8 @@ class DeviceSessionService:
         :param generation (int): 当前连接代次
 
         :return DeviceSession: 已持有机器锁的设备控制会话
+
+        :raises ApiError: 其他设备控制会话已经持有机器锁
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -770,6 +788,8 @@ class DeviceSessionService:
         :param generation (int): 断线前连接代次
 
         :return DeviceSession: 进入新代次的设备控制会话
+
+        :raises ApiError: 当前会话状态不允许重新连接
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -808,6 +828,8 @@ class DeviceSessionService:
         :param reason (str): 不含敏感内容的中止原因
 
         :return DeviceSession: 等待新代次连接的设备控制会话
+
+        :raises ApiError: 当前会话状态不允许中止动作
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -840,6 +862,8 @@ class DeviceSessionService:
         :param reason (str): 不含敏感内容的停止原因
 
         :return DeviceSession: 已停止的设备控制会话
+
+        :raises ApiError: 设备控制会话不存在或不属于当前用户
         """
 
         device_session = await self._require(device_session_id, for_update=True)
@@ -860,6 +884,8 @@ class DeviceSessionService:
         :param reason (str): 不含敏感内容的停止原因
 
         :return DeviceSession: 已停止的设备控制会话
+
+        :raises ApiError: 当前令牌不是有效设备令牌，或会话不存在、未绑定到当前设备
         """
 
         device_session = await self._require_device(token, device_session_id, for_update=True)
@@ -876,6 +902,8 @@ class DeviceSessionService:
         :param reason (str): 不含敏感内容的停止原因
 
         :return DeviceSession: 已停止的设备控制会话
+
+        :raises ApiError: 当前用户不是管理员，或设备控制会话不存在
         """
 
         if user.role != "admin":

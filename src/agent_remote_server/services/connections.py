@@ -26,7 +26,7 @@ from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_
 @dataclass(frozen=True)
 class AttachAuthorization:
     """
-    SSH attach 授权结果
+    SSH 挂接授权结果
     """
 
     session: Session
@@ -43,7 +43,7 @@ class AttachAuthorization:
 @dataclass(frozen=True)
 class WireGuardPeerEnrollment:
     """
-    设备 WireGuard peer 登记结果
+    设备 WireGuard 对端登记结果
     """
 
     device: UserDevice
@@ -52,7 +52,7 @@ class WireGuardPeerEnrollment:
 
 class ConnectionService:
     """
-    WireGuard 和 SSH 连接服务
+    WireGuard 与 SSH 连接服务
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
@@ -67,9 +67,11 @@ class ConnectionService:
         读取当前设备的 WireGuard 配置
 
         :param user (User): 当前用户
-        :param token (AuthToken): 当前 token
+        :param token (AuthToken): 当前令牌
 
         :return dict: WireGuard 配置
+
+        :raises ApiError: 当前设备没有有效的 WireGuard 对端
         """
 
         device = await self._require_token_device(user=user, token=token)
@@ -105,7 +107,7 @@ class ConnectionService:
         :param token (AuthToken): 当前设备令牌
         :param public_key (str): WireGuard 公钥
 
-        :return WireGuardPeerEnrollment: peer 登记结果
+        :return WireGuardPeerEnrollment: 对端登记结果
         """
 
         self._validate_wireguard_public_key(public_key)
@@ -144,10 +146,12 @@ class ConnectionService:
         为当前设备创建 SSH attach 授权
 
         :param user (User): 当前用户
-        :param token (AuthToken): 当前 token
+        :param token (AuthToken): 当前令牌
         :param session_id (UUID): 工具会话 ID
 
-        :return AttachAuthorization: attach 授权
+        :return AttachAuthorization: 挂接授权
+
+        :raises ApiError: 当前设备缺少 SSH 密钥或目标节点未配置连接地址
         """
 
         device = await self._require_token_device(user=user, token=token)
@@ -223,14 +227,14 @@ class ConnectionService:
 
     async def allows_ssh_agent_forwarding(self, tool_session: Session) -> bool:
         """
-        判断工具 session 是否获准使用设备 SSH agent
+        判断工具会话是否获准使用设备 SSH agent
 
-        :param tool_session (Session): 工具 session
+        :param tool_session (Session): 工具会话
 
         :return bool: 是否允许 SSH agent 转发
         """
 
-        if tool_session.runtime_backend != "native":
+        if tool_session.runtime_backend not in {"native", "docker_sandbox"}:
             return False
         profile = await self._repository.get_developer_credential_profile_for_account(
             tool_session.tool_account_id
@@ -245,14 +249,16 @@ class ConnectionService:
         self, *, node: Node, node_id: UUID, session_id: UUID, device_id: UUID
     ) -> Session:
         """
-        节点 forced command 入口校验 attach 授权
+        节点强制命令入口校验挂接授权
 
         :param node (Node): 当前节点
         :param node_id (UUID): 请求节点 ID
         :param session_id (UUID): 工具会话 ID
         :param device_id (UUID): 设备 ID
 
-        :return Session: 可 attach 的 session
+        :return Session: 可挂接的工具会话
+
+        :raises ApiError: 节点、会话或设备身份未通过挂接授权校验
         """
 
         if node.id != node_id:
@@ -292,6 +298,8 @@ class ConnectionService:
         :param device_id (UUID): 设备 ID
 
         :return UserDevice: 已授权设备
+
+        :raises ApiError: 节点或设备身份不匹配，或不存在可用的同步授权
         """
 
         if node.id != node_id:
@@ -333,7 +341,9 @@ class ConnectionService:
         :param account_id (UUID): 工具账户 ID
         :param device_id (UUID): 设备 ID
 
-        :return tuple[str, str, str]: 绑定 session ID、tmux session 名与运行时后端
+        :return tuple[str, str, str]: 绑定会话 ID、tmux 会话名与运行时后端
+
+        :raises ApiError: 节点、设备或绑定会话状态未通过挂接校验
         """
 
         if node.id != node_id:

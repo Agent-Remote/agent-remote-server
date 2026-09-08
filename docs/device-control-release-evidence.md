@@ -113,10 +113,15 @@ configuration pins the raw 32-byte Ed25519 public key as Base64 in
 `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`; the private key stays outside the server and repository.
 
 Set `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH` to the manifest path. With
-`AGENT_REMOTE_ENV=production` and `DEVICE_CONTROL_ENABLED=true`, any missing configuration,
-malformed manifest, version mismatch, invalid signature, future issue time, or missing release
-composition stops application creation. Development can explicitly enable the capability without this
-manifest only for synthetic, non-sensitive testing.
+`AGENT_REMOTE_ENV=production`, either `DEVICE_CONTROL_ENABLED=true` or
+`EGO_BROWSER_BRIDGE_ENABLED=true` requires the same signed manifest and pinned public key; any
+missing configuration, malformed manifest, version mismatch, invalid signature, future issue time,
+or missing release composition stops application creation. A production Bridge additionally requires
+schema 9 and exact identity pins for its profile, certificate, wrapper, Skill, protocol, local
+runtime, learning key, root distribution version, root manifest SHA-256, and all six
+`ego_browser_*` artifact digests. Deployment configuration must provide those independent pins; the
+Server compares them with the signed evidence at startup. Development can explicitly enable the
+capability without this manifest only for synthetic, non-sensitive testing.
 
 Create a manifest from an owner-only unsigned draft and an owner-only PKCS#8 Ed25519 private key:
 

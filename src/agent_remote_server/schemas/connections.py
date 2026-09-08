@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class WireGuardNodePeerData(BaseModel):
     """
-    节点 WireGuard peer 数据
+    节点 WireGuard 对端数据
     """
 
     node_id: UUID = Field(..., description="节点 ID")

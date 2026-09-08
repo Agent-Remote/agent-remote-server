@@ -15,7 +15,7 @@ class CreatePortForwardRequest(StrictPortForwardRequest):
     创建 session 端口转发请求
     """
 
-    remote_port: int = Field(..., ge=1, le=65535, description="Runtime 远端端口")
+    remote_port: int = Field(..., ge=1, le=65535, description="运行时远端端口")
     local_port: int = Field(..., ge=1, le=65535, description="客户端请求的本地端口")
     client_instance_id: str = Field(..., min_length=1, max_length=128, description="CLI 实例 ID")
     ttl_seconds: int | None = Field(default=None, ge=60, description="请求的绝对有效秒数")
@@ -40,7 +40,7 @@ class PortForwardData(BaseModel):
     device_id: UUID = Field(..., description="所属设备 ID")
     session_id: UUID = Field(..., description="工具 session ID")
     node_id: UUID = Field(..., description="节点 ID")
-    remote_port: int = Field(..., description="Runtime 远端端口")
+    remote_port: int = Field(..., description="运行时远端端口")
     requested_local_port: int = Field(..., description="客户端请求的本地端口")
     client_instance_id: str = Field(..., description="CLI 实例 ID")
     status: str = Field(..., description="端口转发状态")

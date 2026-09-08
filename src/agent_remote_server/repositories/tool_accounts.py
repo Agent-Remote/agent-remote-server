@@ -90,9 +90,9 @@ class ToolAccountRepository:
         """
         新增工具账户 profile
 
-        :param profile (ToolAccountProfile): profile 实体
+        :param profile (ToolAccountProfile): 配置档案实体
 
-        :return ToolAccountProfile: profile 实体
+        :return ToolAccountProfile: 配置档案实体
         """
 
         self._session.add(profile)
@@ -105,7 +105,7 @@ class ToolAccountRepository:
 
         :param account_id (UUID): 工具账户 ID
 
-        :return ToolAccountProfile: profile 实体
+        :return ToolAccountProfile: 配置档案实体
         """
 
         return await self._session.scalar(

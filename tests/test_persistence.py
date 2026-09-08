@@ -2,6 +2,8 @@ import runpy
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import CheckConstraint
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -18,6 +20,11 @@ EXPECTED_TABLES = {
     "developer_credential_profiles",
     "device_session_approvals",
     "device_sessions",
+    "ego_browser_bindings",
+    "ego_browser_device_credentials",
+    "ego_browser_devices",
+    "ego_browser_request_ledger",
+    "ego_browser_revocation_outbox",
     "node_heartbeats",
     "node_task_results",
     "node_tasks",
@@ -53,6 +60,9 @@ EXPECTED_INDEXES = {
     "device_sessions_machine_lock_uidx",
     "device_sessions_tool_uidx",
     "device_sessions_user_status_idx",
+    "ego_browser_device_credentials_device_status_idx",
+    "ego_browser_device_credentials_hash_uidx",
+    "ego_browser_device_credentials_user_status_idx",
     "node_heartbeats_node_created_idx",
     "nodes_node_token_hash_uidx",
     "nodes_registration_token_hash_uidx",
@@ -175,6 +185,16 @@ def test_device_session_authorization_migration_revision_identity() -> None:
 
     assert migration_globals["revision"] == "0017_device_authorization"
     assert migration_globals["down_revision"] == "0016_device_binding_rebind"
+
+
+def test_alembic_revision_graph_has_one_resolvable_head() -> None:
+    """全部迁移的 down_revision 必须解析为通向当前唯一 head 的连续图。"""
+
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+    assert script.get_heads() == ["0021_ego_browser_cancel"]
+    revisions = list(script.walk_revisions())
+    assert revisions[-1].revision == "0001_core_schema"
+    assert len(revisions) == len(list(Path("migrations/versions").glob("*.py")))
 
 
 def test_device_session_authorization_migration_updates_and_reverses_all_fields(

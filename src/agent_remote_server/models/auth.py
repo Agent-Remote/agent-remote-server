@@ -36,7 +36,7 @@ class AuthToken(IdMixin, TimestampMixin, Base):
 
 class CliLoginCode(IdMixin, TimestampMixin, Base):
     """
-    CLI device-code 登录记录
+    CLI 设备码登录记录
     """
 
     __tablename__ = "cli_login_codes"

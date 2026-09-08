@@ -6,12 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.api.deps import (
     get_current_node,
     get_device_relay_hub,
+    get_ego_browser_revocation_bus,
     get_session,
     get_settings,
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.models import Node
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.schemas.auth import EmptyResponse
@@ -204,6 +206,9 @@ async def complete_task(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     完成任务
@@ -213,13 +218,14 @@ async def complete_task(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await NodeService(session, settings).complete_task(
-        node=node, task_id=task_id, result=payload.result
-    )
+    await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).complete_task(node=node, task_id=task_id, result=payload.result)
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -230,6 +236,9 @@ async def fail_task(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     标记任务失败
@@ -239,11 +248,14 @@ async def fail_task(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await NodeService(session, settings).fail_task(node=node, task_id=task_id, error=payload.error)
+    await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).fail_task(node=node, task_id=task_id, error=payload.error)
     return EmptyResponse(request_id=get_request_id())
 
 
@@ -254,6 +266,9 @@ async def reconcile(
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     提交节点对账快照
@@ -262,11 +277,13 @@ async def reconcile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await NodeService(session, settings, relay_hub).reconcile(
+    await NodeService(session, settings, relay_hub, ego_browser_revocation_bus).reconcile(
         node=node,
         node_id=payload.node_id,
         sections=payload.sections,
@@ -283,14 +300,14 @@ async def verify_attach(
     node: Annotated[Node, Depends(get_current_node)],
 ) -> VerifyAttachResponse:
     """
-    校验节点 SSH forced command attach 请求
+    校验节点 SSH 强制命令挂接请求
 
-    :param payload (VerifyAttachRequest): attach 校验请求
+    :param payload (VerifyAttachRequest): 挂接校验请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
 
-    :return VerifyAttachResponse: attach 校验响应
+    :return VerifyAttachResponse: 挂接校验响应
     """
 
     service = ConnectionService(session, settings)
@@ -347,7 +364,7 @@ async def verify_binding_attach(
     node: Annotated[Node, Depends(get_current_node)],
 ) -> VerifyBindingAttachResponse:
     """
-    校验节点 SSH forced command 绑定 attach 请求
+    校验节点 SSH 强制命令绑定挂接请求
 
     :param payload (VerifyBindingAttachRequest): 绑定 attach 校验请求
     :param settings (Settings): 应用配置

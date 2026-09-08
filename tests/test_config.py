@@ -24,6 +24,15 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.device_session_audit_retention_days == 0
     assert settings.device_relay_max_bytes_per_second == 8_388_608
     assert settings.device_relay_max_connection_seconds == 900
+    assert settings.ego_browser_bridge_enabled is False
+    assert settings.ego_browser_expected_wrapper_version == "0.1.0"
+    assert settings.ego_browser_expected_skill_version == "1.2.3"
+    assert settings.ego_browser_expected_local_runtime_version == "0.4.7.4"
+    assert settings.ego_browser_expected_protocol_version == "ego-browser-bridge-v1"
+    assert settings.ego_browser_expected_learning_bundle_digest == ""
+    assert settings.ego_browser_expected_distribution_version == ""
+    assert settings.ego_browser_expected_root_manifest_sha256 == ""
+    assert settings.ego_browser_expected_bridge_release_manifest_sha256 == ""
 
 
 def test_device_control_v2_can_be_disabled_for_emergency_rollback() -> None:
@@ -50,6 +59,9 @@ def test_example_environment_uses_the_default_v2_switch() -> None:
 
     example = Path(".env.example").read_text(encoding="utf-8")
     assert "DEVICE_CONTROL_V2_ENABLED=true" in example
+    assert "EGO_BROWSER_BRIDGE_ENABLED=false" in example
+    assert "EGO_BROWSER_EXPECTED_PROTOCOL_VERSION=ego-browser-bridge-v1" in example
+    assert "EGO_BROWSER_EXPECTED_SKILL_COMMIT=36053d07001a910cb806a15d42d00fdea1cdea3d" in example
     assert "DEVICE_CONTROL_V2_ROLLOUT_PERCENT" not in example
     assert "DEVICE_CONTROL_V2_ACCEPTANCE" not in example
 
@@ -89,3 +101,17 @@ def test_production_device_control_requires_explicit_coherent_retention() -> Non
     )
     assert settings.device_session_retention_days == 30
     assert settings.device_session_audit_retention_days == 90
+
+
+def test_production_ego_browser_settings_are_validated_at_startup() -> None:
+    """配置阶段允许表达目标策略，启动阶段仍必须提供签名发布证据。"""
+
+    settings = Settings(
+        environment="production",
+        ego_browser_bridge_enabled=True,
+        ego_browser_require_device_pop=True,
+        ego_browser_expected_release_profile="community-local-trust",
+        ego_browser_expected_signer_certificate_sha256="a" * 64,
+    )
+
+    assert settings.ego_browser_bridge_enabled is True

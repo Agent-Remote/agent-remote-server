@@ -53,7 +53,7 @@ class DeveloperCredentialService:
         创建开发凭据 profile
 
         :param user (User): 当前用户
-        :param display_name (str): profile 显示名称
+        :param display_name (str): 配置档案显示名称
         :param git_identity (dict[str, object]): git 身份信息（user_name/user_email）
         :param github_cli_mode (str): GitHub CLI 凭据模式
         :param ssh_mode (str): SSH 凭据模式
@@ -119,6 +119,8 @@ class DeveloperCredentialService:
         :param ssh_mode (str | None): 新的 SSH 模式，None 表示不修改
 
         :return DeveloperCredentialProfile: 更新后的开发凭据 profile
+
+        :raises ApiError: 请求中的凭据状态或模式不受支持
         """
 
         profile = await self._require_profile(user=user, profile_id=profile_id)
@@ -187,6 +189,8 @@ class DeveloperCredentialService:
         :param profile_id (UUID): 开发凭据 profile ID
 
         :return DeveloperCredentialProfile: 已绑定到工具账户的 profile
+
+        :raises ApiError: 待绑定的凭据 profile 未处于启用状态
         """
 
         account = await self._require_account(user=user, account_id=account_id)

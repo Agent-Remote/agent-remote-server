@@ -5,7 +5,7 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 
-from agent_remote_server import port_forward_cleanup
+from agent_remote_server.port_forwarding import cleanup as port_forward_cleanup
 
 
 class _Session:

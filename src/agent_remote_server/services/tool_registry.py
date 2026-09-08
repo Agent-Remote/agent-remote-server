@@ -39,6 +39,8 @@ class ToolRegistry:
         :param tool_type (str): 工具类型
 
         :return ToolRuntimeTemplate: 工具模板
+
+        :raises ApiError: 工具类型不受支持
         """
 
         template = cls._templates.get(tool_type)

@@ -28,7 +28,7 @@ def profile_data(profile: DeveloperCredentialProfile) -> DeveloperCredentialProf
 
     :param profile (DeveloperCredentialProfile): 开发凭据 profile 模型
 
-    :return DeveloperCredentialProfileData: profile 响应数据
+    :return DeveloperCredentialProfileData: 配置档案响应数据
     """
 
     return DeveloperCredentialProfileData(

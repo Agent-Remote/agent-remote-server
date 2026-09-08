@@ -10,7 +10,7 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from agent_remote_server.config import get_settings
-from agent_remote_server.port_forward_tokens import (
+from agent_remote_server.port_forwarding.tokens import (
     PortForwardTokenClaims,
     RedisPortForwardTokenStore,
 )

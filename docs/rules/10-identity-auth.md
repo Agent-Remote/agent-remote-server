@@ -58,6 +58,34 @@
 - TOTP setup may return the secret once for enrollment.
 - Login must require a valid TOTP code when TOTP is enabled for the user.
 
+## Ego Browser Devices
+
+- Ego-browser devices use a separate credential namespace, device table, proof-of-possession key,
+  encryption key, token hash, API routes, binding generation, and revocation path. They never use
+  a general device token or `device_session` identity.
+- Registration, key rotation, binding claim, Bridge activation, relay-ticket issuance, renewal,
+  pause, resume, stop, revoke, and allowlist confirmation require a device-scoped credential plus
+  a signed transcript bound to the exact request payload, operation, device ID and generation,
+  binding ID and generation when applicable, release profile, credential profile, and control-plane
+  hostname. Challenges are server-issued, short-lived, stored in the shared relay-state backend,
+  and atomically consumed once so captures cannot be replayed across workers.
+- Claim derives the user from the device credential and the node from the selected tool session.
+  The request cannot substitute either identity, cannot auto-select a recent session, and cannot
+  activate without explicit `ego_browser_script_full_trust` confirmation.
+- Claim derives `agent-remote:<tool_session_id>` as the canonical Task Space label. A supplied label
+  is transcript-bound but must equal that value. The Device Client validates the response before
+  persisting its owner-only handoff, and a later resume preserves the same canonical label while
+  advancing the generation.
+- Native ownership takeover and ownership-monitor failure are reported only through a
+  Device-authenticated, generation-bound pause after local admission has already been revoked. The
+  bounded reasons `task_space_takeover` and `task_space_monitor_unavailable` are retained as
+  lifecycle metadata. Resume requires fresh explicit full-trust confirmation; the Server does not
+  claim or take over a browser Task Space.
+- Allowlist confirmation is Device Client only, generation-bound, and compare-and-swap protected.
+  User, Node, wrapper, administrator, and heredoc credentials cannot modify local roots.
+- Revoking an ego-browser device first revokes every live browser binding and publishes the old
+  generations. Raw credentials and private proof or encryption keys are never accepted or stored.
+
 ## Audit
 
 Audit logs may include IDs, statuses, usernames, roles, and high-level action metadata.

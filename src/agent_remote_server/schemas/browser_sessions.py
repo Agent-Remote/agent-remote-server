@@ -55,7 +55,7 @@ class BrowserSessionListData(BaseModel):
     远端临时浏览器 session 列表数据
     """
 
-    items: list[BrowserSessionData] = Field(default_factory=list, description="session 列表")
+    items: list[BrowserSessionData] = Field(default_factory=list, description="浏览器会话列表")
     next_cursor: str | None = Field(default=None, description="下一页游标")
 
 
@@ -64,7 +64,7 @@ class BrowserSessionListResponse(BaseModel):
     远端临时浏览器 session 列表响应
     """
 
-    data: BrowserSessionListData = Field(..., description="session 列表数据")
+    data: BrowserSessionListData = Field(..., description="浏览器会话列表数据")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 

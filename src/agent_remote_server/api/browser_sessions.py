@@ -293,8 +293,7 @@ async def browser_stream_websocket(
             subprotocols=_websocket_subprotocols(websocket),
             ssl=ssl_context,
             max_size=None,
-            # KasmVNC 1.18 ignores WebSocket Ping frames, so the library default
-            # closes an otherwise healthy VNC stream after its Pong timeout.
+            # KasmVNC 1.18 不响应 WebSocket Ping；禁用客户端心跳可避免误关健康连接。
             ping_interval=None,
         ) as upstream_socket:
             await websocket.accept(subprotocol=upstream_socket.subprotocol)
@@ -419,7 +418,7 @@ class _UpstreamEndpoint:
     @property
     def basic_authorization(self) -> str:
         """
-        返回 Kasm Basic Auth 头
+        返回 Kasm Basic 认证请求头
 
         :return str: Authorization 头值
         """

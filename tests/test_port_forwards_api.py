@@ -22,7 +22,7 @@ from agent_remote_server.models import (
     User,
     Workspace,
 )
-from agent_remote_server.port_forward_tokens import (
+from agent_remote_server.port_forwarding.tokens import (
     InMemoryPortForwardTokenStore,
     PortForwardTokenClaims,
 )
@@ -125,7 +125,11 @@ def register_device(client: TestClient, user_token: str) -> tuple[str, str, str]
 
 
 async def seed_running_session(
-    client: TestClient, *, device_id: str, capability: bool = True
+    client: TestClient,
+    *,
+    device_id: str,
+    capability: bool = True,
+    runtime_backend: str = "native",
 ) -> tuple[str, str]:
     """写入具备端口转发条件的 Node 和运行 session。"""
 
@@ -143,15 +147,15 @@ async def seed_running_session(
             ssh_port=22,
             ssh_user="agent-remote",
             supported_tool_types=["claude"],
-            allowed_runtime_backends=["native"],
-            default_runtime_backend="native",
+            allowed_runtime_backends=[runtime_backend],
+            default_runtime_backend=runtime_backend,
             runtime_policy={},
             runtime_capabilities=(
                 {
                     "session_port_forwarding": {
                         "supported": True,
                         "protocol_versions": [1],
-                        "backends": ["native"],
+                        "backends": [runtime_backend],
                         "max_streams": 128,
                     }
                 }
@@ -172,7 +176,7 @@ async def seed_running_session(
             locale="en-US",
             preferred_node_tags=[],
             affinity_node_id=node.id,
-            runtime_backend="native",
+            runtime_backend=runtime_backend,
         )
         workspace = Workspace(
             user_id=user.id,
@@ -195,8 +199,8 @@ async def seed_running_session(
             project_key=workspace.project_key,
             status="running",
             tmux_session_name="ar-session-forward",
-            runtime_backend="native",
-            runtime_resource_id="native-runtime-forward",
+            runtime_backend=runtime_backend,
+            runtime_resource_id=f"{runtime_backend}-runtime-forward",
         )
         session.add(tool_session)
         await session.commit()
@@ -234,10 +238,20 @@ def create_forward(client: TestClient, device_token: str, session_id: str) -> di
     return cast(dict[str, object], response.json()["data"])
 
 
-def test_port_forward_full_lifecycle_and_generation_fencing(client: TestClient) -> None:
+@pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
+def test_port_forward_full_lifecycle_and_generation_fencing(
+    client: TestClient,
+    runtime_backend: str,
+) -> None:
     user_token = bootstrap(client)
     device_id, device_token, ssh_key_id = register_device(client, user_token)
-    session_id, node_id = asyncio.run(seed_running_session(client, device_id=device_id))
+    session_id, node_id = asyncio.run(
+        seed_running_session(
+            client,
+            device_id=device_id,
+            runtime_backend=runtime_backend,
+        )
+    )
     asyncio.run(set_node_token(client, node_id))
 
     created = create_forward(client, device_token, session_id)
@@ -272,7 +286,7 @@ def test_port_forward_full_lifecycle_and_generation_fencing(client: TestClient) 
     lease = redeemed.json()["data"]
     assert lease["generation"] == 1
     assert lease["remote_port"] == 5173
-    assert lease["runtime_resource_id"] == "native-runtime-forward"
+    assert lease["runtime_resource_id"] == f"{runtime_backend}-runtime-forward"
     assert lease["control_plane_grace_seconds"] == 300
 
     replay = client.post(

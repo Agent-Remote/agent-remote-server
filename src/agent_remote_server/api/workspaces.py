@@ -30,11 +30,11 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 def workspace_data(workspace: Workspace) -> WorkspaceData:
     """
-    转换 workspace 响应数据
+    转换工作区响应数据
 
-    :param workspace (Workspace): workspace 实体
+    :param workspace (Workspace): 工作区实体
 
-    :return WorkspaceData: workspace 响应数据
+    :return WorkspaceData: 工作区响应数据
     """
 
     return WorkspaceData(
@@ -59,13 +59,13 @@ async def list_workspaces(
     user: Annotated[User, Depends(get_current_user)],
 ) -> WorkspaceListResponse:
     """
-    列出 workspace
+    列出工作区
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
 
-    :return WorkspaceListResponse: workspace 列表响应
+    :return WorkspaceListResponse: 工作区列表响应
     """
 
     workspaces = await WorkspaceService(session, settings).list_workspaces(user=user)
@@ -84,7 +84,7 @@ async def create_workspace(
     token: Annotated[AuthToken, Depends(get_current_token)],
 ) -> WorkspaceResponse:
     """
-    创建 workspace
+    创建工作区
 
     :param payload (CreateWorkspaceRequest): 创建请求
     :param settings (Settings): 应用配置
@@ -92,7 +92,7 @@ async def create_workspace(
     :param user (User): 当前用户
     :param token (AuthToken): 当前令牌
 
-    :return WorkspaceResponse: workspace 响应
+    :return WorkspaceResponse: 工作区响应
     """
 
     workspace = await WorkspaceService(session, settings).create_workspace(
@@ -116,14 +116,14 @@ async def get_workspace(
     user: Annotated[User, Depends(get_current_user)],
 ) -> WorkspaceResponse:
     """
-    读取 workspace
+    读取工作区
 
     :param workspace_id (UUID): 工作区 ID
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
 
-    :return WorkspaceResponse: workspace 响应
+    :return WorkspaceResponse: 工作区响应
     """
 
     workspace = await WorkspaceService(session, settings).get_workspace(
@@ -141,7 +141,7 @@ async def update_workspace(
     user: Annotated[User, Depends(get_current_user)],
 ) -> WorkspaceResponse:
     """
-    更新 workspace
+    更新工作区
 
     :param workspace_id (UUID): 工作区 ID
     :param payload (UpdateWorkspaceRequest): 更新请求
@@ -149,7 +149,7 @@ async def update_workspace(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
 
-    :return WorkspaceResponse: workspace 响应
+    :return WorkspaceResponse: 工作区响应
     """
 
     workspace = await WorkspaceService(session, settings).update_workspace(
@@ -173,7 +173,7 @@ async def delete_workspace(
     user: Annotated[User, Depends(get_current_user)],
 ) -> EmptyResponse:
     """
-    删除无 session 引用的 workspace
+    删除没有会话引用的工作区
 
     :param workspace_id (UUID): 工作区 ID
     :param settings (Settings): 应用配置

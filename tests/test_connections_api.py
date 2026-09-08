@@ -119,7 +119,7 @@ def create_node(client: TestClient, admin_token: str) -> tuple[str, str]:
         json={
             "node_id": node_id,
             "registration_token": registration_token,
-            "version": "0.2.12",
+            "version": "0.2.13",
         },
     )
     assert register_response.status_code == 200
@@ -271,7 +271,8 @@ def test_wireguard_config_requires_device_token(client: TestClient) -> None:
     assert user_token_response.json()["error"]["code"] == "DEVICE_REQUIRED"
 
 
-def test_attach_authorization_and_node_verify(client: TestClient) -> None:
+@pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
+def test_attach_authorization_and_node_verify(client: TestClient, runtime_backend: str) -> None:
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -340,7 +341,7 @@ def test_attach_authorization_and_node_verify(client: TestClient) -> None:
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(session_id))
             assert tool_session is not None
-            tool_session.runtime_backend = "native"
+            tool_session.runtime_backend = runtime_backend
             profile = DeveloperCredentialProfile(
                 user_id=tool_session.user_id,
                 display_name="Forwarded SSH",

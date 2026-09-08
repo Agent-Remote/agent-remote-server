@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from agent_remote_server import __version__
-from agent_remote_server.device_control_release import verify_device_control_release_evidence
+from agent_remote_server.device_control.release import verify_device_control_release_evidence
 
 _DIGEST = "a" * 64
 
@@ -180,6 +180,19 @@ def test_creator_writes_permanent_schema_9_manifest(tmp_path: Path) -> None:
     assert raw_manifest["schema_version"] == 9
     assert raw_manifest["distribution_version"] == "9.8.7"
     assert "expires_at" not in raw_manifest
+    for field in (
+        "node_sha256",
+        "proxy_sha256",
+        "security_tests_sha256",
+        "security_review_sha256",
+        "outbound_policy_sha256",
+        "local_claude_isolation_sha256",
+        "stop_revocation_sha256",
+        "compatibility_sha256",
+        "computer_use_v2_evidence_sha256",
+    ):
+        assert field in raw_manifest
+    assert raw_manifest["computer_use_v2_evidence_sha256"] is None
     raw_public_key = key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,

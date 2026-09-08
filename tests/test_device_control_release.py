@@ -2,6 +2,7 @@ import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -9,16 +10,32 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from agent_remote_server import __version__
 from agent_remote_server.config import Settings
-from agent_remote_server.device_control_release import (
+from agent_remote_server.device_control.release import (
     DeviceControlReleaseEvidence,
     DeviceControlReleaseEvidenceError,
     ReleaseComponentIdentity,
     ensure_device_control_release_evidence_current,
+    ensure_ego_browser_release_evidence_current,
     verify_device_control_release_evidence,
 )
 from agent_remote_server.main import create_app
 
 _DIGEST = "a" * 64
+
+
+def browser_deployment_pins() -> dict[str, object]:
+    """Return the root and Bridge pins emitted by the schema-9 fixture."""
+
+    return {
+        "ego_browser_expected_distribution_version": "9.8.7",
+        "ego_browser_expected_root_manifest_sha256": "e" * 64,
+        "ego_browser_expected_learning_bundle_digest": "a" * 64,
+        "ego_browser_expected_bridge_release_manifest_sha256": "1" * 64,
+        "ego_browser_expected_bridge_release_archive_sha256": "2" * 64,
+        "ego_browser_expected_bridge_signing_evidence_sha256": "3" * 64,
+        "ego_browser_expected_bridge_sigstore_sha256": "4" * 64,
+        "ego_browser_expected_bridge_provenance_sha256": "5" * 64,
+    }
 
 
 def create_signed_evidence(
@@ -95,6 +112,34 @@ def create_signed_evidence(
         if schema_version in {5, 6, 7, 8, 9}
         else {}
     )
+    if schema_version == 9 and not apple_profile:
+        assert composition_fields
+        components = cast(dict[str, object], composition_fields["components"])
+        components["agent-remote-ego-browser"] = {
+            "repository": "Agent-Remote/agent-remote-ego-browser",
+            "version": "0.1.0",
+            "commit": "6" * 40,
+            "release_workflow": "release.yml",
+            "release_published": True,
+            "profile": "community-local-trust",
+            "signing_type": "project-self-signed",
+            "signer_certificate_sha256": "f" * 64,
+            "production_ready": True,
+            "readiness_blockers": [],
+            "apple_notarized": False,
+            "public_distribution": False,
+            "hardened_runtime": True,
+            "nested_signatures_verified": True,
+            "outbound_policy": "application-enforced",
+            "credential_profile": "community_file",
+            "learning_bundle_digest": "a" * 64,
+            "learning_bundle_signing_key_id": "ego-browser-learning-2026-01",
+            "skill_version": "1.2.3",
+            "skill_commit": "36053d07001a910cb806a15d42d00fdea1cdea3d",
+            "skill_tree_sha256": "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c",
+            "local_ego_browser_runtime_version": "0.4.7.4",
+            "protocol_version": "ego-browser-bridge-v1",
+        }
     if schema_version < 8 and expires_at is None:
         raise ValueError("legacy test evidence requires an expiry")
     effective_issued_at = issued_at or (
@@ -118,6 +163,17 @@ def create_signed_evidence(
         **profile_fields,
         **composition_fields,
     }
+    if schema_version == 9 and not apple_profile:
+        evidence_fields.update(
+            {
+                "ego_browser_release_manifest_sha256": "1" * 64,
+                "ego_browser_release_archive_sha256": "2" * 64,
+                "ego_browser_signing_evidence_sha256": "3" * 64,
+                "ego_browser_learning_bundle_sha256": "a" * 64,
+                "ego_browser_sigstore_sha256": "4" * 64,
+                "ego_browser_provenance_sha256": "5" * 64,
+            }
+        )
     if expires_at is not None:
         evidence_fields["expires_at"] = expires_at
     manifest = DeviceControlReleaseEvidence.model_validate(evidence_fields)
@@ -580,6 +636,127 @@ def test_production_device_control_requires_release_evidence() -> None:
 
     with pytest.raises(DeviceControlReleaseEvidenceError, match="requires release evidence"):
         create_app(settings)
+
+
+def test_production_ego_browser_requires_signed_schema_9_evidence() -> None:
+    """生产 Bridge 不能只依赖环境开关。"""
+
+    settings = Settings(
+        secret_key="test-secret",
+        environment="production",
+        ego_browser_bridge_enabled=True,
+        ego_browser_require_device_pop=True,
+        ego_browser_expected_release_profile="community-local-trust",
+        ego_browser_expected_signer_certificate_sha256="f" * 64,
+    )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="requires release evidence"):
+        create_app(settings)
+
+
+def test_production_ego_browser_accepts_matching_schema_9_evidence(tmp_path: Path) -> None:
+    """生产 Bridge 在所有身份 pin 匹配时应通过启动门禁。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(evidence_path, schema_version=9)
+    app = create_app(
+        Settings.model_validate(
+            {
+                "secret_key": "test-secret",
+                "environment": "production",
+                "ego_browser_bridge_enabled": True,
+                "ego_browser_require_device_pop": True,
+                "ego_browser_expected_release_profile": "community-local-trust",
+                "ego_browser_expected_signer_certificate_sha256": "f" * 64,
+                "device_control_release_evidence_path": str(evidence_path),
+                "device_control_release_public_key": public_key,
+                **browser_deployment_pins(),
+            }
+        )
+    )
+
+    assert app.state.ego_browser_release_evidence.schema_version == 9
+
+
+def test_production_ego_browser_requires_complete_deployment_pins(tmp_path: Path) -> None:
+    """有效签名本身不足以启用 Bridge，部署 pin 也必须齐全。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(evidence_path, schema_version=9)
+    settings = Settings(
+        secret_key="test-secret",
+        environment="production",
+        ego_browser_bridge_enabled=True,
+        ego_browser_require_device_pop=True,
+        ego_browser_expected_release_profile="community-local-trust",
+        ego_browser_expected_signer_certificate_sha256="f" * 64,
+        device_control_release_evidence_path=str(evidence_path),
+        device_control_release_public_key=public_key,
+    )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="deployment pins"):
+        create_app(settings)
+
+
+def test_production_ego_browser_rejects_identity_pin_drift(tmp_path: Path) -> None:
+    """schema 9 evidence 的身份字段漂移时必须拒绝启动。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(evidence_path, schema_version=9)
+    settings = Settings(
+        secret_key="test-secret",
+        environment="production",
+        ego_browser_bridge_enabled=True,
+        ego_browser_require_device_pop=True,
+        ego_browser_expected_release_profile="community-local-trust",
+        ego_browser_expected_signer_certificate_sha256="0" * 64,
+        device_control_release_evidence_path=str(evidence_path),
+        device_control_release_public_key=public_key,
+    )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="certificate"):
+        create_app(settings)
+
+
+def test_production_ego_browser_rejects_deployment_pin_drift(tmp_path: Path) -> None:
+    """根组合或 Bridge 制品 pin 漂移时必须拒绝启动。"""
+
+    evidence_path = tmp_path / "release-evidence.json"
+    public_key = create_signed_evidence(evidence_path, schema_version=9)
+    pins = browser_deployment_pins()
+    pins["ego_browser_expected_bridge_provenance_sha256"] = "f" * 64
+    settings = Settings.model_validate(
+        {
+            "secret_key": "test-secret",
+            "environment": "production",
+            "ego_browser_bridge_enabled": True,
+            "ego_browser_require_device_pop": True,
+            "ego_browser_expected_release_profile": "community-local-trust",
+            "ego_browser_expected_signer_certificate_sha256": "f" * 64,
+            "device_control_release_evidence_path": str(evidence_path),
+            "device_control_release_public_key": public_key,
+            **pins,
+        }
+    )
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="deployment pin"):
+        create_app(settings)
+
+
+def test_ego_browser_release_gate_checks_all_identity_fields() -> None:
+    """运行时 Bridge 门禁必须要求 schema 9、精确版本和完整 artifact 摘要。"""
+
+    with pytest.raises(DeviceControlReleaseEvidenceError, match="schema 9"):
+        ensure_ego_browser_release_evidence_current(
+            environment="production",
+            enabled=True,
+            evidence=None,
+            expected_release_profile="community-local-trust",
+            expected_signer_certificate_sha256="f" * 64,
+            expected_wrapper_version="0.1.0",
+            expected_skill_version="1.2.3",
+            expected_skill_tree_sha256="2" * 64,
+        )
 
 
 def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path) -> None:

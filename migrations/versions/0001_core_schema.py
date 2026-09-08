@@ -1,4 +1,4 @@
-"""create core schema
+"""创建核心 schema
 
 Revision ID: 0001_core_schema
 Revises:

@@ -265,6 +265,8 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
+
+        :raises ApiError: 工具账户不存在、未禁用、已绑定运行时或仍有 session 历史
         """
 
         account = await self._require_account(user=user, account_id=account_id)
@@ -309,6 +311,8 @@ class ToolAccountService:
         :param target_backend (str): 目标运行时
 
         :return RuntimeMigrationData: 迁移任务数据
+
+        :raises ApiError: 工具账户、目标运行时、活动 session 或节点能力不满足迁移条件
         """
 
         account = await self._repository.get_account(account_id)
@@ -429,6 +433,8 @@ class ToolAccountService:
         :param dry_run (bool): 是否仅生成计划而不实际导入
 
         :return ToolAccountConfigImportData: 配置导入计划
+
+        :raises ApiError: 工具类型、配置文件、导入路径或可用节点不满足导入条件
         """
 
         account = await self.get_account(user=user, account_id=account_id)
@@ -538,6 +544,8 @@ class ToolAccountService:
         :param task_id (str): 节点导入任务 ID
 
         :return ToolAccountConfigImportStatusData: 配置导入状态
+
+        :raises ApiError: 工具账户或对应的配置导入任务不存在
         """
 
         account = await self.get_account(user=user, account_id=account_id)
@@ -739,9 +747,12 @@ class ToolAccountService:
         创建工具账户绑定任务
 
         :param user (User): 当前用户
+        :param token (AuthToken): 当前用户认证令牌
         :param account_id (UUID): 工具账户 ID
 
         :return BindingSession: 绑定会话
+
+        :raises ApiError: 工具账户、节点、设备身份或 SSH 密钥不满足绑定条件
         """
 
         account = await self._require_account(user=user, account_id=account_id)
@@ -880,6 +891,8 @@ class ToolAccountService:
         :param account_id (UUID): 工具账户 ID
 
         :return BindingSession: 绑定会话
+
+        :raises ApiError: 工具账户不存在或其亲和节点当前不可用
         """
 
         account = await self._require_account(user=user, account_id=account_id)

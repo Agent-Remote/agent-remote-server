@@ -1,5 +1,12 @@
 from agent_remote_server.models.audit import AuditLog
 from agent_remote_server.models.auth import AuthToken, CliLoginCode
+from agent_remote_server.models.ego_browser import (
+    EgoBrowserBinding,
+    EgoBrowserDevice,
+    EgoBrowserDeviceCredential,
+    EgoBrowserRequestLedger,
+    EgoBrowserRevocationOutbox,
+)
 from agent_remote_server.models.network import WireGuardPeer
 from agent_remote_server.models.nodes import Node, NodeHeartbeat, NodeTask, NodeTaskResult
 from agent_remote_server.models.sessions import (
@@ -25,6 +32,11 @@ __all__ = [
     "BrowserSession",
     "CliLoginCode",
     "DeveloperCredentialProfile",
+    "EgoBrowserBinding",
+    "EgoBrowserDevice",
+    "EgoBrowserDeviceCredential",
+    "EgoBrowserRequestLedger",
+    "EgoBrowserRevocationOutbox",
     "DeviceSession",
     "DeviceSessionApproval",
     "Node",

@@ -56,7 +56,7 @@ class SessionRepository:
 
         :param user_id (UUID): 用户 ID
         :param tool_type (str): 工具类型
-        :param statuses (list): session 状态过滤
+        :param statuses (list): 工具会话状态过滤
 
         :return Sequence: 工具 session 与 workspace 列表
         """
@@ -80,7 +80,7 @@ class SessionRepository:
         按状态列出用户工具 session
 
         :param user_id (UUID): 用户 ID
-        :param statuses (set): session 状态集合
+        :param statuses (set): 工具会话状态集合
 
         :return Sequence: 工具 session 列表
         """
@@ -155,7 +155,7 @@ class SessionRepository:
         读取工具账户 profile
 
         :param account_id (UUID): 工具账户 ID
-        :return ToolAccountProfile: profile 实体
+        :return ToolAccountProfile: 配置档案实体
         """
 
         return await self._session.scalar(
@@ -185,10 +185,10 @@ class SessionRepository:
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:
         """
-        读取 workspace
+        读取工作区
 
         :param workspace_id (UUID): 工作区 ID
-        :return Workspace: workspace 实体
+        :return Workspace: 工作区实体
         """
 
         return await self._session.get(Workspace, workspace_id)

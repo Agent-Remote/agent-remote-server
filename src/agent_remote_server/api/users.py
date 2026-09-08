@@ -4,9 +4,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.api.deps import get_current_user, get_session, get_settings, require_admin
+from agent_remote_server.api.deps import (
+    get_current_user,
+    get_ego_browser_revocation_bus,
+    get_session,
+    get_settings,
+    require_admin,
+)
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.models import User
 from agent_remote_server.schemas.users import (
     CreateUserRequest,
@@ -87,7 +94,6 @@ async def list_users(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return UserListResponse: 用户列表响应
     """
 
@@ -113,7 +119,6 @@ async def create_user(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return UserResponse: 用户响应
     """
 
@@ -157,6 +162,9 @@ async def update_user(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> UserResponse:
     """
     更新用户
@@ -166,11 +174,16 @@ async def update_user(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
 
     :return UserResponse: 用户响应
     """
 
-    user = await IdentityService(session, settings).update_user(
+    user = await IdentityService(
+        session,
+        settings,
+        ego_browser_revocation_publisher=ego_browser_revocation_bus,
+    ).update_user(
         actor=admin,
         user_id=user_id,
         display_name=payload.display_name,
@@ -185,6 +198,9 @@ async def disable_user(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> UserResponse:
     """
     禁用用户
@@ -193,9 +209,14 @@ async def disable_user(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
 
     :return UserResponse: 用户响应
     """
 
-    user = await IdentityService(session, settings).disable_user(actor=admin, user_id=user_id)
+    user = await IdentityService(
+        session,
+        settings,
+        ego_browser_revocation_publisher=ego_browser_revocation_bus,
+    ).disable_user(actor=admin, user_id=user_id)
     return UserResponse(data=_user_data(user), request_id=get_request_id())

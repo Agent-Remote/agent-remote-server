@@ -4,9 +4,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_remote_server.api.deps import get_session, get_settings, require_admin
+from agent_remote_server.api.deps import (
+    get_ego_browser_revocation_bus,
+    get_session,
+    get_settings,
+    require_admin,
+)
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import Node, NodeTask, NodeTaskResult, User
 from agent_remote_server.repositories.nodes import NodeRepository
@@ -115,6 +121,9 @@ async def list_nodes(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> NodeListResponse:
     """
     列出节点
@@ -122,12 +131,17 @@ async def list_nodes(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
 
     :return NodeListResponse: 节点列表响应
     """
 
     _ = admin
-    nodes = await NodeService(session, settings).list_nodes()
+    nodes = await NodeService(
+        session,
+        settings,
+        ego_browser_revocation_publisher=ego_browser_revocation_bus,
+    ).list_nodes()
     return NodeListResponse(
         data=NodeListData(items=[node_data(node) for node in nodes]),
         request_id=get_request_id(),
@@ -218,6 +232,8 @@ async def get_node_task(
     :param admin (User): 当前管理员
 
     :return NodeTaskResponse: 节点任务响应
+
+    :raises ApiError: 节点任务不存在
     """
 
     _ = admin
@@ -237,6 +253,9 @@ async def get_node(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> NodeResponse:
     """
     读取节点
@@ -245,12 +264,17 @@ async def get_node(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
 
     :return NodeResponse: 节点响应
     """
 
     _ = admin
-    node = await NodeService(session, settings).get_node(node_id)
+    node = await NodeService(
+        session,
+        settings,
+        ego_browser_revocation_publisher=ego_browser_revocation_bus,
+    ).get_node(node_id)
     return NodeResponse(data=node_data(node), request_id=get_request_id())
 
 
@@ -261,6 +285,9 @@ async def update_node(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> NodeResponse:
     """
     更新节点
@@ -270,11 +297,14 @@ async def update_node(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return NodeResponse: 节点响应
     """
 
-    node = await NodeService(session, settings).update_node(
+    node = await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).update_node(
         actor=admin,
         node_id=node_id,
         name=payload.name,
@@ -331,6 +361,9 @@ async def set_maintenance(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> NodeResponse:
     """
     设置节点维护
@@ -339,11 +372,14 @@ async def set_maintenance(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return NodeResponse: 节点响应
     """
 
-    node = await NodeService(session, settings).set_maintenance(actor=admin, node_id=node_id)
+    node = await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).set_maintenance(actor=admin, node_id=node_id)
     return NodeResponse(data=node_data(node), request_id=get_request_id())
 
 
@@ -353,6 +389,9 @@ async def disable_node(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> NodeResponse:
     """
     禁用节点
@@ -361,11 +400,14 @@ async def disable_node(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return NodeResponse: 节点响应
     """
 
-    node = await NodeService(session, settings).disable_node(actor=admin, node_id=node_id)
+    node = await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).disable_node(actor=admin, node_id=node_id)
     return NodeResponse(data=node_data(node), request_id=get_request_id())
 
 
@@ -375,6 +417,9 @@ async def delete_node(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     admin: Annotated[User, Depends(require_admin)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     删除已禁用且无业务引用的节点
@@ -383,8 +428,12 @@ async def delete_node(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
+
     :return EmptyResponse: 空响应
     """
 
-    await NodeService(session, settings).delete_node(actor=admin, node_id=node_id)
+    await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).delete_node(actor=admin, node_id=node_id)
     return EmptyResponse(request_id=get_request_id())

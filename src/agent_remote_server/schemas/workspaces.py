@@ -45,13 +45,13 @@ def default_git_excludes() -> list[str]:
 
 class WorkspaceData(BaseModel):
     """
-    workspace 响应数据
+    工作区响应数据
     """
 
     id: UUID = Field(..., description="工作区标识")
     user_id: UUID = Field(..., description="用户 ID")
     device_id: UUID = Field(..., description="设备 ID")
-    project_key: str = Field(..., description="项目 key")
+    project_key: str = Field(..., description="项目键")
     local_start_path: str = Field(..., description="本地启动路径")
     display_name: str = Field(..., description="显示名称")
     remote_path: str | None = Field(default=None, description="远端路径")
@@ -66,11 +66,11 @@ class WorkspaceData(BaseModel):
 
 class CreateWorkspaceRequest(BaseModel):
     """
-    创建 workspace 请求
+    创建工作区请求
     """
 
     device_id: UUID = Field(..., description="设备 ID")
-    project_key: str = Field(..., description="项目 key")
+    project_key: str = Field(..., description="项目键")
     local_start_path: str = Field(..., description="本地启动路径")
     display_name: str = Field(..., description="显示名称")
     sync_git: bool = Field(default=True, description="是否同步 .git 目录")
@@ -82,7 +82,7 @@ class CreateWorkspaceRequest(BaseModel):
 
 class UpdateWorkspaceRequest(BaseModel):
     """
-    更新 workspace 请求
+    更新工作区请求
     """
 
     local_start_path: str | None = Field(default=None, description="本地启动路径")
@@ -93,37 +93,37 @@ class UpdateWorkspaceRequest(BaseModel):
 
 class WorkspaceResponse(BaseModel):
     """
-    workspace 响应
+    工作区响应
     """
 
-    data: WorkspaceData = Field(..., description="workspace 数据")
+    data: WorkspaceData = Field(..., description="工作区数据")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class WorkspaceListData(BaseModel):
     """
-    workspace 列表数据
+    工作区列表数据
     """
 
-    items: list[WorkspaceData] = Field(default_factory=list, description="workspace 列表")
+    items: list[WorkspaceData] = Field(default_factory=list, description="工作区列表")
     next_cursor: str | None = Field(default=None, description="下一页游标")
 
 
 class WorkspaceListResponse(BaseModel):
     """
-    workspace 列表响应
+    工作区列表响应
     """
 
-    data: WorkspaceListData = Field(..., description="workspace 列表数据")
+    data: WorkspaceListData = Field(..., description="工作区列表数据")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class SyncSessionData(BaseModel):
     """
-    同步 session 响应数据
+    同步会话响应数据
     """
 
-    id: UUID = Field(..., description="同步 session ID")
+    id: UUID = Field(..., description="同步会话 ID")
     user_id: UUID = Field(..., description="用户 ID")
     workspace_id: UUID = Field(..., description="工作区标识")
     node_id: UUID | None = Field(default=None, description="节点 ID")
@@ -135,15 +135,15 @@ class SyncSessionData(BaseModel):
     sync_git: bool = Field(default=True, description="是否同步 .git 目录")
     exclude: list[str] = Field(default_factory=default_git_excludes, description="排除规则")
     mutagen_session_id: str | None = Field(default=None, description="Mutagen 会话标识")
-    remote_endpoint: str | None = Field(default=None, description="Mutagen 远端 endpoint")
-    prepare_task_id: str | None = Field(default=None, description="workspace 准备任务 ID")
+    remote_endpoint: str | None = Field(default=None, description="Mutagen 远端端点")
+    prepare_task_id: str | None = Field(default=None, description="工作区准备任务 ID")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
 
 class CreateSyncSessionRequest(BaseModel):
     """
-    创建同步 session 请求
+    创建同步会话请求
     """
 
     workspace_id: UUID = Field(..., description="工作区标识")
@@ -156,7 +156,7 @@ class CreateSyncSessionRequest(BaseModel):
 
 class SyncSessionActionRequest(BaseModel):
     """
-    同步 session 操作请求
+    同步会话操作请求
     """
 
     note: str | None = Field(default=None, description="操作备注")
@@ -164,26 +164,26 @@ class SyncSessionActionRequest(BaseModel):
 
 class SyncSessionResponse(BaseModel):
     """
-    同步 session 响应
+    同步会话响应
     """
 
-    data: SyncSessionData = Field(..., description="同步 session 数据")
+    data: SyncSessionData = Field(..., description="同步会话数据")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class SyncSessionListData(BaseModel):
     """
-    同步 session 列表数据
+    同步会话列表数据
     """
 
-    items: list[SyncSessionData] = Field(default_factory=list, description="同步 session 列表")
+    items: list[SyncSessionData] = Field(default_factory=list, description="同步会话列表")
     next_cursor: str | None = Field(default=None, description="下一页游标")
 
 
 class SyncSessionListResponse(BaseModel):
     """
-    同步 session 列表响应
+    同步会话列表响应
     """
 
-    data: SyncSessionListData = Field(..., description="同步 session 列表数据")
+    data: SyncSessionListData = Field(..., description="同步会话列表数据")
     request_id: str | None = Field(default=None, description="请求 ID")

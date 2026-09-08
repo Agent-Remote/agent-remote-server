@@ -8,12 +8,14 @@ from agent_remote_server.api.auth import _token_data
 from agent_remote_server.api.deps import (
     get_current_user,
     get_device_relay_hub,
+    get_ego_browser_revocation_bus,
     get_session,
     get_settings,
 )
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.models import User, UserDevice
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.devices import (
@@ -138,6 +140,9 @@ async def revoke_device(
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
     relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
 ) -> EmptyResponse:
     """
     撤销设备
@@ -146,11 +151,13 @@ async def revoke_device(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
+    :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
 
     :return EmptyResponse: 空响应
     """
 
-    await IdentityService(session, settings, relay_hub).revoke_device(
+    await IdentityService(session, settings, relay_hub, ego_browser_revocation_bus).revoke_device(
         actor=user, device_id=device_id
     )
     return EmptyResponse(request_id=get_request_id())

@@ -1,1 +1,1 @@
-"""ASGI middleware."""
+"""ASGI 中间件。"""

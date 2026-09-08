@@ -245,6 +245,7 @@ async def start_tool_account_binding(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
+    :param token (AuthToken): 当前用户认证令牌
 
     :return BindingStatusResponse: 绑定状态响应
     """

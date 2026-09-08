@@ -5,12 +5,16 @@
 ```text
 src/agent_remote_server/
   api/          FastAPI route modules and dependencies
+  device_control/ Device-control release, relay, retention, and limit infrastructure
+  ego_browser/  Ego-browser relay and cleanup infrastructure
   middleware/   ASGI middleware
   models/       SQLAlchemy ORM models split by business domain
+  port_forwarding/ Port-forward token and cleanup infrastructure
+  relay/        Cross-domain relay identity primitives
   repositories/ Database access helpers
   schemas/      Pydantic response and request models
   security/     Password, token, encryption, and TOTP helpers
-  services/     Application service helpers
+  services/     Application services, with large domains split into operation packages
   config.py     Environment-driven settings
   context.py    Request-local context
   db.py         SQLAlchemy engine and database helpers
@@ -152,3 +156,61 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   running; stopping or losing the remote Claude session also revokes its live device binding.
 - Database revocation closes already established relay pairs through cross-worker Redis
   notification. A local in-memory close alone is insufficient for multi-worker deployment.
+
+## Ego Browser Bridge Bindings
+
+- `ego_browser_devices` and `ego_browser_bindings` form an independent identity and authorization
+  domain for remote `ego-browser` heredoc execution. They do not reuse `devices`,
+  `device_sessions`, GUI-control authorization modes, relay routes, credentials, or generations.
+- A binding is created only by an authenticated ego-browser Device Client after the user selects
+  one compatible tool session and confirms `ego_browser_script_full_trust`. The server derives the
+  user, device, tool-session node, and platform identity and atomically enforces one live binding.
+- The server also derives the binding's canonical Task Space label as
+  `agent-remote:<tool_session_id>`. A claim may echo that value for transcript binding, but any
+  mismatch is rejected and no client may choose another label. The canonical value is returned on
+  claim and resume so the Device Client can validate its owner-only handoff; encrypted execution
+  requests remain subject to the Bridge's exact label and scope checks.
+- The bridge admits both `runtime_backend=native` and `runtime_backend=docker_sandbox` only when
+  the assigned Node advertises the selected backend in its complete ego-browser capability report.
+  Native uses the session's dedicated non-root identity. Docker Sandbox runs with the configured
+  Node service UID/GID, mounts the broker socket and pinned artifacts into the container, and is
+  admitted only after the Node broker verifies both the session nonce and the exact non-root
+  `SO_PEERCRED` UID.
+- The local Bridge is outbound-only. The browser relay validates a strict authenticated outer
+  envelope and forwards opaque ciphertext; scripts, browser data, output, artifacts, URLs, and
+  local paths are never parsed, persisted, audited, or logged by the control plane.
+- Relay tickets and Device proof challenges are one-time, role-bound where applicable, and consumed
+  atomically from an independent Redis namespace. Production PostgreSQL deployments always use
+  Redis-backed pairing: each worker publishes encrypted frames to an endpoint-specific channel and
+  refreshes binding/generation/role presence with a five-second TTL. Duplicate role presence,
+  missing subscribers, lost presence, malformed broker state, or Redis failure closes the relay;
+  no worker falls back to process-local pairing.
+- Binding revocation first commits a PostgreSQL outbox row. The cleanup publisher writes a
+  20-minute old-generation marker before broadcasting over the Redis revocation bus. Relay workers
+  atomically refuse marked presence and poll the marker while waiting or paired, so a missed
+  Pub/Sub event still closes matching endpoints. Only successful marker and event publication marks
+  the outbox delivery complete; repeated publication and close are idempotent.
+- Only `active/healthy` bindings admit execution. Lease renewal uses generation-aware compare and
+  swap, a bounded failure grace, and an absolute TTL. Stop, revoke, policy drift, tool-session stop,
+  node loss, device revoke, and user disable all invalidate the old generation before broadcast.
+- A Device-authenticated pause carries a finite content-free reason. The service preserves
+  `task_space_takeover` and `task_space_monitor_unavailable` in `stop_reason`, advances the
+  generation, makes the old generation non-admissible, and publishes its revocation. The local
+  Bridge must already have revoked admission and terminated managed executions before requesting
+  this pause. Unknown reason text is normalized to `other` before persistence, audit, or outbox
+  insertion. Only an explicitly confirmed Device resume may advance the paused binding again; it
+  retains the server-derived Task Space label and never performs browser claim/takeover itself.
+- File-allowlist and Site Learning capabilities are accepted only when their canonical roots
+  digest or signed bundle digest is present and consistent. Production policy requires the full
+  policy-backed capability set; development may negotiate only the independently verified subset.
+- `ego_browser_bridge_enabled` defaults to false. Production enablement additionally requires a
+  signed release-evidence manifest with project self-signing, Hardened Runtime, pinned certificate,
+  owner-only credentials, application-enforced egress, SBOM, provenance, and compatibility
+  evidence. Community releases explicitly remain non-notarized and non-public. Production startup
+  loads that evidence even when only the Bridge flag is enabled, requires schema 9, and compares its
+  published/readiness state, certificate, wrapper, Skill, protocol, runtime, learning-key, and
+  artifact-digest identity with the deployment policy. Profile or certificate settings alone never
+  authorize startup.
+- Content-free relay and revocation metric events are documented in
+  `docs/ego-browser-operations.md`. Metric labels have finite enumerated values and never carry a
+  user, device, session, binding, request, URL, page, script, artifact path, or browser payload.

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from redis.asyncio import Redis
 
-from agent_remote_server.device_relay_revocation import DeviceRelayRevocationBus
+from agent_remote_server.device_control.relay_revocation import DeviceRelayRevocationBus
 
 
 def test_redis_relay_revocation_reaches_another_worker() -> None:

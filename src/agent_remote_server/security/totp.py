@@ -8,7 +8,7 @@ from struct import pack, unpack
 
 def generate_totp_secret() -> str:
     """
-    生成 TOTP secret
+    生成 TOTP 密钥
 
     :return str: Base32 密钥
     """

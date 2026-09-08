@@ -8,9 +8,9 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_remote_server import device_control_retention
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
+from agent_remote_server.device_control import retention as device_control_retention
 from agent_remote_server.models import AuditLog, DeviceSession, DeviceSessionApproval
 from agent_remote_server.services.device_control_retention import DeviceControlRetentionService
 

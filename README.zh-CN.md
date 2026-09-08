@@ -37,7 +37,7 @@ Runtime 控制平面还提供：
 - 为退役资源提供受保护的删除能力，删除前校验生命周期状态和关联记录。
 - Session 级端口转发授权，包含 Redis 一次性 token、可续租 lease、配额、资源即时撤销、生命周期清理和仅元数据审计事件。
 
-只有所选 Node 为 session backend 明确上报 capability 时，控制面才允许创建端口转发。当前发布仅支持 Native Runtime session；Docker Sandbox 请求会 fail closed。应用数据直接在设备与 Node 之间传输，不经过控制面。
+只有所选 Node 为 session backend 明确上报 capability 时，控制面才允许创建端口转发。当前发布同时支持 Native Runtime 与 Docker Sandbox session；backend capability 或受信 runtime state 校验失败时仍会 fail closed。应用数据直接在设备与 Node 之间传输，不经过控制面。
 
 管理前端可以删除失败或已暂停的同步会话。活跃的本地 Mutagen 会话必须先在所属设备上暂停，
 控制面不会静默遗留运行中的同步进程。

@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
-from agent_remote_server.device_control_limits import (
+from agent_remote_server.device_control.limits import (
     MAX_ACTIVE_DEVICE_SESSION_GENERATION,
     MAX_DEVICE_SESSION_GENERATION,
 )

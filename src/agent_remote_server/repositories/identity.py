@@ -236,7 +236,7 @@ class IdentityRepository:
 
     async def add_wireguard_peer(self, peer: WireGuardPeer) -> WireGuardPeer:
         """
-        新增 WireGuard peer
+        新增 WireGuard 对端
 
         :param peer (WireGuardPeer): WireGuard peer 实体
 
@@ -249,7 +249,7 @@ class IdentityRepository:
 
     async def list_wireguard_peers_for_device(self, device_id: UUID) -> Sequence[WireGuardPeer]:
         """
-        列出设备 WireGuard peer
+        列出设备 WireGuard 对端
 
         :param device_id (UUID): 设备 ID
 
@@ -263,9 +263,9 @@ class IdentityRepository:
 
     async def count_wireguard_peers(self) -> int:
         """
-        统计 WireGuard peer 数量
+        统计 WireGuard 对端数量
 
-        :return int: peer 数量
+        :return int: 对端数量
         """
 
         return await self._session.scalar(select(func.count(WireGuardPeer.id))) or 0

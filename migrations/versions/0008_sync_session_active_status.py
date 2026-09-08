@@ -1,4 +1,4 @@
-"""align runtime session status constraints
+"""统一运行时会话状态约束
 
 Revision ID: 0008_sync_session_active_status
 Revises: 0007_native_runtime
@@ -16,6 +16,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """扩展工具会话和同步会话的活动状态约束。"""
+
     op.drop_constraint("sync_sessions_status_ck", "sync_sessions", type_="check")
     op.create_check_constraint(
         "sync_sessions_status_ck",
@@ -32,6 +34,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """恢复工具会话和同步会话的旧状态约束。"""
+
     op.drop_constraint("sessions_status_ck", "sessions", type_="check")
     op.create_check_constraint(
         "sessions_status_ck",

@@ -1,3 +1,5 @@
+"""校验并解析设备控制发布证据。"""
+
 import base64
 import binascii
 import json
@@ -25,14 +27,37 @@ _SUPPORTED_NODE_TARGETS = {
     "linux-amd64-musl",
     "linux-arm64-musl",
 }
-_SUPPORTED_COMPONENTS = {
+_LEGACY_SUPPORTED_COMPONENTS = {
     "agent-remote-server",
     "agent-remote-node",
     "agent-remote-cli",
     "agent-remote-admin-web",
     "agent-remote-device",
 }
+_EGO_BROWSER_COMPONENT = "agent-remote-ego-browser"
+_SUPPORTED_COMPONENTS = _LEGACY_SUPPORTED_COMPONENTS | {_EGO_BROWSER_COMPONENT}
 _SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-.+][0-9A-Za-z.-]+)?$")
+EGO_BROWSER_PROTOCOL_VERSION = "ego-browser-bridge-v1"
+EGO_BROWSER_SKILL_COMMIT = "36053d07001a910cb806a15d42d00fdea1cdea3d"
+EGO_BROWSER_RUNTIME_VERSION = "0.4.7.4"
+EGO_BROWSER_ARTIFACT_DIGEST_FIELDS = (
+    "ego_browser_release_manifest_sha256",
+    "ego_browser_release_archive_sha256",
+    "ego_browser_signing_evidence_sha256",
+    "ego_browser_learning_bundle_sha256",
+    "ego_browser_sigstore_sha256",
+    "ego_browser_provenance_sha256",
+)
+
+
+def _valid_sha256_pin(value: object) -> bool:
+    """Return whether a deployment pin is lowercase hexadecimal SHA-256."""
+
+    return (
+        isinstance(value, str)
+        and len(value) == _SHA256_HEX_LENGTH
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -120,6 +145,46 @@ class ReleaseComponentIdentity(BaseModel):
         return value
 
 
+class EgoBrowserReleaseComponentIdentity(ReleaseComponentIdentity):
+    """
+    表示 schema 9 中经过签名和学习证据认证的 ego-browser Bridge 身份
+    """
+
+    release_published: bool = Field(..., description="Bridge 的 GitHub tag release 是否已发布")
+    profile: Literal["community-local-trust"] = Field(..., description="Bridge 使用的发布信任配置")
+    signing_type: Literal["project-self-signed"] = Field(..., description="Bridge 的签名类型")
+    signer_certificate_sha256: str = Field(..., description="Bridge 叶证书的 SHA-256 摘要")
+    production_ready: bool = Field(..., description="Bridge 是否通过生产发布门禁")
+    readiness_blockers: list[str] = Field(..., description="Bridge 尚未满足的发布门禁列表")
+    apple_notarized: Literal[False] = Field(..., description="Bridge 是否经过 Apple 公证")
+    public_distribution: Literal[False] = Field(
+        ..., description="Bridge 是否支持无人工信任的公开分发"
+    )
+    hardened_runtime: Literal[True] = Field(..., description="Bridge 是否启用 Hardened Runtime")
+    nested_signatures_verified: Literal[True] = Field(
+        ..., description="Bridge 及其嵌套制品签名是否已验证"
+    )
+    outbound_policy: Literal["application-enforced"] = Field(
+        ..., description="Bridge 的出站策略类型"
+    )
+    credential_profile: Literal["community_file"] = Field(..., description="Bridge 的凭据存储配置")
+    learning_bundle_digest: str = Field(
+        ..., description="已验签 Site Learning bundle 的 SHA-256 摘要"
+    )
+    learning_bundle_signing_key_id: str = Field(
+        ..., description="Site Learning bundle 签名密钥标识"
+    )
+    skill_version: str = Field(..., description="Bridge 使用的官方 Skill 版本")
+    skill_commit: str = Field(..., description="官方 Skill 的不可变 commit SHA")
+    skill_tree_sha256: str = Field(..., description="官方 Skill 目录树 SHA-256 摘要")
+    local_ego_browser_runtime_version: str = Field(..., description="本机 ego-browser runtime 版本")
+    protocol_version: str = Field(..., description="Bridge 协议版本")
+
+
+# Keep the shorter name available to callers that use the protocol terminology.
+EgoBrowserComponentIdentity = EgoBrowserReleaseComponentIdentity
+
+
 class DeviceControlReleaseEvidence(BaseModel):
     """
     设备控制生产发布证据清单
@@ -144,8 +209,8 @@ class DeviceControlReleaseEvidence(BaseModel):
     release_manifest_sha256: str | None = Field(
         default=None, description="根仓库生产发布清单的精确 SHA-256 摘要"
     )
-    components: dict[str, ReleaseComponentIdentity] | None = Field(
-        default=None, description="生产部署组合固定的组件版本与源码身份"
+    components: dict[str, ReleaseComponentIdentity | EgoBrowserReleaseComponentIdentity] | None = (
+        Field(default=None, description="生产部署组合固定的组件版本与源码身份")
     )
     issued_at: datetime = Field(..., description="发布证据签发时间")
     expires_at: datetime | None = Field(
@@ -195,6 +260,24 @@ class DeviceControlReleaseEvidence(BaseModel):
     )
     risk_acceptance_sha256: str | None = Field(
         default=None, description="部署方接受 Community 剩余风险的记录摘要"
+    )
+    ego_browser_release_manifest_sha256: str | None = Field(
+        default=None, description="ego-browser Bridge aggregate manifest 摘要"
+    )
+    ego_browser_release_archive_sha256: str | None = Field(
+        default=None, description="ego-browser Bridge 精确发布归档摘要"
+    )
+    ego_browser_signing_evidence_sha256: str | None = Field(
+        default=None, description="ego-browser Bridge 签名证据摘要"
+    )
+    ego_browser_learning_bundle_sha256: str | None = Field(
+        default=None, description="已验签 ego-browser Site Learning bundle 摘要"
+    )
+    ego_browser_sigstore_sha256: str | None = Field(
+        default=None, description="ego-browser Bridge Sigstore 证据摘要"
+    )
+    ego_browser_provenance_sha256: str | None = Field(
+        default=None, description="ego-browser Bridge provenance 证据摘要"
     )
     ci_run_url: str = Field(..., description="生成发布证据的持续集成运行地址")
     signature: str = Field(..., description="清单规范载荷的 Ed25519 签名")
@@ -254,6 +337,39 @@ class DeviceControlReleaseEvidence(BaseModel):
             value is None for value in composition_fields
         ):
             raise ValueError("release composition schemas require the certified manifest")
+        if self.components is not None:
+            expected_components = _LEGACY_SUPPORTED_COMPONENTS
+            if (
+                self.schema_version == _LATEST_SCHEMA_VERSION
+                and self.release_profile == "community-local-trust"
+            ):
+                expected_components = _SUPPORTED_COMPONENTS
+            if set(self.components) != expected_components:
+                raise ValueError("release evidence component inventory is incomplete")
+            if (
+                self.schema_version == _LATEST_SCHEMA_VERSION
+                and self.release_profile == "community-local-trust"
+            ):
+                bridge = self.components.get(_EGO_BROWSER_COMPONENT)
+                if not isinstance(bridge, EgoBrowserReleaseComponentIdentity):
+                    raise ValueError("schema 9 community evidence requires Bridge identity")
+                self._validate_ego_browser_identity(bridge)
+                if any(
+                    digest is None
+                    for digest in (
+                        self.ego_browser_release_manifest_sha256,
+                        self.ego_browser_release_archive_sha256,
+                        self.ego_browser_signing_evidence_sha256,
+                        self.ego_browser_learning_bundle_sha256,
+                        self.ego_browser_sigstore_sha256,
+                        self.ego_browser_provenance_sha256,
+                    )
+                ):
+                    raise ValueError("schema 9 community evidence requires Bridge artifacts")
+                if self.ego_browser_learning_bundle_sha256 != bridge.learning_bundle_digest:
+                    raise ValueError(
+                        "schema 9 community evidence learning bundle digest is inconsistent"
+                    )
         if self.schema_version in {5, 6, 7, 8, _LATEST_SCHEMA_VERSION}:
             assert self.components is not None
             server = self.components["agent-remote-server"]
@@ -313,6 +429,45 @@ class DeviceControlReleaseEvidence(BaseModel):
             raise ValueError("schema version 6 requires Computer Use v2 evidence")
         return self
 
+    @staticmethod
+    def _validate_ego_browser_identity(
+        component: EgoBrowserReleaseComponentIdentity,
+    ) -> None:
+        """
+        校验 schema 9 Bridge 身份中的生产 readiness 和摘要字段
+
+        :param component (EgoBrowserReleaseComponentIdentity): 待校验的 Bridge 身份
+
+        :raises ValueError: Bridge 身份没有完整的生产证据
+        """
+
+        digest_fields = (
+            component.signer_certificate_sha256,
+            component.learning_bundle_digest,
+            component.skill_tree_sha256,
+        )
+        if any(
+            len(value) != _SHA256_HEX_LENGTH
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in digest_fields
+        ):
+            raise ValueError("schema 9 Bridge identity digest is invalid")
+        if (
+            component.commit == "0" * 40
+            or component.release_published is not True
+            or component.production_ready is not True
+            or component.readiness_blockers
+            or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",
+                component.learning_bundle_signing_key_id,
+            )
+            or component.skill_version != "1.2.3"
+            or component.skill_commit != EGO_BROWSER_SKILL_COMMIT
+            or component.local_ego_browser_runtime_version != EGO_BROWSER_RUNTIME_VERSION
+            or component.protocol_version != EGO_BROWSER_PROTOCOL_VERSION
+        ):
+            raise ValueError("schema 9 Bridge identity is not production ready")
+
     @field_validator("components")
     @classmethod
     def validate_components(
@@ -330,9 +485,11 @@ class DeviceControlReleaseEvidence(BaseModel):
 
         if value is None:
             return None
-        if set(value) != _SUPPORTED_COMPONENTS:
-            raise ValueError("release evidence component inventory is incomplete")
         for name, component in value.items():
+            if not isinstance(
+                component, (ReleaseComponentIdentity, EgoBrowserReleaseComponentIdentity)
+            ):
+                raise ValueError("release evidence component identity is invalid")
             if component.repository != f"Agent-Remote/{name}":
                 raise ValueError("release evidence component repository is invalid")
             if _SEMVER.fullmatch(component.version) is None:
@@ -392,6 +549,12 @@ class DeviceControlReleaseEvidence(BaseModel):
         "community_signing_sha256",
         "automated_release_checks_sha256",
         "risk_acceptance_sha256",
+        "ego_browser_release_manifest_sha256",
+        "ego_browser_release_archive_sha256",
+        "ego_browser_signing_evidence_sha256",
+        "ego_browser_learning_bundle_sha256",
+        "ego_browser_sigstore_sha256",
+        "ego_browser_provenance_sha256",
         "release_manifest_sha256",
     )
     @classmethod
@@ -646,3 +809,167 @@ def ensure_device_control_release_evidence_current(
             )
         if evidence.expires_at <= verification_time:
             raise DeviceControlReleaseEvidenceError("device control release evidence has expired")
+
+
+def ensure_ego_browser_release_evidence_current(
+    *,
+    environment: str,
+    enabled: bool,
+    evidence: DeviceControlReleaseEvidence | None,
+    expected_release_profile: str,
+    expected_signer_certificate_sha256: str,
+    expected_wrapper_version: str,
+    expected_skill_version: str,
+    expected_skill_tree_sha256: str,
+    expected_skill_commit: str = EGO_BROWSER_SKILL_COMMIT,
+    expected_local_runtime_version: str = EGO_BROWSER_RUNTIME_VERSION,
+    expected_protocol_version: str = EGO_BROWSER_PROTOCOL_VERSION,
+    expected_learning_bundle_signing_key_id: str | None = None,
+    expected_learning_bundle_digest: str | None = None,
+    expected_distribution_version: str | None = None,
+    expected_release_manifest_sha256: str | None = None,
+    expected_bridge_artifact_digests: dict[str, str] | None = None,
+    now: datetime | None = None,
+) -> None:
+    """
+    确认生产 ego-browser Bridge 使用完整且精确绑定的 schema 9 证据。
+
+    :param environment (str): 当前部署环境
+    :param enabled (bool): 是否配置启用 ego-browser Bridge
+    :param evidence (DeviceControlReleaseEvidence): 启动时已验签的发布证据
+    :param expected_release_profile (str): Server 接受的 Bridge 发布 profile
+    :param expected_signer_certificate_sha256 (str): Server 固定的叶证书摘要
+    :param expected_wrapper_version (str): Server 接受的 wrapper 版本
+    :param expected_skill_version (str): Server 接受的官方 Skill 版本
+    :param expected_skill_tree_sha256 (str): Server 接受的 Skill 目录摘要
+    :param expected_skill_commit (str): Server 接受的 Skill commit
+    :param expected_local_runtime_version (str): Server 接受的本地 runtime 版本
+    :param expected_protocol_version (str): Server 接受的 Bridge 协议版本
+    :param expected_learning_bundle_signing_key_id (str): 可选的学习密钥 ID pin
+    :param expected_learning_bundle_digest (str): 可选的学习 bundle 摘要 pin
+    :param expected_distribution_version (str): 可选的根发行组合版本 pin
+    :param expected_release_manifest_sha256 (str): 可选的根 release manifest 摘要 pin
+    :param expected_bridge_artifact_digests (dict[str, str]): 可选的六个 Bridge 制品摘要 pin
+    :param now (datetime): 可选的当前时间，供确定性验证使用
+
+    :raises DeviceControlReleaseEvidenceError: 证据缺失、版本不符或身份 pin 漂移
+    """
+
+    if environment.strip().lower() != "production" or not enabled:
+        return
+    if evidence is None:
+        raise DeviceControlReleaseEvidenceError(
+            "production ego-browser bridge requires signed schema 9 release evidence"
+        )
+    if evidence.schema_version != _LATEST_SCHEMA_VERSION:
+        raise DeviceControlReleaseEvidenceError(
+            "production ego-browser bridge requires schema 9 release evidence"
+        )
+    if evidence.release_version != __version__:
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence does not match the server version"
+        )
+    if (
+        evidence.release_profile != "community-local-trust"
+        or expected_release_profile != "community-local-trust"
+        or evidence.production_ready is not True
+        or evidence.apple_notarized is not False
+        or evidence.public_distribution is not False
+        or evidence.manual_trust_required is not True
+        or evidence.components is None
+    ):
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence does not use the required community profile"
+        )
+    bridge = evidence.components.get(_EGO_BROWSER_COMPONENT)
+    if not isinstance(bridge, EgoBrowserReleaseComponentIdentity):
+        raise DeviceControlReleaseEvidenceError(
+            "schema 9 ego-browser release evidence is missing the Bridge identity"
+        )
+    expected_certificate = expected_signer_certificate_sha256
+    if (
+        len(expected_certificate) != _SHA256_HEX_LENGTH
+        or any(character not in "0123456789abcdef" for character in expected_certificate)
+        or bridge.signer_certificate_sha256 != expected_certificate
+    ):
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence signer certificate does not match the Server pin"
+        )
+    if (
+        bridge.release_published is not True
+        or bridge.production_ready is not True
+        or bridge.readiness_blockers != []
+        or bridge.profile != expected_release_profile
+        or bridge.signing_type != "project-self-signed"
+        or bridge.apple_notarized is not False
+        or bridge.public_distribution is not False
+        or bridge.hardened_runtime is not True
+        or bridge.nested_signatures_verified is not True
+        or bridge.outbound_policy != "application-enforced"
+        or bridge.credential_profile != "community_file"
+        or bridge.version != expected_wrapper_version
+        or bridge.skill_version != expected_skill_version
+        or bridge.skill_commit != expected_skill_commit
+        or bridge.skill_tree_sha256 != expected_skill_tree_sha256
+        or bridge.local_ego_browser_runtime_version != expected_local_runtime_version
+        or bridge.protocol_version != expected_protocol_version
+    ):
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence identity does not match the Server policy"
+        )
+    if (
+        expected_learning_bundle_signing_key_id is not None
+        and bridge.learning_bundle_signing_key_id != expected_learning_bundle_signing_key_id
+    ):
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence learning key does not match the Server pin"
+        )
+    if (
+        expected_learning_bundle_digest is not None
+        and bridge.learning_bundle_digest != expected_learning_bundle_digest
+    ):
+        raise DeviceControlReleaseEvidenceError(
+            "ego-browser release evidence learning digest does not match the Server pin"
+        )
+    for field in EGO_BROWSER_ARTIFACT_DIGEST_FIELDS:
+        if getattr(evidence, field) is None:
+            raise DeviceControlReleaseEvidenceError(
+                "schema 9 ego-browser release evidence is missing a Bridge artifact digest"
+            )
+    pin_requested = any(
+        value is not None
+        for value in (
+            expected_distribution_version,
+            expected_release_manifest_sha256,
+            expected_bridge_artifact_digests,
+        )
+    )
+    if pin_requested:
+        if (
+            not isinstance(expected_distribution_version, str)
+            or not expected_distribution_version
+            or _SEMVER.fullmatch(expected_distribution_version) is None
+            or evidence.distribution_version != expected_distribution_version
+            or not _valid_sha256_pin(expected_release_manifest_sha256)
+            or evidence.release_manifest_sha256 != expected_release_manifest_sha256
+            or not isinstance(expected_bridge_artifact_digests, dict)
+            or set(expected_bridge_artifact_digests) != set(EGO_BROWSER_ARTIFACT_DIGEST_FIELDS)
+            or any(
+                not _valid_sha256_pin(value) for value in expected_bridge_artifact_digests.values()
+            )
+        ):
+            raise DeviceControlReleaseEvidenceError(
+                "ego-browser release evidence does not match the deployment pins"
+            )
+        if any(
+            getattr(evidence, field) != expected_bridge_artifact_digests[field]
+            for field in EGO_BROWSER_ARTIFACT_DIGEST_FIELDS
+        ):
+            raise DeviceControlReleaseEvidenceError(
+                "ego-browser Bridge artifact digest does not match the deployment pin"
+            )
+    verification_time = now or datetime.now(UTC)
+    if verification_time.tzinfo is None or verification_time.utcoffset() is None:
+        raise DeviceControlReleaseEvidenceError("release evidence verification time must be aware")
+    if evidence.issued_at > verification_time:
+        raise DeviceControlReleaseEvidenceError("ego-browser release evidence is not yet valid")

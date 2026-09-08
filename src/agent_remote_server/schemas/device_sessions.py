@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from agent_remote_server.device_control_limits import (
+from agent_remote_server.device_control.limits import (
     MAX_ACTIVE_DEVICE_SESSION_GENERATION,
     MAX_DEVICE_SESSION_GENERATION,
 )

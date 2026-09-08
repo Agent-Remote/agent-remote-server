@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
-from agent_remote_server.device_relay_hub import DeviceRelayHub
+from agent_remote_server.device_control.relay_hub import DeviceRelayHub
+from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -22,15 +23,22 @@ from agent_remote_server.models import (
     User,
 )
 from agent_remote_server.repositories import NodeRepository
+from agent_remote_server.repositories.ego_browser import EgoBrowserRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.security import create_opaque_token, hash_token
 from agent_remote_server.services.device_sessions import (
     DeviceSessionService,
     RevokedDeviceBinding,
 )
+from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 
 RUNTIME_BACKENDS = {"docker_sandbox", "native"}
+_EGO_BROWSER_CANCEL_RESULT_KEYS = {
+    "status",
+    "request_active",
+    "server_terminal_observed",
+}
 
 
 @dataclass(frozen=True)
@@ -63,12 +71,14 @@ class NodeService:
         session: AsyncSession,
         settings: Settings,
         relay_hub: DeviceRelayHub | None = None,
+        ego_browser_revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
         self._repository = NodeRepository(session)
         self._identity_repository = IdentityRepository(session)
         self._relay_hub = relay_hub
+        self._ego_browser_revocation_publisher = ego_browser_revocation_publisher
 
     async def create_node(
         self,
@@ -183,6 +193,8 @@ class NodeService:
         :param version (str): 节点版本
 
         :return NodeRegistrationResult: 注册结果
+
+        :raises ApiError: 注册 token 无效或节点已被禁用
         """
 
         node = await self._require_node(node_id)
@@ -219,6 +231,8 @@ class NodeService:
         :param token (str): 原始 node token
 
         :return Node: 节点实体
+
+        :raises ApiError: Node token 无效或节点已被禁用
         """
 
         token_hash = hash_token(self._settings.secret_key, token)
@@ -256,6 +270,8 @@ class NodeService:
         :param wireguard_endpoint (str): WireGuard 连接端点
         :param resources (dict): 资源快照
         :param runtime (dict): 运行时快照
+
+        :raises ApiError: Node 凭据与心跳中的节点 ID 不一致
         """
 
         if node.id != node_id:
@@ -296,9 +312,7 @@ class NodeService:
         """
 
         nodes = list(await self._repository.list_nodes())
-        changed = self._mark_stale_nodes(nodes)
-        if changed:
-            await self._session.commit()
+        await self._mark_stale_nodes(nodes)
         return nodes
 
     async def get_node(self, node_id: UUID) -> Node:
@@ -311,9 +325,18 @@ class NodeService:
         """
 
         node = await self._require_node(node_id)
-        if self._mark_stale_nodes([node]):
-            await self._session.commit()
+        await self._mark_stale_nodes([node])
         return node
+
+    async def expire_stale_nodes(self) -> int:
+        """
+        主动标记心跳超时节点并撤销其 browser binding。
+
+        :return int: 本次标记为离线的节点数量
+        """
+
+        nodes = list(await self._repository.list_nodes())
+        return await self._mark_stale_nodes(nodes)
 
     async def update_node(
         self,
@@ -370,11 +393,22 @@ class NodeService:
             else node.default_runtime_backend
         )
         self._validate_runtime_settings(effective_allowed, effective_default)
+        ego_browser_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
         if name is not None:
             node.name = name
         if status is not None:
             node.status = status
             if status not in {"healthy", "degraded", "active"}:
+                await ego_browser_service.revoke_for_node(
+                    node_id=node.id,
+                    reason="node_unavailable",
+                    commit=False,
+                    publish=False,
+                )
                 await revoke_port_forwards(
                     self._session,
                     reason="node_revoked",
@@ -413,6 +447,7 @@ class NodeService:
             details={"status": status} if status else {},
         )
         await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
         return node
 
     async def set_maintenance(self, *, actor: User, node_id: UUID) -> Node:
@@ -483,6 +518,8 @@ class NodeService:
 
         :param actor (User): 操作人
         :param node_id (UUID): 节点 ID
+
+        :raises ApiError: 节点未禁用或仍有业务引用与浏览器 binding 历史
         """
 
         node = await self._require_node(node_id)
@@ -496,6 +533,12 @@ class NodeService:
             raise ApiError(
                 code="NODE_DELETE_BLOCKED",
                 message="The node is still referenced by accounts or session history.",
+                status_code=409,
+            )
+        if await EgoBrowserRepository(self._session).has_any_for_node(node.id):
+            raise ApiError(
+                code="NODE_DELETE_BROWSER_BINDING_HISTORY",
+                message="Ego-browser binding history must expire before deleting the node.",
                 status_code=409,
             )
         await self._audit(
@@ -617,6 +660,8 @@ class NodeService:
 
         :param node (Node): 当前节点
         :param task_id (str): 任务 ID
+
+        :raises ApiError: 节点任务已经进入终态
         """
 
         task = await self._require_node_task(node=node, task_id=task_id)
@@ -637,6 +682,7 @@ class NodeService:
         """
 
         task = await self._require_node_task(node=node, task_id=task_id)
+        result = _content_safe_task_completion(task, result)
         if await self._repository.get_task_result(task_id) is None:
             await self._repository.add_task_result(
                 NodeTaskResult(
@@ -654,7 +700,9 @@ class NodeService:
         await self._apply_tool_session_task_result(task, result)
         await self._apply_sync_session_task_result(task, result)
         await self._apply_browser_session_task_result(task, result)
+        ego_browser_service = await self._revoke_ego_browser_for_task(task, result)
         await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
 
     async def fail_task(self, *, node: Node, task_id: str, error: dict[str, object]) -> None:
         """
@@ -666,6 +714,7 @@ class NodeService:
         """
 
         task = await self._require_node_task(node=node, task_id=task_id)
+        error = _content_safe_task_failure(task, error)
         if await self._repository.get_task_result(task_id) is None:
             await self._repository.add_task_result(
                 NodeTaskResult(
@@ -683,7 +732,9 @@ class NodeService:
         await self._apply_tool_session_task_failure(task, error)
         await self._apply_sync_session_task_failure(task)
         await self._apply_browser_session_task_failure(task, error)
+        ego_browser_service = await self._revoke_ego_browser_for_task(task, error)
         await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
 
     async def reconcile(
         self, *, node: Node, node_id: UUID, sections: list[str], snapshot: dict[str, object]
@@ -695,6 +746,8 @@ class NodeService:
         :param node_id (UUID): 请求节点 ID
         :param sections (list): 对账分区
         :param snapshot (dict): 对账快照
+
+        :raises ApiError: Node 凭据与快照中的节点 ID 不一致
         """
 
         if node.id != node_id:
@@ -726,6 +779,17 @@ class NodeService:
                     commit=False,
                 )
                 revoked_bindings.extend(device_stop.revoked_bindings)
+                ego_service = EgoBrowserService(
+                    self._session,
+                    self._settings,
+                    revocation_publisher=self._ego_browser_revocation_publisher,
+                )
+                await ego_service.revoke_for_tool_session(
+                    tool_session_id=tool_session.id,
+                    reason="node_reconcile",
+                    commit=False,
+                    publish=False,
+                )
                 if runtime is not None and runtime.get("exit_reason") == "process_exited":
                     await self._enqueue_reconciled_session_cleanup(tool_session)
                     cleanup_count += 1
@@ -748,6 +812,43 @@ class NodeService:
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).close_revoked_bindings(revoked_bindings)
+        await EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        ).publish_pending_revocations()
+
+    async def _revoke_ego_browser_for_task(
+        self, task: NodeTask, fallback: dict[str, object]
+    ) -> EgoBrowserService:
+        """在节点任务使工具 session 终止后撤销其 ego-browser binding。"""
+
+        service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        await service.reconcile_cancel_task(
+            task=task,
+            result=fallback,
+            succeeded=task.status == "succeeded",
+        )
+        session_id = self._task_session_id(task, fallback)
+        if session_id is None:
+            return service
+        tool_session = await self._session.get(Session, session_id)
+        if tool_session is not None and tool_session.status in {
+            "stopped",
+            "interrupted",
+            "failed",
+        }:
+            await service.revoke_for_tool_session(
+                tool_session_id=session_id,
+                reason="tool_session_terminal",
+                commit=False,
+                publish=False,
+            )
+        return service
 
     async def _enqueue_reconciled_session_cleanup(self, tool_session: Session) -> None:
         task_id = f"cleanup_tool_session:{tool_session.id}"
@@ -1152,11 +1253,11 @@ class NodeService:
             )
         )
 
-    def _mark_stale_nodes(self, nodes: list[Node]) -> bool:
-        changed = False
+    async def _mark_stale_nodes(self, nodes: list[Node]) -> int:
+        stale_nodes: list[Node] = []
         cutoff = self._now() - timedelta(seconds=self._settings.node_offline_after_seconds)
         for node in nodes:
-            if node.status in {"disabled", "maintenance"} or node.last_heartbeat_at is None:
+            if node.status not in {"healthy", "degraded"} or node.last_heartbeat_at is None:
                 continue
             heartbeat_at = (
                 node.last_heartbeat_at
@@ -1165,8 +1266,51 @@ class NodeService:
             )
             if heartbeat_at < cutoff:
                 node.status = "offline"
-                changed = True
-        return changed
+                stale_nodes.append(node)
+        if not stale_nodes:
+            return 0
+
+        ego_browser_service = EgoBrowserService(
+            self._session,
+            self._settings,
+            revocation_publisher=self._ego_browser_revocation_publisher,
+        )
+        for node in stale_nodes:
+            await ego_browser_service.revoke_for_node(
+                node_id=node.id,
+                reason="node_heartbeat_lost",
+                commit=False,
+                publish=False,
+            )
+        await self._session.commit()
+        await ego_browser_service.publish_pending_revocations()
+        return len(stale_nodes)
 
     def _now(self) -> datetime:
         return datetime.now(UTC)
+
+
+def _content_safe_task_completion(task: NodeTask, result: dict[str, object]) -> dict[str, object]:
+    if task.task_type != "cancel_ego_browser_request":
+        return result
+    if (
+        set(result) == _EGO_BROWSER_CANCEL_RESULT_KEYS
+        and result.get("status") == "cancellation_completed"
+        and isinstance(result.get("request_active"), bool)
+        and isinstance(result.get("server_terminal_observed"), bool)
+    ):
+        return {
+            "status": "cancellation_completed",
+            "request_active": result["request_active"],
+            "server_terminal_observed": result["server_terminal_observed"],
+        }
+    return {"status": "cancellation_unconfirmed"}
+
+
+def _content_safe_task_failure(task: NodeTask, error: dict[str, object]) -> dict[str, object]:
+    if task.task_type != "cancel_ego_browser_request":
+        return error
+    return {
+        "code": "EGO_BROWSER_CANCELLATION_FAILED",
+        "message": "Cancellation could not be confirmed.",
+    }

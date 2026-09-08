@@ -1,4 +1,4 @@
-"""add node control fields
+"""添加节点控制字段
 
 Revision ID: 0003_node_control
 Revises: 0002_identity_auth

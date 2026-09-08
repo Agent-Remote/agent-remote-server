@@ -1,4 +1,4 @@
-"""exclude generated python state
+"""排除生成的 Python 状态
 
 Revision ID: 0011_python_sync_excludes
 Revises: 0010_isolate_git_index

@@ -15,7 +15,7 @@ class GitIdentity(BaseModel):
 
 class GitHubCliConfig(BaseModel):
     """
-    GitHub CLI 配置
+    GitHub 命令行配置
     """
 
     mode: str = Field(default="remote_login", description="gh 认证模式")

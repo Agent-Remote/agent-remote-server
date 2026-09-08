@@ -1,34 +1,28 @@
-"""设备 relay 跨 worker 撤销通知。"""
+"""广播 ego-browser binding generation 的撤销事件。"""
+
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Protocol
 from uuid import UUID
 
 from redis.asyncio import Redis
 
 from agent_remote_server.config import Settings
+from agent_remote_server.ego_browser.relay.contracts import RevocationHandler
 
-RevocationHandler = Callable[[UUID, int], Awaitable[None]]
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("agent_remote_server.ego_browser.relay")
 
-
-class DeviceRelayRevocationPublisher(Protocol):
-    """relay hub 所需的最小跨 worker 发布接口。"""
-
-    async def publish(self, device_session_id: UUID, generation: int) -> None:
-        """
-        发布一个 generation 撤销事件
-
-        :param device_session_id (UUID): 设备控制会话 ID
-        :param generation (int): 被撤销的连接代次
-        """
+_DISTRIBUTED_REVOCATION_TTL_SECONDS = 1200
 
 
-class DeviceRelayRevocationBus:
-    """通过 Redis pub/sub 广播已提交的 device-session generation 撤销。"""
+def _distributed_revocation_key(binding_id: UUID, generation: int) -> str:
+    return f"agent-remote:ego-browser:revoked:{binding_id}:{generation}"
+
+
+class EgoBrowserRevocationBus:
+    """通过独立 Redis 频道广播 ego-browser 代次撤销。"""
 
     def __init__(self, redis: Redis, subscriber: Redis, *, channel: str) -> None:
         self._redis = redis
@@ -39,41 +33,40 @@ class DeviceRelayRevocationBus:
 
     async def start(self, handler: RevocationHandler) -> None:
         """
-        启动后台订阅任务
+        启动 Redis 订阅任务并校验两个连接可用。
 
-        :param handler (RevocationHandler): 收到撤销事件时调用的异步回调
+        :param handler (RevocationHandler): 收到撤销事件时调用的异步处理器
         """
 
         if self._task is not None:
             return
-        # Do not advertise device control until both Redis connections are usable.
-        # The subscriber task can reconnect later, but a failed initial check must
-        # fail application startup rather than silently allowing cross-worker drift.
         await self._redis.ping()
         await self._subscriber.ping()
         self._task = asyncio.create_task(self._run(handler))
 
-    async def publish(self, device_session_id: UUID, generation: int) -> None:
+    async def publish(self, binding_id: UUID, generation: int) -> None:
         """
-        发布一个不含敏感材料的撤销事件
+        发布 binding ID 和旧 generation，不携带脚本或连接材料。
 
-        :param device_session_id (UUID): 设备控制会话 ID
-        :param generation (int): 被撤销的连接代次
+        :param binding_id (UUID): ego-browser binding 标识
+        :param generation (int): 目标 binding generation
         """
 
+        await self._redis.set(
+            _distributed_revocation_key(binding_id, generation),
+            "1",
+            ex=_DISTRIBUTED_REVOCATION_TTL_SECONDS,
+        )
         await self._redis.publish(
             self._channel,
             json.dumps(
-                {
-                    "device_session_id": str(device_session_id),
-                    "generation": generation,
-                },
+                {"binding_id": str(binding_id), "generation": generation},
                 separators=(",", ":"),
             ),
         )
 
     async def close(self) -> None:
-        """停止订阅并关闭 Redis 连接。"""
+        """停止订阅任务并关闭 Redis 连接。"""
 
         self._stop.set()
         if self._task is not None:
@@ -90,24 +83,22 @@ class DeviceRelayRevocationBus:
                 await pubsub.subscribe(self._channel)
                 while not self._stop.is_set():
                     message = await pubsub.get_message(timeout=1.0)
-                    if message is None:
-                        continue
-                    if message.get("type") != "message":
+                    if message is None or message.get("type") != "message":
                         continue
                     try:
                         payload = json.loads(message["data"])
-                        device_session_id = UUID(payload["device_session_id"])
+                        binding_id = UUID(str(payload["binding_id"]))
                         generation = int(payload["generation"])
                         if generation < 1:
                             continue
                     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                         continue
-                    await handler(device_session_id, generation)
+                    await handler(binding_id, generation)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.warning(
-                    "device relay revocation subscriber reconnecting",
+                    "ego browser relay revocation subscriber reconnecting",
                     extra={"error_type": type(exc).__name__},
                 )
                 await asyncio.sleep(1)
@@ -119,45 +110,55 @@ class DeviceRelayRevocationBus:
                 )
 
 
-class NoopDeviceRelayRevocationBus:
-    """SQLite 测试和单进程测试使用的无外部依赖通知实现。"""
+class InMemoryEgoBrowserRevocationBus:
+    """SQLite/单进程使用的本地撤销通知实现。"""
+
+    def __init__(self) -> None:
+        self._handler: RevocationHandler | None = None
 
     async def start(self, handler: RevocationHandler) -> None:
         """
-        兼容生产 bus 的启动接口
+        保存本地撤销处理器。
 
-        :param handler (RevocationHandler): 收到撤销事件时调用的异步回调
+        :param handler (RevocationHandler): 收到撤销事件时调用的异步处理器
         """
 
-    async def publish(self, device_session_id: UUID, generation: int) -> None:
-        """
-        忽略测试环境中的跨进程通知
+        self._handler = handler
 
-        :param device_session_id (UUID): 设备控制会话 ID
-        :param generation (int): 被撤销的连接代次
+    async def publish(self, binding_id: UUID, generation: int) -> None:
         """
+        立即通知本进程 relay hub。
+
+        :param binding_id (UUID): ego-browser binding 标识
+        :param generation (int): 目标 binding generation
+        """
+
+        if self._handler is not None:
+            await self._handler(binding_id, generation)
 
     async def close(self) -> None:
-        """兼容生产 bus 的关闭接口。"""
+        """清理本地撤销处理器。"""
+
+        self._handler = None
 
 
-def create_device_relay_revocation_bus(
+def create_ego_browser_revocation_bus(
     settings: Settings,
-) -> DeviceRelayRevocationBus | NoopDeviceRelayRevocationBus:
+) -> EgoBrowserRevocationBus | InMemoryEgoBrowserRevocationBus:
     """
-    按照部署数据库类型创建 relay 撤销通知总线
+    按部署数据库类型创建独立撤销总线。
 
     :param settings (Settings): 应用配置
 
-    :return DeviceRelayRevocationBus | NoopDeviceRelayRevocationBus: 按部署数据库类型创建的撤销总线
+    :return EgoBrowserRevocationBus | InMemoryEgoBrowserRevocationBus: 按当前部署模式创建的撤销总线
     """
 
     if settings.database_url.startswith("sqlite"):
-        return NoopDeviceRelayRevocationBus()
+        return InMemoryEgoBrowserRevocationBus()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     subscriber = Redis.from_url(settings.redis_url, decode_responses=True)
-    return DeviceRelayRevocationBus(
+    return EgoBrowserRevocationBus(
         redis,
         subscriber,
-        channel="agent-remote:device-relay-revocation",
+        channel="agent-remote:ego-browser-revocation",
     )

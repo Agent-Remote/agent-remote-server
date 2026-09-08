@@ -1,3 +1,5 @@
+"""管理端口转发的一次性 token 与限速状态。"""
+
 import asyncio
 import json
 from dataclasses import asdict, dataclass
@@ -56,7 +58,7 @@ class PortForwardTokenStore(Protocol):
         """
 
     async def close(self) -> None:
-        """关闭 token store 连接。"""
+        """关闭令牌存储连接。"""
 
 
 class RedisPortForwardTokenStore:
@@ -206,7 +208,7 @@ class InMemoryPortForwardTokenStore:
 
 def create_port_forward_token_store(settings: Settings) -> RedisPortForwardTokenStore:
     """
-    创建生产 Redis token store
+    创建生产 Redis 令牌存储
 
     :param settings (Settings): 应用配置
 
