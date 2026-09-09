@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.15 - 2026-09-09
+
+- chore: prepare v0.2.15 from v0.2.14 with repository-owned version metadata only.
+
 ## v0.2.14 - 2026-09-09
 
 - fix(release): preserve component versions during prepare (daabb82)
