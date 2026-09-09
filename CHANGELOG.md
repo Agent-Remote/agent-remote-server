@@ -2,9 +2,9 @@
 
 All notable changes to this repository are recorded here.
 
-## v0.2.13 - 2026-09-08
+## v0.2.13 - 2026-09-09
 
-- Release metadata update.
+- feat: add ego-browser control plane (45e49a9)
 
 ## v0.2.12 - 2026-09-05
 
@@ -31,11 +31,11 @@ All notable changes to this repository are recorded here.
 
 ## v0.2.7 - 2026-08-13
 
-- Release metadata update.
+- chore: release v0.2.7 (6f0079f)
 
 ## v0.2.6 - 2026-08-10
 
-- Release metadata update.
+- chore: release v0.2.6 (200998a)
 
 ## v0.2.5 - 2026-08-09
 
@@ -84,18 +84,16 @@ All notable changes to this repository are recorded here.
 
 ## v0.1.5 - 2026-07-31
 
-- Release metadata update.
+- chore: release v0.1.5 (6450da3)
 
 ## v0.1.4 - 2026-07-31
 
-- Release metadata update.
+- chore: release v0.1.4 (3dae8c3)
 
 ## v0.1.3 - 2026-07-31
 
 - fix: commit prepared release script (a2c07ac)
 - feat: support community release evidence profile (b5449fa)
-- feat: add secure device control plane (7f9c4e0)
-- ci: avoid duplicate tag validation (a92cb94)
 
 ## v0.1.0 - 2026-07-31
 
@@ -104,7 +102,7 @@ All notable changes to this repository are recorded here.
 - feat: validate signed release evidence and retain device records for bounded periods
 - ci: avoid duplicate tag validation (a92cb94)
 
-## v0.0.6 - 2026-07-29
+## v0.0.6 - 2026-07-30
 
 - feat: add session port forwarding control plane (c7e56b0)
 - refactor: validate config import paths explicitly (396994d)
@@ -236,6 +234,18 @@ All notable changes to this repository are recorded here.
 
 ## v0.0.2 - 2026-07-07
 
-- ci: allow manual release dispatch (bc4ead3)
 - chore: release v0.0.2 (0fcb80c)
 - ci: add multi-arch release versioning (11b3309)
+
+## v0.0.1 - 2026-07-07
+
+- feat: add the core data model (cabc1a9)
+- feat: add identity and device authentication (c8ddb0e)
+- feat: add the node control API (263d213)
+- feat: add attach control APIs (f43147a)
+- feat: add the workspace synchronization API (e1f5388)
+- feat: add the tool-account binding API (7b29490)
+- feat: add tool-session lifecycle (e44e82b)
+- feat: add remote browser sessions (c1ac90e)
+- feat: add administration and audit APIs (514e572)
+- ci: add the server container release workflow (38906da)
