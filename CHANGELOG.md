@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.14 - 2026-09-09
+
+- fix(release): preserve component versions during prepare (daabb82)
+- fix(release): repair changelog history (4bf0297)
+
 ## v0.2.13 - 2026-09-09
 
 - feat: add ego-browser control plane (45e49a9)
