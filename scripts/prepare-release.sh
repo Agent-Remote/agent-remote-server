@@ -46,6 +46,10 @@ replacement.replace(script)
 
 pyproject = Path("pyproject.toml")
 text = pyproject.read_text()
+version_match = re.search(r'(?m)^version = "([^"]+)"$', text)
+if version_match is None:
+    raise SystemExit("Could not find the project version in pyproject.toml")
+current_package_version = version_match.group(1)
 text = re.sub(
     r'(?m)^version = "[^"]+"$', f'version = "{package_version}"', text, count=1
 )
@@ -73,10 +77,9 @@ runtime.write_text(text)
 
 for path in sorted(Path("tests").glob("test_*.py")):
     text = path.read_text()
-    text = re.sub(
-        r'"version": "[0-9A-Za-z.+-]+"',
+    text = text.replace(
+        f'"version": "{current_package_version}"',
         f'"version": "{package_version}"',
-        text,
     )
     path.write_text(text)
 PY

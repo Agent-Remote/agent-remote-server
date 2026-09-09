@@ -68,3 +68,13 @@ def test_ci_and_release_preserve_performance_contracts() -> None:
     assert dockerfile.index("uv sync --frozen --no-dev --no-install-project") < dockerfile.index(
         "COPY README.md LICENSE ./"
     )
+
+
+def test_prepare_release_preserves_independent_component_versions() -> None:
+    """Release preparation must not rewrite unrelated component version fixtures."""
+
+    script = Path("scripts/prepare-release.sh").read_text(encoding="utf-8")
+
+    assert "current_package_version = version_match.group(1)" in script
+    assert 'f\'"version": "{current_package_version}"\'' in script
+    assert 'r\'"version": "[0-9A-Za-z.+-]+"\'' not in script
