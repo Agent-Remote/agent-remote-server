@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.16 - 2026-09-10
+
+- fix(ego-browser): align reviewed wrapper policy (c1de281)
+
 ## Unreleased
 
 - fix(ego-browser): align the Server wrapper policy with the reviewed `0.1.11` Bridge release
