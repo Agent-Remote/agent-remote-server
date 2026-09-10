@@ -48,7 +48,7 @@ def _node_runtime_capabilities() -> dict[str, object]:
             "supported": True,
             "protocol_versions": ["ego-browser-bridge-v1"],
             "backends": ["native", "docker_sandbox"],
-            "wrapper_version": "0.1.0",
+            "wrapper_version": "0.1.11",
             "skill_version": "1.2.3",
             "skill_tree_sha256": (
                 "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"
@@ -134,7 +134,7 @@ def test_node_capability_pins_wrapper_and_official_skill_artifacts() -> None:
         "supported": True,
         "protocol_versions": ["ego-browser-bridge-v1"],
         "backends": ["native", "docker_sandbox"],
-        "wrapper_version": "0.1.0",
+        "wrapper_version": "0.1.11",
         "skill_version": "1.2.3",
         "skill_tree_sha256": ("262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"),
         "remote_platform": "linux",

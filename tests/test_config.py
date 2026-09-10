@@ -25,7 +25,7 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.device_relay_max_bytes_per_second == 8_388_608
     assert settings.device_relay_max_connection_seconds == 900
     assert settings.ego_browser_bridge_enabled is False
-    assert settings.ego_browser_expected_wrapper_version == "0.1.0"
+    assert settings.ego_browser_expected_wrapper_version == "0.1.11"
     assert settings.ego_browser_expected_skill_version == "1.2.3"
     assert settings.ego_browser_expected_local_runtime_version == "0.4.7.4"
     assert settings.ego_browser_expected_protocol_version == "ego-browser-bridge-v1"

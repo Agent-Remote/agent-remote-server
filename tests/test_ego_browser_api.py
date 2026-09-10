@@ -164,7 +164,7 @@ def create_running_session(
                     "supported": True,
                     "protocol_versions": ["ego-browser-bridge-v1"],
                     "backends": ["native", "docker_sandbox"],
-                    "wrapper_version": "0.1.0",
+                    "wrapper_version": "0.1.11",
                     "skill_version": "1.2.3",
                     "skill_tree_sha256": (
                         "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"
@@ -193,7 +193,7 @@ def ego_browser_device_payload(device_id: str) -> dict[str, object]:
         "credential_profile": "community_file",
         "platform": "macos",
         "bridge_protocol_version": "ego-browser-bridge-v1",
-        "bridge_version": "0.1.0",
+        "bridge_version": "0.1.11",
         "local_ego_browser_runtime_version": "1.2.3",
         "ego_lite_runtime_version": "1.2.3",
         "skill_version": "1.2.3",
@@ -465,7 +465,7 @@ def connect_binding(
             "generation": generation,
             "encryption_public_key": _ENCRYPTION_PUBLIC_KEY,
             "bridge_protocol_version": "ego-browser-bridge-v1",
-            "bridge_version": "0.1.0",
+            "bridge_version": "0.1.11",
             "local_ego_browser_runtime_version": "1.2.3",
             "ego_lite_runtime_version": "1.2.3",
             "skill_version": "1.2.3",

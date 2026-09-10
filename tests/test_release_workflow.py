@@ -78,3 +78,10 @@ def test_prepare_release_preserves_independent_component_versions() -> None:
     assert "current_package_version = version_match.group(1)" in script
     assert 'f\'"version": "{current_package_version}"\'' in script
     assert 'r\'"version": "[0-9A-Za-z.+-]+"\'' not in script
+
+
+def test_prepare_release_stages_all_tracked_changes() -> None:
+    """发布准备不能遗漏新增的配置、服务或测试文件。"""
+
+    workflow = Path(".github/workflows/prepare-release.yml").read_text(encoding="utf-8")
+    assert "git add -u ." in workflow

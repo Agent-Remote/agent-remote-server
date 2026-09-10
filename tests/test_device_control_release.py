@@ -117,7 +117,7 @@ def create_signed_evidence(
         components = cast(dict[str, object], composition_fields["components"])
         components["agent-remote-ego-browser"] = {
             "repository": "Agent-Remote/agent-remote-ego-browser",
-            "version": "0.1.0",
+            "version": "0.1.11",
             "commit": "6" * 40,
             "release_workflow": "release.yml",
             "release_published": True,
@@ -753,7 +753,7 @@ def test_ego_browser_release_gate_checks_all_identity_fields() -> None:
             evidence=None,
             expected_release_profile="community-local-trust",
             expected_signer_certificate_sha256="f" * 64,
-            expected_wrapper_version="0.1.0",
+            expected_wrapper_version="0.1.11",
             expected_skill_version="1.2.3",
             expected_skill_tree_sha256="2" * 64,
         )

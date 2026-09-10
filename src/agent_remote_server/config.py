@@ -262,7 +262,7 @@ class Settings(BaseSettings):
         description="受控发布物固定的 signer 证书 SHA-256",
     )
     ego_browser_expected_wrapper_version: str = Field(
-        default="0.1.0",
+        default="0.1.11",
         validation_alias="EGO_BROWSER_EXPECTED_WRAPPER_VERSION",
         description="Node 上受信 ego-browser wrapper 的精确版本",
     )

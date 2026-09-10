@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## Unreleased
+
+- fix(ego-browser): align the Server wrapper policy with the reviewed `0.1.11` Bridge release
+- fix(release): stage all release-source changes during prepare actions
+
 ## v0.2.15 - 2026-09-09
 
 - chore: prepare v0.2.15 from v0.2.14 with repository-owned version metadata only.
