@@ -38,6 +38,7 @@ from agent_remote_server.models import (
     User,
 )
 from agent_remote_server.repositories.ego_browser import EgoBrowserRepository
+from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.ego_browser import (
     EgoBrowserActiveRequestData,
     EgoBrowserActiveRequestListData,
@@ -462,6 +463,28 @@ async def revoke_ego_browser_device(
         ),
     )
     return EgoBrowserDeviceResponse(data=_device_data(device), request_id=get_request_id())
+
+
+@router.delete("/devices/{device_id}", response_model=EmptyResponse)
+async def delete_ego_browser_device(
+    device_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除已撤销且没有 binding 历史的独立设备。
+
+    :param device_id (UUID): 独立 ego-browser 设备 ID
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :param user (User): 当前用户或管理员
+
+    :return EmptyResponse: 空响应
+    """
+
+    await EgoBrowserService(session, settings).delete_device(user=user, device_id=device_id)
+    return EmptyResponse(request_id=get_request_id())
 
 
 @router.post("/proof-challenges", response_model=EgoBrowserProofChallengeResponse)
@@ -997,6 +1020,28 @@ async def revoke_ego_browser_binding(
         data=_binding_data(binding, encryption_public_key=await _device_key(session, binding)),
         request_id=get_request_id(),
     )
+
+
+@router.delete("/bindings/{binding_id}", response_model=EmptyResponse)
+async def delete_ego_browser_binding(
+    binding_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> EmptyResponse:
+    """
+    删除已终结且撤销通知已发布的 binding 历史。
+
+    :param binding_id (UUID): ego-browser binding 标识
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :param user (User): 当前用户或管理员
+
+    :return EmptyResponse: 空响应
+    """
+
+    await EgoBrowserService(session, settings).delete_binding(user=user, binding_id=binding_id)
+    return EmptyResponse(request_id=get_request_id())
 
 
 @router.get("/bindings/{binding_id}/allowlist", response_model=EgoBrowserAllowlistResponse)

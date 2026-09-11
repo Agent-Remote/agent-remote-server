@@ -549,6 +549,56 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
             await self._publish_revocation(binding.id, old_generation)
         return binding
 
+    async def delete_binding(self, *, user: User, binding_id: UUID) -> None:
+        """
+        删除已终结且撤销通知已发布的 binding 历史。
+
+        :param user (User): 当前操作用户
+        :param binding_id (UUID): ego-browser binding 标识
+
+        :raises ApiError: binding 不存在、仍可执行或尚有未完成清理
+        """
+
+        binding = await self._repository.get_binding(binding_id, for_update=True)
+        if binding is None or (binding.user_id != user.id and user.role != "admin"):
+            self._error(
+                "EGO_BROWSER_BINDING_NOT_FOUND",
+                "The browser binding was not found.",
+                404,
+            )
+        if binding.status not in TERMINAL_STATUSES:
+            self._error(
+                "EGO_BROWSER_BINDING_DELETE_REQUIRES_TERMINAL",
+                "Stop or revoke the browser binding before deleting it.",
+                409,
+            )
+        if await self._repository.has_active_requests(binding.id):
+            self._error(
+                "EGO_BROWSER_BINDING_DELETE_ACTIVE_REQUESTS",
+                "Active browser requests must finish before deleting the binding.",
+                409,
+            )
+        if await self._repository.has_pending_outbox(binding.id):
+            self._error(
+                "EGO_BROWSER_BINDING_DELETE_PENDING_REVOCATION",
+                "The binding revoke notification is still being delivered.",
+                409,
+            )
+        await self._audit(
+            user.id,
+            "ego_browser_binding.deleted",
+            str(binding.id),
+            {
+                "binding_user_id": str(binding.user_id),
+                "device_id": str(binding.ego_browser_device_id),
+                "tool_session_id": str(binding.binding_tool_session_id),
+                "generation": binding.generation,
+                "status": binding.status,
+            },
+        )
+        await self._repository.delete_binding(binding)
+        await self._session.commit()
+
     async def revoke_for_tool_session(
         self,
         *,

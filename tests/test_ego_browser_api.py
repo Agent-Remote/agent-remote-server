@@ -32,6 +32,8 @@ from agent_remote_server.main import create_app
 from agent_remote_server.models import (
     AuditLog,
     EgoBrowserBinding,
+    EgoBrowserDevice,
+    EgoBrowserDeviceCredential,
     EgoBrowserRequestLedger,
     EgoBrowserRevocationOutbox,
     Node,
@@ -509,6 +511,236 @@ def create_active_binding(
         generation=1,
     )
     return admin_token, owner_id, owner_token, node_id, node_token, device_id, binding_id
+
+
+def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
+    client: TestClient,
+) -> None:
+    """删除接口必须阻止活动控制、活动请求和未投递的撤销事件。"""
+
+    _, _, owner_token, _, _, device_id, binding_id = create_active_binding(
+        client, username="browser-delete-guards"
+    )
+
+    active_binding = client.delete(
+        f"/api/v1/ego-browser/bindings/{binding_id}",
+        headers=auth_header(owner_token),
+    )
+    assert (active_binding.status_code, active_binding.json()["error"]["code"]) == (
+        409,
+        "EGO_BROWSER_BINDING_DELETE_REQUIRES_TERMINAL",
+    )
+
+    active_device = client.delete(
+        f"/api/v1/ego-browser/devices/{device_id}",
+        headers=auth_header(owner_token),
+    )
+    assert (active_device.status_code, active_device.json()["error"]["code"]) == (
+        409,
+        "EGO_BROWSER_DEVICE_DELETE_REQUIRES_REVOKED",
+    )
+
+    stopped = client.post(
+        f"/api/v1/ego-browser/bindings/{binding_id}/stop",
+        headers=auth_header(owner_token),
+        json={"generation": 1, "reason": "user_stop"},
+    )
+    assert stopped.status_code == 200
+
+    app = cast(FastAPI, client.app)
+
+    async def add_unfinished_history() -> None:
+        async with app.state.session_factory() as session:
+            request = EgoBrowserRequestLedger(
+                binding_id=UUID(binding_id),
+                generation=1,
+                request_id="delete-guard-request",
+                sequence=1,
+                direction="request",
+                message_type="execute",
+                payload_bytes=1,
+                status="accepted",
+            )
+            event = await session.scalar(
+                select(EgoBrowserRevocationOutbox).where(
+                    EgoBrowserRevocationOutbox.binding_id == UUID(binding_id)
+                )
+            )
+            assert event is not None
+            event.delivered_at = None
+            session.add(request)
+            await session.commit()
+
+    asyncio.run(add_unfinished_history())
+
+    active_request = client.delete(
+        f"/api/v1/ego-browser/bindings/{binding_id}",
+        headers=auth_header(owner_token),
+    )
+    assert (active_request.status_code, active_request.json()["error"]["code"]) == (
+        409,
+        "EGO_BROWSER_BINDING_DELETE_ACTIVE_REQUESTS",
+    )
+
+    async def finish_request() -> None:
+        async with app.state.session_factory() as session:
+            request = await session.scalar(
+                select(EgoBrowserRequestLedger).where(
+                    EgoBrowserRequestLedger.binding_id == UUID(binding_id),
+                    EgoBrowserRequestLedger.request_id == "delete-guard-request",
+                )
+            )
+            assert request is not None
+            request.status = "completed"
+            await session.commit()
+
+    asyncio.run(finish_request())
+    pending_revocation = client.delete(
+        f"/api/v1/ego-browser/bindings/{binding_id}",
+        headers=auth_header(owner_token),
+    )
+    assert (
+        pending_revocation.status_code,
+        pending_revocation.json()["error"]["code"],
+    ) == (409, "EGO_BROWSER_BINDING_DELETE_PENDING_REVOCATION")
+
+    async def deliver_revocation() -> None:
+        async with app.state.session_factory() as session:
+            event = await session.scalar(
+                select(EgoBrowserRevocationOutbox).where(
+                    EgoBrowserRevocationOutbox.binding_id == UUID(binding_id)
+                )
+            )
+            assert event is not None
+            event.delivered_at = datetime.now(UTC)
+            await session.commit()
+
+    asyncio.run(deliver_revocation())
+    deleted = client.delete(
+        f"/api/v1/ego-browser/bindings/{binding_id}",
+        headers=auth_header(owner_token),
+    )
+    assert deleted.status_code == 200
+
+
+def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -> None:
+    """删除终态 binding 和设备时必须清理其子记录且保留删除审计。"""
+
+    _, _, owner_token, _, _, device_id, binding_id = create_active_binding(
+        client, username="browser-delete-cleanup"
+    )
+    stopped = client.post(
+        f"/api/v1/ego-browser/bindings/{binding_id}/stop",
+        headers=auth_header(owner_token),
+        json={"generation": 1, "reason": "user_stop"},
+    )
+    assert stopped.status_code == 200
+
+    app = cast(FastAPI, client.app)
+
+    async def add_completed_request() -> None:
+        async with app.state.session_factory() as session:
+            session.add(
+                EgoBrowserRequestLedger(
+                    binding_id=UUID(binding_id),
+                    generation=1,
+                    request_id="delete-cleanup-request",
+                    sequence=1,
+                    direction="request",
+                    message_type="execute",
+                    payload_bytes=1,
+                    status="completed",
+                )
+            )
+            await session.commit()
+
+    asyncio.run(add_completed_request())
+    deleted_binding = client.delete(
+        f"/api/v1/ego-browser/bindings/{binding_id}",
+        headers=auth_header(owner_token),
+    )
+    assert deleted_binding.status_code == 200
+
+    async def verify_binding_cleanup() -> None:
+        async with app.state.session_factory() as session:
+            assert await session.get(EgoBrowserBinding, UUID(binding_id)) is None
+            assert (
+                await session.scalar(
+                    select(EgoBrowserRequestLedger).where(
+                        EgoBrowserRequestLedger.binding_id == UUID(binding_id)
+                    )
+                )
+                is None
+            )
+            assert (
+                await session.scalar(
+                    select(EgoBrowserRevocationOutbox).where(
+                        EgoBrowserRevocationOutbox.binding_id == UUID(binding_id)
+                    )
+                )
+                is None
+            )
+
+    asyncio.run(verify_binding_cleanup())
+
+    revoked = client.post(
+        f"/api/v1/ego-browser/devices/{device_id}/revoke",
+        headers=auth_header(owner_token),
+        json={"generation": 1, "reason": "device_revoked"},
+    )
+    assert revoked.status_code == 200
+    deleted_device = client.delete(
+        f"/api/v1/ego-browser/devices/{device_id}",
+        headers=auth_header(owner_token),
+    )
+    assert deleted_device.status_code == 200
+
+    async def verify_device_cleanup() -> None:
+        async with app.state.session_factory() as session:
+            assert await session.get(EgoBrowserDevice, UUID(device_id)) is None
+            assert (
+                await session.scalar(
+                    select(EgoBrowserDeviceCredential).where(
+                        EgoBrowserDeviceCredential.ego_browser_device_id == UUID(device_id)
+                    )
+                )
+                is None
+            )
+            audit = await session.scalar(
+                select(AuditLog).where(
+                    AuditLog.action == "ego_browser_device.deleted",
+                    AuditLog.target_id == device_id,
+                )
+            )
+            assert audit is not None
+
+    asyncio.run(verify_device_cleanup())
+
+
+def test_ego_browser_delete_hides_foreign_resources_and_rejects_device_credentials(
+    client: TestClient,
+) -> None:
+    """删除接口只接受普通用户令牌并隐藏其他用户的资源。"""
+
+    admin_token = bootstrap(client)
+    _, owner_token = create_user(client, admin_token, "browser-delete-owner")
+    _, stranger_token = create_user(client, admin_token, "browser-delete-stranger")
+    device_id, device_token = register_ego_browser_device(client, owner_token)
+
+    device_with_device_token = client.delete(
+        f"/api/v1/ego-browser/devices/{device_id}",
+        headers=auth_header(device_token),
+    )
+    assert device_with_device_token.status_code == 401
+
+    foreign_device = client.delete(
+        f"/api/v1/ego-browser/devices/{device_id}",
+        headers=auth_header(stranger_token),
+    )
+    assert (foreign_device.status_code, foreign_device.json()["error"]["code"]) == (
+        404,
+        "EGO_BROWSER_DEVICE_NOT_FOUND",
+    )
 
 
 def test_owner_device_revoke_invalidates_live_binding_and_credential(client: TestClient) -> None:

@@ -527,3 +527,47 @@ class _EgoBrowserDeviceOperations(_EgoBrowserServiceBase):
         for binding_id, generation in revoked_generations:
             await self._publish_revocation(binding_id, generation)
         return device
+
+    async def delete_device(self, *, user: User, device_id: UUID) -> None:
+        """
+        删除已撤销且没有 binding 历史的独立设备。
+
+        物理删除不会替代撤销流程；调用方必须先撤销设备并等待所有撤销事件发布。
+
+        :param user (User): 当前操作用户
+        :param device_id (UUID): 独立 ego-browser 设备 ID
+
+        :raises ApiError: 设备不存在、尚未撤销或仍保留控制历史
+        """
+
+        device = await self._repository.get_device(device_id, for_update=True)
+        if device is None or (device.user_id != user.id and user.role != "admin"):
+            self._error(
+                "EGO_BROWSER_DEVICE_NOT_FOUND",
+                "The ego-browser device was not found.",
+                404,
+            )
+        if device.status != "revoked":
+            self._error(
+                "EGO_BROWSER_DEVICE_DELETE_REQUIRES_REVOKED",
+                "Revoke the ego-browser device before deleting it.",
+                409,
+            )
+        if await self._repository.has_any_for_device(device.id):
+            self._error(
+                "EGO_BROWSER_DEVICE_DELETE_BINDING_HISTORY",
+                "Delete all ego-browser binding history before deleting the device.",
+                409,
+            )
+        await self._audit(
+            user.id,
+            "ego_browser_device.deleted",
+            str(device.id),
+            {
+                "device_user_id": str(device.user_id),
+                "generation": device.generation,
+                "status": device.status,
+            },
+        )
+        await self._repository.delete_device(device)
+        await self._session.commit()

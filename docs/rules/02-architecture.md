@@ -190,6 +190,10 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
   atomically refuse marked presence and poll the marker while waiting or paired, so a missed
   Pub/Sub event still closes matching endpoints. Only successful marker and event publication marks
   the outbox delivery complete; repeated publication and close are idempotent.
+- Physical deletion is a user-token or administrator cleanup operation, never a Device Client
+  operation. A binding may be deleted only after it is terminal, has no active request, and every
+  revocation outbox event has been delivered. A device may be deleted only after it is revoked and
+  all of its retained binding history has been deleted; deletion audit records remain retained.
 - Only `active/healthy` bindings admit execution. Lease renewal uses generation-aware compare and
   swap, a bounded failure grace, and an absolute TTL. Stop, revoke, policy drift, tool-session stop,
   node loss, device revoke, and user disable all invalidate the old generation before broadcast.

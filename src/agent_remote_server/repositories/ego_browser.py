@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.models import (
@@ -253,6 +253,95 @@ class EgoBrowserRepository:
             statement = statement.with_for_update()
         result = await self._session.scalars(statement)
         return result.all()
+
+    async def has_any_for_device(self, device_id: UUID) -> bool:
+        """
+        判断设备是否仍保留任意 binding 历史。
+
+        :param device_id (UUID): 独立 ego-browser 设备 ID
+
+        :return bool: 设备是否存在 binding 记录
+        """
+
+        value = await self._session.scalar(
+            select(EgoBrowserBinding.id)
+            .where(EgoBrowserBinding.ego_browser_device_id == device_id)
+            .limit(1)
+        )
+        return value is not None
+
+    async def has_active_requests(self, binding_id: UUID) -> bool:
+        """
+        判断 binding 是否仍有未终结的执行请求。
+
+        :param binding_id (UUID): ego-browser binding 标识
+
+        :return bool: 是否存在可取消的活动请求
+        """
+
+        value = await self._session.scalar(
+            select(EgoBrowserRequestLedger.id)
+            .where(
+                EgoBrowserRequestLedger.binding_id == binding_id,
+                EgoBrowserRequestLedger.direction == "request",
+                EgoBrowserRequestLedger.message_type == "execute",
+                EgoBrowserRequestLedger.status.in_(("accepted", "cancel_requested")),
+            )
+            .limit(1)
+        )
+        return value is not None
+
+    async def has_pending_outbox(self, binding_id: UUID) -> bool:
+        """
+        判断 binding 是否仍有未发布的撤销事件。
+
+        :param binding_id (UUID): ego-browser binding 标识
+
+        :return bool: 是否存在待发布撤销事件
+        """
+
+        value = await self._session.scalar(
+            select(EgoBrowserRevocationOutbox.id)
+            .where(
+                EgoBrowserRevocationOutbox.binding_id == binding_id,
+                EgoBrowserRevocationOutbox.delivered_at.is_(None),
+            )
+            .limit(1)
+        )
+        return value is not None
+
+    async def delete_binding(self, binding: EgoBrowserBinding) -> None:
+        """
+        删除一个已通过服务层校验的 binding 及其内容无关的历史账本。
+
+        :param binding (EgoBrowserBinding): 待删除的 binding 实体
+        """
+
+        # 显式清理子表，保证 SQLite 测试和未启用外键级联的兼容部署不留下孤儿记录。
+        await self._session.execute(
+            delete(EgoBrowserRequestLedger).where(EgoBrowserRequestLedger.binding_id == binding.id)
+        )
+        await self._session.execute(
+            delete(EgoBrowserRevocationOutbox).where(
+                EgoBrowserRevocationOutbox.binding_id == binding.id
+            )
+        )
+        await self._session.delete(binding)
+
+    async def delete_device(self, device: EgoBrowserDevice) -> None:
+        """
+        删除一个已通过服务层校验的独立设备及其历史凭据。
+
+        :param device (EgoBrowserDevice): 待删除的设备实体
+        """
+
+        # 设备凭据虽声明了 CASCADE，显式删除可覆盖 SQLite 默认不启用外键的场景。
+        await self._session.execute(
+            delete(EgoBrowserDeviceCredential).where(
+                EgoBrowserDeviceCredential.ego_browser_device_id == device.id
+            )
+        )
+        await self._session.delete(device)
 
     async def list_live_for_session(
         self, session_id: UUID, *, for_update: bool = False

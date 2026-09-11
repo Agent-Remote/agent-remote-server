@@ -49,6 +49,10 @@ Runtime selection persistence:
   platform and capability snapshot, generation, lease health, absolute TTL, and terminal metadata.
   Partial unique indexes enforce one live binding per device and tool session while retaining
   terminal history. It never stores scripts, output, artifacts, browser content, URLs, or paths.
+- Explicit binding deletion removes only terminal binding metadata, its content-free request ledger,
+  and delivered revocation outbox rows. Device deletion removes a revoked device and its retained
+  credentials only after no binding history remains. Both operations retain their audit
+  records and must not bypass lifecycle or revocation-delivery checks.
 - Browser relay tickets, request sealing keys, encrypted frames, permits, proof challenges, and
   connection state remain short-lived in Redis or process memory. The persistent request ledger
   stores only outer request identity and terminal delivery state for replay prevention.
