@@ -62,6 +62,7 @@ async def seed() -> dict[str, str]:
                     "ego_browser_bridge": {
                         "supported": True,
                         "protocol_versions": ["ego-browser-bridge-v1"],
+                        "backends": ["native"],
                         "wrapper_version": "0.1.11",
                         "skill_version": "1.2.3",
                         "skill_tree_sha256": SKILL_TREE_SHA256,
