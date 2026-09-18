@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.18 - 2026-09-18
+
+- feat(ego-browser): accept the Bridge 0.1.13, Skill 2.0.0, and runtime 0.5.0.32 profile.
+
 ## v0.2.17 - 2026-09-18
 
 - feat(ego-browser): add managed lifecycle and device admission routes (092dafd)

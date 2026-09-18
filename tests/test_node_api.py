@@ -216,10 +216,10 @@ def test_node_join_code_http_contract_is_admin_only_and_secret_free(
             "version": "0.2.16",
             "join_code": consumed_code,
             "exchange_id": consumed_exchange,
-            "wrapper_version": "0.1.11",
-            "skill_version": "1.2.3",
+            "wrapper_version": "0.1.13",
+            "skill_version": "2.0.0",
             "artifact_digest": (
-                "sha256:262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"
+                "sha256:a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741"
             ),
         },
     )
