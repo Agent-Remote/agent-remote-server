@@ -8,12 +8,22 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from agent_remote_server import __version__
 from agent_remote_server.device_control.release import verify_device_control_release_evidence
+from agent_remote_server.ego_browser.release_policy import (
+    EGO_BROWSER_LOCAL_RUNTIME_VERSION,
+    EGO_BROWSER_PROTOCOL_VERSION,
+    EGO_BROWSER_SKILL_COMMIT,
+    EGO_BROWSER_SKILL_TREE_SHA256,
+    EGO_BROWSER_SKILL_VERSION,
+    EGO_BROWSER_WRAPPER_VERSION,
+)
 
 _DIGEST = "a" * 64
 
@@ -127,6 +137,113 @@ def write_permanent_draft(path: Path) -> None:
     path.chmod(0o600)
 
 
+def write_bridge_profile_draft(path: Path) -> dict[str, object]:
+    """
+    写入携带完整根仓库 schema 4 Bridge 身份的 Community 草稿。
+
+    :param path (Path): 草稿路径
+    :return dict[str, object]: 未签名证据字段
+    """
+
+    write_permanent_draft(path)
+    draft = json.loads(path.read_text(encoding="utf-8"))
+    components = cast(dict[str, dict[str, object]], draft["components"])
+    version = EGO_BROWSER_WRAPPER_VERSION
+    components["agent-remote-ego-browser"] = {
+        "repository": "Agent-Remote/agent-remote-ego-browser",
+        "version": version,
+        "commit": "6" * 40,
+        "release_workflow": "release.yml",
+        "release_published": True,
+        "profile": "community-local-trust",
+        "signing_type": "project-self-signed",
+        "signer_certificate_sha256": "f" * 64,
+        "production_ready": True,
+        "readiness_blockers": [],
+        "apple_notarized": False,
+        "public_distribution": False,
+        "hardened_runtime": True,
+        "nested_signatures_verified": True,
+        "outbound_policy": "application-enforced",
+        "credential_profile": "community_file",
+        "learning_bundle_digest": "a" * 64,
+        "learning_bundle_signing_key_id": "ego-browser-learning-2026-09",
+        "skill_version": EGO_BROWSER_SKILL_VERSION,
+        "skill_commit": EGO_BROWSER_SKILL_COMMIT,
+        "skill_tree_sha256": EGO_BROWSER_SKILL_TREE_SHA256,
+        "local_ego_browser_runtime_version": EGO_BROWSER_LOCAL_RUNTIME_VERSION,
+        "protocol_version": EGO_BROWSER_PROTOCOL_VERSION,
+        "profile_id": "community-local-trust",
+        "profile_version": version,
+        "bridge_version": version,
+        "bridge_protocol_version": EGO_BROWSER_PROTOCOL_VERSION,
+        "ego_lite_runtime_version": EGO_BROWSER_LOCAL_RUNTIME_VERSION,
+        "wrapper_version": version,
+        "artifact_url": (
+            "https://github.com/Agent-Remote/agent-remote-ego-browser/releases/download/"
+            f"v{version}/agent-remote-ego-browser-macos-universal-{version}.tar.gz"
+        ),
+        "artifact_sha256": "2" * 64,
+        "bridge_manifest_sha256": "1" * 64,
+        "ego_lite_installer_url": (
+            "https://raw.githubusercontent.com/citrolabs/ego-lite/"
+            f"{EGO_BROWSER_SKILL_COMMIT}/skills/ego-browser/scripts/install.sh"
+        ),
+        "ego_lite_installer_commit": EGO_BROWSER_SKILL_COMMIT,
+        "ego_lite_installer_sha256": "3" * 64,
+        "valid_platforms": ["macos"],
+        "allowed_server_origins": ["$active_login_origin"],
+        "admission_policy_ref": "server-policy:ego-browser-v1",
+        "issued_at": "2026-09-18T03:33:57Z",
+        "replaces_profile": "community-local-trust@0.1.12",
+    }
+    draft.update(
+        {
+            "release_profile": "community-local-trust",
+            "apple_notarized": False,
+            "public_distribution": False,
+            "manual_trust_required": True,
+            "node_sha256": None,
+            "proxy_sha256": None,
+            "node_artifacts_sha256": {
+                target: _DIGEST
+                for target in (
+                    "linux-amd64-glibc",
+                    "linux-arm64-glibc",
+                    "linux-amd64-musl",
+                    "linux-arm64-musl",
+                )
+            },
+            "proxy_artifacts_sha256": {
+                target: _DIGEST
+                for target in (
+                    "linux-amd64-glibc",
+                    "linux-arm64-glibc",
+                    "linux-amd64-musl",
+                    "linux-arm64-musl",
+                )
+            },
+            "security_tests_sha256": None,
+            "security_review_sha256": None,
+            "outbound_policy_sha256": None,
+            "local_claude_isolation_sha256": None,
+            "stop_revocation_sha256": None,
+            "compatibility_sha256": None,
+            "community_signing_sha256": _DIGEST,
+            "automated_release_checks_sha256": _DIGEST,
+            "risk_acceptance_sha256": _DIGEST,
+            "ego_browser_release_manifest_sha256": "1" * 64,
+            "ego_browser_release_archive_sha256": "2" * 64,
+            "ego_browser_signing_evidence_sha256": "3" * 64,
+            "ego_browser_learning_bundle_sha256": "a" * 64,
+            "ego_browser_sigstore_sha256": "4" * 64,
+            "ego_browser_provenance_sha256": "5" * 64,
+        }
+    )
+    path.write_text(json.dumps(draft, sort_keys=True), encoding="utf-8")
+    return draft
+
+
 def run_creator(
     draft: Path,
     private_key: Path,
@@ -236,6 +353,89 @@ def test_creator_writes_permanent_schema_9_manifest(tmp_path: Path) -> None:
         now=datetime(2036, 7, 31, tzinfo=UTC),
     )
     assert manifest.expires_at is None
+
+
+def test_creator_signs_complete_bridge_profile_without_losing_fields(tmp_path: Path) -> None:
+    """
+    完整根仓库 Bridge 配置应进入签名载荷并通过生产验签。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
+
+    key = Ed25519PrivateKey.generate()
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "bridge-draft.json"
+    output_path = tmp_path / "bridge-evidence.json"
+    write_private_key(key_path, key)
+    draft = write_bridge_profile_draft(draft_path)
+
+    result = run_creator(draft_path, key_path, output_path)
+
+    assert result.returncode == 0, result.stderr
+    raw = json.loads(output_path.read_text(encoding="utf-8"))
+    assert raw["components"] == draft["components"]
+    public_key = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    manifest = verify_device_control_release_evidence(
+        evidence_path=str(output_path),
+        public_key_base64=base64.b64encode(public_key).decode("ascii"),
+    )
+    assert manifest.components is not None
+    draft_components = cast(dict[str, dict[str, object]], draft["components"])
+    assert (
+        manifest.components["agent-remote-ego-browser"].model_dump()
+        == draft_components["agent-remote-ego-browser"]
+    )
+
+
+@pytest.mark.parametrize("field", ["profile_version", "artifact_sha256", "issued_at"])
+def test_creator_rejects_incomplete_bridge_profile(tmp_path: Path, field: str) -> None:
+    """
+    根仓库 Bridge 配置缺少必需字段时不得签发证据。
+
+    :param tmp_path (Path): pytest 临时目录
+    :param field (str): 待删除的配置字段
+    """
+
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "bridge-draft.json"
+    output_path = tmp_path / "bridge-evidence.json"
+    write_private_key(key_path, Ed25519PrivateKey.generate())
+    draft = write_bridge_profile_draft(draft_path)
+    components = cast(dict[str, dict[str, object]], draft["components"])
+    del components["agent-remote-ego-browser"][field]
+    draft_path.write_text(json.dumps(draft), encoding="utf-8")
+
+    result = run_creator(draft_path, key_path, output_path)
+
+    assert result.returncode == 2
+    assert not output_path.exists()
+
+
+@pytest.mark.parametrize("field", ["unexpected_field", "artifact_sha256"])
+def test_creator_rejects_unbound_bridge_profile_fields(tmp_path: Path, field: str) -> None:
+    """
+    未定义字段或与顶层证据不一致的归档摘要不得进入签名。
+
+    :param tmp_path (Path): pytest 临时目录
+    :param field (str): 待修改的配置字段
+    """
+
+    key_path = tmp_path / "release-key.pem"
+    draft_path = tmp_path / "bridge-draft.json"
+    output_path = tmp_path / "bridge-evidence.json"
+    write_private_key(key_path, Ed25519PrivateKey.generate())
+    draft = write_bridge_profile_draft(draft_path)
+    components = cast(dict[str, dict[str, object]], draft["components"])
+    components["agent-remote-ego-browser"][field] = "4" * 64
+    draft_path.write_text(json.dumps(draft), encoding="utf-8")
+
+    result = run_creator(draft_path, key_path, output_path)
+
+    assert result.returncode == 2
+    assert not output_path.exists()
 
 
 def test_creator_writes_the_verified_raw_public_key(tmp_path: Path) -> None:

@@ -188,6 +188,84 @@ class EgoBrowserReleaseComponentIdentity(ReleaseComponentIdentity):
     protocol_version: str = Field(..., description="Bridge 协议版本")
 
 
+class EgoBrowserProfileReleaseComponentIdentity(EgoBrowserReleaseComponentIdentity):
+    """
+    表示保留完整生命周期配置的根仓库 schema 4 Bridge 身份
+    """
+
+    profile_id: Literal["community-local-trust"] = Field(..., description="生命周期配置标识")
+    profile_version: str = Field(..., description="生命周期配置版本")
+    bridge_version: str = Field(..., description="Bridge 发布版本")
+    bridge_protocol_version: str = Field(..., description="Bridge 生命周期协议版本")
+    ego_lite_runtime_version: str = Field(..., description="ego-lite 安装包运行时版本")
+    wrapper_version: str = Field(..., description="Bridge wrapper 版本")
+    artifact_url: str = Field(..., description="Bridge 发布归档地址")
+    artifact_sha256: str = Field(..., description="Bridge 发布归档摘要")
+    bridge_manifest_sha256: str = Field(..., description="Bridge 发布清单摘要")
+    ego_lite_installer_url: str = Field(..., description="ego-lite 安装脚本地址")
+    ego_lite_installer_commit: str = Field(..., description="ego-lite 安装脚本 commit")
+    ego_lite_installer_sha256: str = Field(..., description="ego-lite 安装脚本摘要")
+    valid_platforms: list[Literal["macos"]] = Field(..., description="Bridge 支持的平台")
+    allowed_server_origins: list[Literal["$active_login_origin"]] = Field(
+        ..., description="Bridge 允许的服务端来源"
+    )
+    admission_policy_ref: Literal["server-policy:ego-browser-v1"] = Field(
+        ..., description="设备准入策略引用"
+    )
+    issued_at: str = Field(..., description="生命周期配置签发时间")
+    replaces_profile: str = Field(..., description="被替换的生命周期配置")
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> Self:
+        """
+        校验生命周期配置与 Bridge 身份及发布制品一致
+
+        :return Self: 已通过一致性校验的 Bridge 身份
+        :raises ValueError: 生命周期配置字段相互矛盾
+        """
+
+        version = self.version
+        if (
+            self.profile_id != self.profile
+            or self.profile_version != version
+            or self.bridge_version != version
+            or self.wrapper_version != version
+            or self.bridge_protocol_version != self.protocol_version
+            or self.ego_lite_runtime_version != self.local_ego_browser_runtime_version
+            or self.ego_lite_installer_commit != self.skill_commit
+            or self.valid_platforms != ["macos"]
+            or self.allowed_server_origins != ["$active_login_origin"]
+            or self.artifact_url
+            != (
+                f"https://github.com/{self.repository}/releases/download/v{version}/"
+                f"agent-remote-ego-browser-macos-universal-{version}.tar.gz"
+            )
+            or self.ego_lite_installer_url
+            != (
+                "https://raw.githubusercontent.com/citrolabs/ego-lite/"
+                f"{self.skill_commit}/skills/ego-browser/scripts/install.sh"
+            )
+            or not self.replaces_profile.startswith(f"{self.profile_id}@")
+            or _SEMVER.fullmatch(self.replaces_profile.removeprefix(f"{self.profile_id}@")) is None
+            or self.replaces_profile == f"{self.profile_id}@{version}"
+            or not self.issued_at.endswith("Z")
+            or any(
+                not _valid_sha256_pin(digest)
+                for digest in (
+                    self.artifact_sha256,
+                    self.bridge_manifest_sha256,
+                    self.ego_lite_installer_sha256,
+                )
+            )
+        ):
+            raise ValueError("schema 9 Bridge lifecycle profile is invalid")
+        try:
+            datetime.fromisoformat(self.issued_at)
+        except ValueError as exc:
+            raise ValueError("schema 9 Bridge lifecycle issue time is invalid") from exc
+        return self
+
+
 # 保留协议术语使用的短名称以兼容现有调用方。
 EgoBrowserComponentIdentity = EgoBrowserReleaseComponentIdentity
 
@@ -216,9 +294,15 @@ class DeviceControlReleaseEvidence(BaseModel):
     release_manifest_sha256: str | None = Field(
         default=None, description="根仓库生产发布清单的精确 SHA-256 摘要"
     )
-    components: dict[str, ReleaseComponentIdentity | EgoBrowserReleaseComponentIdentity] | None = (
-        Field(default=None, description="生产部署组合固定的组件版本与源码身份")
-    )
+    components: (
+        dict[
+            str,
+            ReleaseComponentIdentity
+            | EgoBrowserReleaseComponentIdentity
+            | EgoBrowserProfileReleaseComponentIdentity,
+        ]
+        | None
+    ) = Field(default=None, description="生产部署组合固定的组件版本与源码身份")
     issued_at: datetime = Field(..., description="发布证据签发时间")
     expires_at: datetime | None = Field(
         default=None, description="旧版发布证据失效时间；永久 schema 不提供此字段"
@@ -374,6 +458,11 @@ class DeviceControlReleaseEvidence(BaseModel):
                     raise ValueError(
                         "schema 9 community evidence learning bundle digest is inconsistent"
                     )
+                if isinstance(bridge, EgoBrowserProfileReleaseComponentIdentity) and (
+                    self.ego_browser_release_manifest_sha256 != bridge.bridge_manifest_sha256
+                    or self.ego_browser_release_archive_sha256 != bridge.artifact_sha256
+                ):
+                    raise ValueError("schema 9 Bridge profile artifact digests are inconsistent")
         if self.schema_version in {5, 6, 7, 8, _LATEST_SCHEMA_VERSION}:
             assert self.components is not None
             server = self.components["agent-remote-server"]
