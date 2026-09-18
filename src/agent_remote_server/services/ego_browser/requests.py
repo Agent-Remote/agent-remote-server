@@ -1,4 +1,6 @@
-"""处理 ego-browser 请求取消与 Node 结果收敛。"""
+"""
+处理 ego-browser 请求取消与 Node 结果收敛。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +22,9 @@ from agent_remote_server.services.ego_browser.helpers import (
 
 
 class _EgoBrowserRequestOperations(_EgoBrowserBindingOperations):
-    """实现请求查询、取消与失败后的暂停处理。"""
+    """
+    实现请求查询、取消与失败后的暂停处理。
+    """
 
     async def list_active_requests(
         self, *, user: User, binding_id: UUID
@@ -30,11 +34,11 @@ class _EgoBrowserRequestOperations(_EgoBrowserBindingOperations):
 
         :param user (User): 当前操作用户
         :param binding_id (UUID): ego-browser 绑定标识
-
         :return list[EgoBrowserRequestLedger]: 当前仍可取消的请求账本列表
         """
 
-        self._require_enabled()
+        # 请求检查属于控制面清理，执行门禁关闭后仍须可用以排空进行中任务。
+        self._require_enrollment()
         await self.expire_due()
         await self.get_binding(user=user, binding_id=binding_id)
         return list(await self._repository.list_active_requests(binding_id=binding_id))
@@ -54,11 +58,11 @@ class _EgoBrowserRequestOperations(_EgoBrowserBindingOperations):
         :param binding_id (UUID): ego-browser 绑定标识
         :param request_id (str): 外层浏览器请求 ID
         :param payload (EgoBrowserCancelRequest): 浏览器请求取消参数
-
         :return EgoBrowserRequestLedger: 已加入数据库会话或更新后的请求账本实体
         """
 
-        self._require_enabled()
+        # 取消是收敛路径，不是新的执行准入。
+        self._require_enrollment()
         binding = await self._repository.get_binding(binding_id, for_update=True)
         if binding is None or (binding.user_id != user.id and user.role != "admin"):
             self._error("EGO_BROWSER_BINDING_NOT_FOUND", "The browser binding was not found.", 404)
@@ -191,7 +195,11 @@ class _EgoBrowserRequestOperations(_EgoBrowserBindingOperations):
         await self._pause_unconfirmed_request_cancel(binding)
 
     async def _pause_unconfirmed_request_cancel(self, binding: EgoBrowserBinding) -> None:
-        """取消结果无法证明时撤销整个 generation，并保持 binding 可显式恢复。"""
+        """
+        取消结果无法证明时撤销整个 generation，并保持 binding 可显式恢复。
+
+        :param binding (EgoBrowserBinding): 绑定
+        """
 
         old_generation = binding.generation
         await self._terminalize_generation_requests(

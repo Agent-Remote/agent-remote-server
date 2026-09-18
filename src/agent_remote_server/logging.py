@@ -1,3 +1,7 @@
+"""
+实现日志模块。
+"""
+
 import json
 import logging
 import sys
@@ -16,8 +20,7 @@ class JsonFormatter(logging.Formatter):
         """
         格式化日志记录
 
-        :param record (LogRecord): 日志记录
-
+        :param record (logging.LogRecord): 日志记录
         :return str: JSON 字符串
         """
 

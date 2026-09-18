@@ -1,3 +1,7 @@
+"""
+验证设备中继存储行为。
+"""
+
 import asyncio
 import os
 from uuid import uuid4
@@ -14,7 +18,9 @@ from agent_remote_server.device_control.relay_store import (
 
 
 async def test_in_memory_relay_store_exchanges_each_role_once_and_consumes_atomically() -> None:
-    """验证内存实现的角色交换和票据消费具有一次性语义。"""
+    """
+    验证内存实现的角色交换和票据消费具有一次性语义。
+    """
 
     store = InMemoryDeviceRelayStore()
     binding = relay_binding()
@@ -68,13 +74,18 @@ async def test_in_memory_relay_store_exchanges_each_role_once_and_consumes_atomi
 
 
 def test_redis_relay_store_preserves_atomic_one_time_semantics() -> None:
-    """在真实 Redis 中验证 Lua 交换和 GETDEL 票据只能各成功一次。"""
+    """
+    在真实 Redis 中验证 Lua 交换和 GETDEL 票据只能各成功一次。
+    """
 
     redis_url = integration_url("AGENT_REMOTE_INTEGRATION_REDIS_URL")
     if redis_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_REDIS_URL is not configured")
 
     async def run() -> None:
+        """
+        执行服务流程。
+        """
         redis: Redis = Redis.from_url(redis_url, decode_responses=True)
         await redis.flushdb()
         store = RedisDeviceRelayStore(redis)
@@ -145,7 +156,6 @@ def integration_url(name: str) -> str | None:
     读取显式启用的真实依赖集成测试地址
 
     :param name (str): 环境变量名称
-
     :return str | None: 集成测试地址
     """
 

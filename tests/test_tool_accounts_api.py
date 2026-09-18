@@ -1,3 +1,7 @@
+"""
+验证工具账号 API行为。
+"""
+
 import asyncio
 import base64
 from collections.abc import Iterator
@@ -28,6 +32,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -46,8 +55,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -58,7 +66,6 @@ def bootstrap(client: TestClient) -> str:
     初始化管理员并返回令牌
 
     :param client (TestClient): 测试客户端
-
     :return str: 管理员令牌
     """
 
@@ -76,8 +83,7 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
 
     :param client (TestClient): 测试客户端
     :param admin_token (str): 管理员令牌
-
-    :return tuple: 节点 ID 和 node token
+    :return tuple[str, str]: 节点 ID 和 node token
     """
 
     create_response = client.post(
@@ -126,8 +132,7 @@ def create_tool_account(
     :param token (str): 用户令牌
     :param name (str): 显示名称
     :param tool_type (str): 工具类型
-
-    :return dict: 工具账户数据
+    :return dict[str, object]: 工具账户数据
     """
 
     response = client.post(
@@ -147,6 +152,11 @@ def create_tool_account(
 
 
 def test_tool_account_create_list_and_validation(client: TestClient) -> None:
+    """
+    验证工具账号创建、列表和输入校验。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
 
     first = create_tool_account(client, token, name="Claude Main")
@@ -179,6 +189,11 @@ def test_tool_account_create_list_and_validation(client: TestClient) -> None:
 
 
 def test_tool_account_delete_requires_disabled_unbound_account(client: TestClient) -> None:
+    """
+    验证工具账号删除要求禁用状态未绑定账号。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     account = create_tool_account(client, token, name="Disposable")
     account_id = str(account["id"])
@@ -202,6 +217,11 @@ def test_tool_account_delete_requires_disabled_unbound_account(client: TestClien
 
 
 def test_tool_account_binding_task_and_status_update(client: TestClient) -> None:
+    """
+    验证工具账号绑定任务并状态更新。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, token)
     policy = {
@@ -318,6 +338,11 @@ def test_tool_account_binding_task_and_status_update(client: TestClient) -> None
 def test_native_binding_requires_device_and_syncs_forced_command_key(
     client: TestClient,
 ) -> None:
+    """
+    验证原生运行时绑定要求设备并同步强制命令键。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     create_response = client.post(
         "/api/v1/nodes",
@@ -415,6 +440,11 @@ def test_native_binding_requires_device_and_syncs_forced_command_key(
 
 
 def test_tool_account_verifier_can_retry_after_failure(client: TestClient) -> None:
+    """
+    验证工具账号校验失败后可重试。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     _node_id, node_token = create_and_register_node(client, token)
     account = create_tool_account(client, token)
@@ -519,6 +549,11 @@ def test_tool_account_verifier_can_retry_after_failure(client: TestClient) -> No
 
 
 def test_tool_account_config_import_creates_node_task(client: TestClient) -> None:
+    """
+    验证工具账号配置导入创建节点任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, token)
     account = create_tool_account(client, token)
@@ -611,6 +646,11 @@ def test_tool_account_config_import_creates_node_task(client: TestClient) -> Non
 
 
 def test_tool_account_config_import_reports_sanitized_failure(client: TestClient) -> None:
+    """
+    验证工具账号配置导入报告已脱敏失败。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     _node_id, node_token = create_and_register_node(client, token)
     account = create_tool_account(client, token)
@@ -654,6 +694,9 @@ def test_tool_account_config_import_reports_sanitized_failure(client: TestClient
 
 
 def test_config_import_status_helpers_filter_untrusted_result_shapes() -> None:
+    """
+    验证配置导入状态辅助函数过滤不可信结果结构。
+    """
     service = object.__new__(ToolAccountService)
 
     assert service._config_import_paths(None) == []
@@ -666,6 +709,11 @@ def test_config_import_status_helpers_filter_untrusted_result_shapes() -> None:
 
 
 def test_runtime_migration_commits_only_after_task_success(client: TestClient) -> None:
+    """
+    验证运行时迁移仅在任务成功后提交。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, token)
     account = create_tool_account(client, token)
@@ -690,6 +738,9 @@ def test_runtime_migration_commits_only_after_task_success(client: TestClient) -
     assert completed.status_code == 200
 
     async def enable_native() -> None:
+        """
+        启用原生运行时。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             node = await session.get(Node, UUID(node_id))

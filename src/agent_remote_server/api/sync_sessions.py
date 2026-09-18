@@ -1,3 +1,7 @@
+"""
+提供同步会话 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -27,7 +31,6 @@ def sync_session_data(result: SyncSessionResult) -> SyncSessionData:
     转换同步 session 响应数据
 
     :param result (SyncSessionResult): 同步 session 结果
-
     :return SyncSessionData: 同步 session 响应数据
     """
 
@@ -53,6 +56,13 @@ def sync_session_data(result: SyncSessionResult) -> SyncSessionData:
 
 
 def _remote_endpoint(node: Node | None, sync_session: SyncSession) -> str | None:
+    """
+    返回远端端点。
+
+    :param node (Node | None): 节点
+    :param sync_session (SyncSession): 同步会话
+    :return str | None: 远端端点
+    """
     if node is None:
         return None
     host = node.ssh_host or node.wireguard_ip
@@ -75,7 +85,6 @@ async def list_sync_sessions(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionListResponse: 同步 session 列表响应
     """
 
@@ -100,7 +109,6 @@ async def create_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 
@@ -130,7 +138,6 @@ async def get_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 
@@ -156,7 +163,6 @@ async def pause_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 
@@ -183,7 +189,6 @@ async def resume_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 
@@ -210,7 +215,6 @@ async def resolve_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 
@@ -237,7 +241,6 @@ async def reset_sync_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SyncSessionResponse: 同步 session 响应
     """
 

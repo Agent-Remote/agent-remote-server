@@ -1,8 +1,14 @@
+"""
+验证发布工作流行为。
+"""
+
 from pathlib import Path
 
 
 def test_release_workflow_binds_downloadable_supply_chain_evidence() -> None:
-    """服务端 release 必须固定镜像摘要并发布可下载的供应链证据。"""
+    """
+    服务端 release 必须固定镜像摘要并发布可下载的供应链证据。
+    """
 
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     required_fragments = (
@@ -25,7 +31,9 @@ def test_release_workflow_binds_downloadable_supply_chain_evidence() -> None:
 
 
 def test_ci_enforces_every_server_quality_contract() -> None:
-    """服务端 CI 必须执行格式、覆盖率、文档和空白字符门禁。"""
+    """
+    服务端 CI 必须执行格式、覆盖率、文档和空白字符门禁。
+    """
 
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     required_fragments = (
@@ -42,7 +50,9 @@ def test_ci_enforces_every_server_quality_contract() -> None:
 
 
 def test_ci_and_release_preserve_performance_contracts() -> None:
-    """CI 与发布流程必须保留可复现依赖、缓存、超时和路径分流。"""
+    """
+    CI 与发布流程必须保留可复现依赖、缓存、超时和路径分流。
+    """
 
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -65,23 +75,29 @@ def test_ci_and_release_preserve_performance_contracts() -> None:
     assert "ENV UV_HTTP_RETRIES=10" in dockerfile
     assert "ENV UV_HTTP_TIMEOUT=60" in dockerfile
     assert "uv sync --frozen --no-dev --no-install-project" in dockerfile
+    assert "ARG AGENT_REMOTE_VERSION=0.0.0+unknown" in dockerfile
     assert dockerfile.index("uv sync --frozen --no-dev --no-install-project") < dockerfile.index(
         "COPY README.md LICENSE ./"
     )
 
 
-def test_prepare_release_preserves_independent_component_versions() -> None:
-    """Release preparation must not rewrite unrelated component version fixtures."""
+def test_prepare_release_only_updates_package_metadata() -> None:
+    """
+    验证发布准备不改写测试数据或运行时默认值。
+    """
 
     script = Path("scripts/prepare-release.sh").read_text(encoding="utf-8")
 
-    assert "current_package_version = version_match.group(1)" in script
-    assert 'f\'"version": "{current_package_version}"\'' in script
-    assert 'r\'"version": "[0-9A-Za-z.+-]+"\'' not in script
+    assert 'Path("pyproject.toml")' in script
+    assert 'Path("tests")' not in script
+    assert 'Path("Dockerfile")' not in script
+    assert 'Path("src/agent_remote_server/__init__.py")' not in script
 
 
 def test_prepare_release_stages_all_tracked_changes() -> None:
-    """发布准备不能遗漏新增的配置、服务或测试文件。"""
+    """
+    发布准备不能遗漏新增的配置、服务或测试文件。
+    """
 
     workflow = Path(".github/workflows/prepare-release.yml").read_text(encoding="utf-8")
     assert "git add -u ." in workflow

@@ -1,3 +1,7 @@
+"""
+实现TOTP模块。
+"""
+
 import hmac
 import secrets
 from base64 import b32decode, b32encode
@@ -21,8 +25,7 @@ def generate_totp_code(secret: str, *, at_time: datetime | None = None) -> str:
     生成 TOTP 验证码
 
     :param secret (str): Base32 密钥
-    :param at_time (datetime): 可选时间
-
+    :param at_time (datetime | None): 可选时间
     :return str: 六位验证码
     """
 
@@ -42,8 +45,7 @@ def verify_totp_code(secret: str, code: str, *, at_time: datetime | None = None)
 
     :param secret (str): Base32 密钥
     :param code (str): 用户输入验证码
-    :param at_time (datetime): 可选时间
-
+    :param at_time (datetime | None): 可选时间
     :return bool: 验证码是否有效
     """
 

@@ -1,3 +1,7 @@
+"""
+导出 Agent Remote 服务端接口。
+"""
+
 import os
 from importlib.metadata import PackageNotFoundError, version
 
@@ -6,7 +10,7 @@ if not _version:
     try:
         _version = version("agent-remote-server")
     except PackageNotFoundError:
-        _version = "0.2.16"
+        _version = "0.0.0+unknown"
 
 __version__: str = _version
 

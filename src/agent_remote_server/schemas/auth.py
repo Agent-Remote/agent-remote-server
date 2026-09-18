@@ -1,3 +1,7 @@
+"""
+定义认证接口模型。
+"""
+
 from pydantic import BaseModel, Field
 
 

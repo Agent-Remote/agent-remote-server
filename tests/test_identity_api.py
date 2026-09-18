@@ -1,3 +1,7 @@
+"""
+验证身份 API行为。
+"""
+
 import asyncio
 import json
 from collections.abc import Iterator
@@ -38,6 +42,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -60,7 +69,6 @@ def bootstrap(
     :param client (TestClient): 测试客户端
     :param username (str): 用户名
     :param password (str): 密码
-
     :return str: 访问令牌
     """
 
@@ -79,8 +87,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -105,6 +112,11 @@ async def expire_auth_token(client: TestClient, raw_token: str) -> None:
 
 
 def test_expired_user_token_cannot_refresh(client: TestClient) -> None:
+    """
+    验证过期用户令牌不能刷新。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     asyncio.run(expire_auth_token(client, admin_token))
 
@@ -114,6 +126,11 @@ def test_expired_user_token_cannot_refresh(client: TestClient) -> None:
 
 
 def test_bootstrap_login_and_user_management(client: TestClient) -> None:
+    """
+    验证管理员初始化登录和用户管理。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     initial_status = client.get("/api/v1/auth/bootstrap-status")
     assert initial_status.status_code == 200
     assert initial_status.json()["data"] == {"required": True}
@@ -172,6 +189,11 @@ def test_bootstrap_login_and_user_management(client: TestClient) -> None:
 
 
 def test_cli_device_code_login_flow(client: TestClient) -> None:
+    """
+    验证CLI 设备代码登录流程。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
 
     start_response = client.post("/api/v1/auth/cli/start")
@@ -202,6 +224,11 @@ def test_cli_device_code_login_flow(client: TestClient) -> None:
 
 
 def test_totp_setup_verify_and_login(client: TestClient) -> None:
+    """
+    验证 TOTP 设置、确认和登录流程。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
 
     setup_response = client.post("/api/v1/auth/totp/setup", headers=auth_header(admin_token))
@@ -234,6 +261,11 @@ def test_totp_setup_verify_and_login(client: TestClient) -> None:
 
 
 def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -> None:
+    """
+    验证设备注册撤销并审计脱敏。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     ssh_public_key = "ssh-ed25519 AAAATESTKEY rem@test"
     wireguard_public_key = "wg-public-key"
@@ -299,6 +331,9 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
     assert revoked_token_response.json()["error"]["code"] == "AUTH_TOKEN_REVOKED"
 
     async def inspect_state() -> None:
+        """
+        检查状态。
+        """
         app = cast(FastAPI, client.app)
         session_factory = app.state.session_factory
         async with session_factory() as session:
@@ -338,6 +373,11 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
 
 
 def test_device_registration_rejects_unknown_platform(client: TestClient) -> None:
+    """
+    验证设备注册拒绝未知平台。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
 
     response = client.post(
@@ -354,6 +394,11 @@ def test_device_registration_rejects_unknown_platform(client: TestClient) -> Non
 
 
 def test_device_login_reuses_registration_and_repairs_ssh_key(client: TestClient) -> None:
+    """
+    验证设备登录复用注册并修复 SSH 键。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     first_response = client.post(
         "/api/v1/devices/register",
@@ -396,6 +441,11 @@ def test_device_login_reuses_registration_and_repairs_ssh_key(client: TestClient
 
 
 def test_device_activity_updates_last_seen_with_write_throttling(client: TestClient) -> None:
+    """
+    验证设备活动时间更新受写入节流保护。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     register_response = client.post(
         "/api/v1/devices/register",
@@ -413,6 +463,11 @@ def test_device_activity_updates_last_seen_with_write_throttling(client: TestCli
     stale_seen_at = datetime.now(UTC) - timedelta(minutes=10)
 
     async def set_last_seen_at(value: datetime) -> None:
+        """
+        设置最近活跃时间时间。
+
+        :param value (datetime): 值
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             device = await session.get(UserDevice, device_id)
@@ -421,6 +476,11 @@ def test_device_activity_updates_last_seen_with_write_throttling(client: TestCli
             await session.commit()
 
     async def get_last_seen_at() -> datetime:
+        """
+        获取最近活跃时间时间。
+
+        :return datetime: 最近活跃时间时间
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             device = await session.get(UserDevice, device_id)
@@ -445,6 +505,11 @@ def test_device_activity_updates_last_seen_with_write_throttling(client: TestCli
 
 
 def test_device_delete_requires_revoke(client: TestClient) -> None:
+    """
+    验证设备删除要求撤销。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     response = client.post(
         "/api/v1/devices/register",
@@ -477,6 +542,11 @@ def test_device_delete_requires_revoke(client: TestClient) -> None:
 
 
 def test_device_revoke_enqueues_ssh_key_removal_for_every_node(client: TestClient) -> None:
+    """
+    验证撤销设备会为所有节点下发 SSH 密钥移除任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     device_response = client.post(
         "/api/v1/devices/register",
@@ -510,6 +580,11 @@ def test_device_revoke_enqueues_ssh_key_removal_for_every_node(client: TestClien
     assert revoked.status_code == 200
 
     async def load_tasks() -> list[NodeTask]:
+        """
+        加载任务。
+
+        :return list[NodeTask]: 任务
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             return list(

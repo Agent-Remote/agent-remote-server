@@ -1,4 +1,6 @@
-"""广播 ego-browser binding generation 的撤销事件。"""
+"""
+广播 ego-browser binding generation 的撤销事件。
+"""
 
 from __future__ import annotations
 
@@ -18,13 +20,29 @@ _DISTRIBUTED_REVOCATION_TTL_SECONDS = 1200
 
 
 def _distributed_revocation_key(binding_id: UUID, generation: int) -> str:
+    """
+    返回分布式撤销键。
+
+    :param binding_id (UUID): 绑定 ID
+    :param generation (int): 代次
+    :return str: 分布式撤销键
+    """
     return f"agent-remote:ego-browser:revoked:{binding_id}:{generation}"
 
 
 class EgoBrowserRevocationBus:
-    """通过独立 Redis 频道广播 ego-browser 代次撤销。"""
+    """
+    通过独立 Redis 频道广播 ego-browser 代次撤销。
+    """
 
     def __init__(self, redis: Redis, subscriber: Redis, *, channel: str) -> None:
+        """
+        初始化Ego Browser 撤销总线。
+
+        :param redis (Redis): Redis 客户端
+        :param subscriber (Redis): Redis 订阅客户端
+        :param channel (str): 通道
+        """
         self._redis = redis
         self._subscriber = subscriber
         self._channel = channel
@@ -66,7 +84,9 @@ class EgoBrowserRevocationBus:
         )
 
     async def close(self) -> None:
-        """停止订阅任务并关闭 Redis 连接。"""
+        """
+        停止订阅任务并关闭 Redis 连接。
+        """
 
         self._stop.set()
         if self._task is not None:
@@ -77,6 +97,11 @@ class EgoBrowserRevocationBus:
         await self._redis.aclose()
 
     async def _run(self, handler: RevocationHandler) -> None:
+        """
+        执行服务流程。
+
+        :param handler (RevocationHandler): 撤销事件处理器
+        """
         while not self._stop.is_set():
             pubsub = self._subscriber.pubsub(ignore_subscribe_messages=True)
             try:
@@ -111,9 +136,14 @@ class EgoBrowserRevocationBus:
 
 
 class InMemoryEgoBrowserRevocationBus:
-    """SQLite/单进程使用的本地撤销通知实现。"""
+    """
+    SQLite/单进程使用的本地撤销通知实现。
+    """
 
     def __init__(self) -> None:
+        """
+        初始化内存 Ego Browser 撤销总线。
+        """
         self._handler: RevocationHandler | None = None
 
     async def start(self, handler: RevocationHandler) -> None:
@@ -137,7 +167,9 @@ class InMemoryEgoBrowserRevocationBus:
             await self._handler(binding_id, generation)
 
     async def close(self) -> None:
-        """清理本地撤销处理器。"""
+        """
+        清理本地撤销处理器。
+        """
 
         self._handler = None
 
@@ -149,7 +181,6 @@ def create_ego_browser_revocation_bus(
     按部署数据库类型创建独立撤销总线。
 
     :param settings (Settings): 应用配置
-
     :return EgoBrowserRevocationBus | InMemoryEgoBrowserRevocationBus: 按当前部署模式创建的撤销总线
     """
 

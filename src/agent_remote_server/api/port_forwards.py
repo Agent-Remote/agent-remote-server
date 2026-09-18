@@ -1,3 +1,7 @@
+"""
+提供端口转发 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -44,7 +48,6 @@ def port_forward_data(port_forward: PortForward) -> PortForwardData:
     转换端口转发响应数据
 
     :param port_forward (PortForward): 端口转发实体
-
     :return PortForwardData: 端口转发数据
     """
 
@@ -76,9 +79,7 @@ def lease_data(result: RedeemedPortForward) -> PortForwardLeaseData:
     转换 Node 授权租约数据
 
     :param result (RedeemedPortForward): 已兑换授权
-
     :return PortForwardLeaseData: Node 授权租约
-
     :raises RuntimeError: 已兑换授权缺少运行时租约状态
     """
 
@@ -111,7 +112,6 @@ def service(
     :param session (AsyncSession): 数据库会话
     :param settings (Settings): 应用配置
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardService: 端口转发服务
     """
 
@@ -143,9 +143,7 @@ async def create_port_forward(
     :param user (User): 当前用户
     :param token (AuthToken): 当前令牌
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardCreatedResponse: 新建端口转发响应
-
     :raises RuntimeError: 已授权端口转发节点缺少 WireGuard 地址
     """
 
@@ -194,7 +192,6 @@ async def list_port_forwards(
     :param user (User): 当前用户
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
     :param all_users (bool): 是否列出全部用户的端口转发
-
     :return PortForwardListResponse: 端口转发列表响应
     """
 
@@ -221,7 +218,6 @@ async def get_port_forward(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardResponse: 端口转发响应
     """
 
@@ -252,7 +248,6 @@ async def create_port_forward_connection(
     :param user (User): 当前用户
     :param token (AuthToken): 当前令牌
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardConnectionResponse: 一次性连接凭证响应
     """
 
@@ -282,7 +277,6 @@ async def stop_port_forward(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardResponse: 已停止端口转发响应
     """
 
@@ -306,7 +300,6 @@ async def redeem_port_forward(
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardLeaseResponse: Node 授权租约响应
     """
 
@@ -338,7 +331,6 @@ async def renew_port_forward(
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return PortForwardLeaseResponse: Node 授权租约响应
     """
 
@@ -371,7 +363,6 @@ async def release_port_forward(
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
     :param token_store (PortForwardTokenStore): 端口转发 token 存储
-
     :return EmptyResponse: 空响应
     """
 

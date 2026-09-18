@@ -1,7 +1,5 @@
-"""添加独立 ego-browser Bridge 设备和 binding 记录。
-
-Revision ID: 0018_ego_browser_bridge
-Revises: 0017_device_authorization
+"""
+添加独立 ego-browser Bridge 设备和 binding 记录。
 """
 
 from collections.abc import Sequence
@@ -22,6 +20,11 @@ LIVE = "status NOT IN ('stopped', 'expired', 'failed', 'revoked')"
 
 
 def _timestamps() -> tuple[sa.Column, sa.Column]:
+    """
+    返回时间戳。
+
+    :return tuple[sa.Column, sa.Column]: 时间戳
+    """
     return (
         sa.Column("created_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()")),
@@ -29,7 +32,9 @@ def _timestamps() -> tuple[sa.Column, sa.Column]:
 
 
 def upgrade() -> None:
-    """创建独立 ego-browser Bridge 的设备、绑定和生命周期账本。"""
+    """
+    创建独立 ego-browser Bridge 的设备、绑定和生命周期账本。
+    """
 
     op.create_table(
         "ego_browser_devices",
@@ -309,7 +314,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """删除独立 ego-browser Bridge 的设备、绑定和生命周期账本。"""
+    """
+    删除独立 ego-browser Bridge 的设备、绑定和生命周期账本。
+    """
 
     op.drop_index(
         "ego_browser_revocation_outbox_pending_idx", table_name="ego_browser_revocation_outbox"

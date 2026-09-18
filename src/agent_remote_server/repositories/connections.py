@@ -1,3 +1,7 @@
+"""
+提供连接数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -25,6 +29,11 @@ class ConnectionRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化连接数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def get_active_device(self, *, user_id: UUID, device_id: UUID) -> UserDevice | None:
@@ -33,8 +42,7 @@ class ConnectionRepository:
 
         :param user_id (UUID): 用户 ID
         :param device_id (UUID): 设备 ID
-
-        :return UserDevice: 设备实体
+        :return UserDevice | None: 设备实体
         """
 
         return await self._session.scalar(
@@ -49,8 +57,7 @@ class ConnectionRepository:
         按 ID 读取活跃设备
 
         :param device_id (UUID): 设备 ID
-
-        :return UserDevice: 活跃设备实体
+        :return UserDevice | None: 活跃设备实体
         """
 
         return await self._session.scalar(
@@ -68,8 +75,7 @@ class ConnectionRepository:
         :param user_id (UUID): 用户 ID
         :param device_id (UUID): 设备 ID
         :param node_id (UUID): 节点 ID
-
-        :return SyncSession: 同步会话实体
+        :return SyncSession | None: 同步会话实体
         """
 
         return await self._session.scalar(
@@ -87,8 +93,7 @@ class ConnectionRepository:
         读取设备的活跃 WireGuard peer
 
         :param device_id (UUID): 设备 ID
-
-        :return WireGuardPeer: WireGuard 对等节点
+        :return WireGuardPeer | None: WireGuard 对等节点
         """
 
         return await self._session.scalar(
@@ -102,7 +107,7 @@ class ConnectionRepository:
         """
         列出具备 WireGuard 和 SSH 连接信息的节点
 
-        :return Sequence: 节点列表
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(
@@ -120,8 +125,7 @@ class ConnectionRepository:
         列出设备活跃 SSH 公钥
 
         :param device_id (UUID): 设备 ID
-
-        :return Sequence: SSH 公钥列表
+        :return Sequence[SshKey]: SSH 公钥列表
         """
 
         result = await self._session.scalars(
@@ -137,8 +141,7 @@ class ConnectionRepository:
         读取工具 session
 
         :param session_id (UUID): 工具会话 ID
-
-        :return Session: 工具会话实体
+        :return Session | None: 工具会话实体
         """
 
         return await self._session.get(Session, session_id)
@@ -148,8 +151,7 @@ class ConnectionRepository:
         读取用于绑定 attach 校验的工具账户
 
         :param account_id (UUID): 工具账户 ID
-
-        :return ToolAccount: 工具账户实体
+        :return ToolAccount | None: 工具账户实体
         """
 
         return await self._session.get(ToolAccount, account_id)
@@ -159,8 +161,7 @@ class ConnectionRepository:
         读取用于绑定 attach 校验的工具账户 profile
 
         :param account_id (UUID): 工具账户 ID
-
-        :return ToolAccountProfile: 工具账户 profile 实体
+        :return ToolAccountProfile | None: 工具账户 profile 实体
         """
 
         return await self._session.scalar(
@@ -174,8 +175,7 @@ class ConnectionRepository:
         读取工具账户绑定的开发凭据 profile
 
         :param account_id (UUID): 工具账户 ID
-
-        :return DeveloperCredentialProfile: 开发凭据 profile 实体
+        :return DeveloperCredentialProfile | None: 开发凭据 profile 实体
         """
 
         return await self._session.scalar(
@@ -193,8 +193,7 @@ class ConnectionRepository:
         读取节点
 
         :param node_id (UUID): 节点 ID
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -204,8 +203,7 @@ class ConnectionRepository:
         读取阻止进入 session 的同步 session
 
         :param workspace_id (UUID): 工作区 ID
-
-        :return SyncSession: 同步 session 实体
+        :return SyncSession | None: 同步 session 实体
         """
 
         return await self._session.scalar(

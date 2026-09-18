@@ -1,3 +1,7 @@
+"""
+实现连接业务逻辑。
+"""
+
 import base64
 import binascii
 from dataclasses import dataclass
@@ -56,6 +60,12 @@ class ConnectionService:
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
+        """
+        初始化连接业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        """
         self._session = session
         self._settings = settings
         self._repository = ConnectionRepository(session)
@@ -68,9 +78,7 @@ class ConnectionService:
 
         :param user (User): 当前用户
         :param token (AuthToken): 当前令牌
-
-        :return dict: WireGuard 配置
-
+        :return dict[str, object]: WireGuard 配置
         :raises ApiError: 当前设备没有有效的 WireGuard 对端
         """
 
@@ -106,7 +114,6 @@ class ConnectionService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前设备令牌
         :param public_key (str): WireGuard 公钥
-
         :return WireGuardPeerEnrollment: 对端登记结果
         """
 
@@ -148,9 +155,7 @@ class ConnectionService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前令牌
         :param session_id (UUID): 工具会话 ID
-
         :return AttachAuthorization: 挂接授权
-
         :raises ApiError: 当前设备缺少 SSH 密钥或目标节点未配置连接地址
         """
 
@@ -230,7 +235,6 @@ class ConnectionService:
         判断工具会话是否获准使用设备 SSH agent
 
         :param tool_session (Session): 工具会话
-
         :return bool: 是否允许 SSH agent 转发
         """
 
@@ -255,9 +259,7 @@ class ConnectionService:
         :param node_id (UUID): 请求节点 ID
         :param session_id (UUID): 工具会话 ID
         :param device_id (UUID): 设备 ID
-
         :return Session: 可挂接的工具会话
-
         :raises ApiError: 节点、会话或设备身份未通过挂接授权校验
         """
 
@@ -296,9 +298,7 @@ class ConnectionService:
         :param node (Node): 当前节点
         :param node_id (UUID): 请求节点 ID
         :param device_id (UUID): 设备 ID
-
         :return UserDevice: 已授权设备
-
         :raises ApiError: 节点或设备身份不匹配，或不存在可用的同步授权
         """
 
@@ -340,9 +340,7 @@ class ConnectionService:
         :param node_id (UUID): 请求节点 ID
         :param account_id (UUID): 工具账户 ID
         :param device_id (UUID): 设备 ID
-
         :return tuple[str, str, str]: 绑定会话 ID、tmux 会话名与运行时后端
-
         :raises ApiError: 节点、设备或绑定会话状态未通过挂接校验
         """
 
@@ -394,6 +392,13 @@ class ConnectionService:
         return binding_session_id, tmux_session_name, runtime_backend
 
     async def _require_token_device(self, *, user: User, token: AuthToken) -> UserDevice:
+        """
+        获取并校验令牌设备。
+
+        :param user (User): 用户
+        :param token (AuthToken): 令牌
+        :return UserDevice: 令牌设备
+        """
         if token.user_device_id is None:
             raise ApiError(
                 code="DEVICE_REQUIRED",
@@ -408,6 +413,11 @@ class ConnectionService:
         return device
 
     def _validate_wireguard_public_key(self, public_key: str) -> None:
+        """
+        校验WireGuard 公钥。
+
+        :param public_key (str): 公钥
+        """
         try:
             decoded = base64.b64decode(public_key, validate=True)
         except (binascii.Error, ValueError):
@@ -420,6 +430,13 @@ class ConnectionService:
             )
 
     async def _require_attachable_session(self, *, user: User, session_id: UUID) -> Session:
+        """
+        获取并校验可连接会话。
+
+        :param user (User): 用户
+        :param session_id (UUID): 会话 ID
+        :return Session: 可连接会话
+        """
         tool_session = await self._repository.get_session(session_id)
         if tool_session is None or tool_session.user_id != user.id:
             raise ApiError(
@@ -429,6 +446,11 @@ class ConnectionService:
         return tool_session
 
     async def _ensure_workspace_sync_ready(self, workspace_id: UUID) -> None:
+        """
+        确保工作区同步就绪。
+
+        :param workspace_id (UUID): 工作区 ID
+        """
         blocking_sync = await self._repository.get_blocking_sync_session(workspace_id)
         if blocking_sync is not None:
             raise ApiError(
@@ -438,6 +460,12 @@ class ConnectionService:
             )
 
     async def _require_attachable_node(self, node_id: UUID) -> Node:
+        """
+        获取并校验可连接节点。
+
+        :param node_id (UUID): 节点 ID
+        :return Node: 可连接节点
+        """
         node = await self._repository.get_node(node_id)
         if node is None:
             raise ApiError(code="COMMON_NOT_FOUND", message="Node was not found.", status_code=404)
@@ -448,6 +476,11 @@ class ConnectionService:
         return node
 
     def _ensure_attachable_status(self, tool_session: Session) -> None:
+        """
+        确保可连接状态。
+
+        :param tool_session (Session): 工具会话
+        """
         if tool_session.status not in {"starting", "running", "active"}:
             raise ApiError(
                 code="SESSION_NOT_ATTACHABLE",
@@ -456,6 +489,12 @@ class ConnectionService:
             )
 
     def _require_tmux_session(self, tool_session: Session) -> str:
+        """
+        获取并校验tmux 会话。
+
+        :param tool_session (Session): 工具会话
+        :return str: tmux 会话
+        """
         if not tool_session.tmux_session_name:
             raise ApiError(
                 code="SESSION_NOT_ATTACHABLE",
@@ -473,6 +512,15 @@ class ConnectionService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,

@@ -1,3 +1,7 @@
+"""
+验证Ego Browser 并发行为。
+"""
+
 import asyncio
 import base64
 import os
@@ -19,13 +23,180 @@ from agent_remote_server.models import (
     AuditLog,
     EgoBrowserBinding,
     EgoBrowserDevice,
+    EgoBrowserEnsureRequest,
     EgoBrowserRequestLedger,
     EgoBrowserRevocationOutbox,
     Node,
     User,
 )
-from agent_remote_server.schemas.ego_browser import EgoBrowserRenewRequest
+from agent_remote_server.schemas.ego_browser import (
+    EgoBrowserDeviceRegisterRequest,
+    EgoBrowserRenewRequest,
+)
 from agent_remote_server.services.ego_browser import REQUIRED_CAPABILITIES, EgoBrowserService
+from agent_remote_server.services.ego_browser.contracts import EgoBrowserDeviceCredentialIssue
+
+
+def test_concurrent_first_ensure_creates_one_device_and_replays_one_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    首次并发 ensure 必须由真实父行锁序列化并回放同一结果。
+
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
+
+    database_url = os.getenv("AGENT_REMOTE_INTEGRATION_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("AGENT_REMOTE_INTEGRATION_DATABASE_URL is not configured")
+
+    async def scenario() -> None:
+        """
+        执行测试场景。
+        """
+        engine = create_async_engine(database_url)
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            device_id = uuid4()
+            suffix = uuid4().hex
+            async with session_factory() as seed_session:
+                user = User(
+                    username=f"ego-browser-ensure-race-{suffix}",
+                    display_name="Ego Browser Ensure Race",
+                    role="user",
+                    status="active",
+                    password_hash="test",
+                    totp_enabled=False,
+                )
+                seed_session.add(user)
+                await seed_session.commit()
+                user_id = user.id
+
+            payload = EgoBrowserDeviceRegisterRequest(
+                device_id=device_id,
+                public_key="A" * 43,
+                encryption_public_key=base64.urlsafe_b64encode(bytes([2]) * 32)
+                .rstrip(b"=")
+                .decode("ascii"),
+                generation=1,
+                release_profile="logic-test",
+                credential_profile="community_file",
+                platform="macos",
+                bridge_protocol_version="ego-browser-bridge-v1",
+                bridge_version="0.1.11",
+                local_ego_browser_runtime_version="1.2.3",
+                ego_lite_runtime_version="1.2.3",
+                skill_version="1.2.3",
+                capabilities=list(REQUIRED_CAPABILITIES),
+                allowlist_revision=1,
+            )
+            idempotency_key = "concurrent-first-ensure-key-20260914"
+            lock_acquired = asyncio.Event()
+            release_lock = asyncio.Event()
+            settings = Settings(
+                ego_browser_bridge_enabled=True,
+                ego_browser_require_device_pop=False,
+            )
+            async with session_factory() as first_session, session_factory() as second_session:
+                first_user = await first_session.get(User, user_id)
+                second_user = await second_session.get(User, user_id)
+                assert first_user is not None and second_user is not None
+                first_service = EgoBrowserService(first_session, settings)
+                second_service = EgoBrowserService(second_session, settings)
+                original_get_user = first_service._repository.get_user_for_update  # noqa: SLF001
+
+                async def get_user_with_barrier(current_user_id: UUID) -> User | None:
+                    """
+                    获取用户带屏障。
+
+                    :param current_user_id (UUID): 当前用户 ID
+                    :return User | None: 用户带屏障
+                    """
+                    current = await original_get_user(current_user_id)
+                    lock_acquired.set()
+                    await release_lock.wait()
+                    return current
+
+                monkeypatch.setattr(
+                    first_service._repository,  # noqa: SLF001
+                    "get_user_for_update",
+                    get_user_with_barrier,
+                )
+
+                async def ensure(
+                    service: EgoBrowserService,
+                    current_user: User,
+                ) -> tuple[EgoBrowserDevice, EgoBrowserDeviceCredentialIssue]:
+                    """
+                    确保测试前置条件成立。
+
+                    :param service (EgoBrowserService): 业务服务
+                    :param current_user (User): 当前用户
+                    :return tuple[EgoBrowserDevice, EgoBrowserDeviceCredentialIssue]: 确保
+                    """
+                    return await service.ensure_device(
+                        user=current_user,
+                        payload=payload,
+                        idempotency_key=idempotency_key,
+                    )
+
+                first_task: (
+                    asyncio.Task[tuple[EgoBrowserDevice, EgoBrowserDeviceCredentialIssue]] | None
+                ) = None
+                second_task: (
+                    asyncio.Task[tuple[EgoBrowserDevice, EgoBrowserDeviceCredentialIssue]] | None
+                ) = None
+                try:
+                    first_task = asyncio.create_task(ensure(first_service, first_user))
+                    await asyncio.wait_for(lock_acquired.wait(), timeout=2)
+                    second_task = asyncio.create_task(ensure(second_service, second_user))
+                    await asyncio.sleep(0.1)
+                    assert not second_task.done()
+                    release_lock.set()
+                    first_result, second_result = await asyncio.wait_for(
+                        asyncio.gather(first_task, second_task),
+                        timeout=3,
+                    )
+                finally:
+                    release_lock.set()
+                    tasks = [task for task in (first_task, second_task) if task is not None]
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+
+                first_device, first_credential = first_result
+                second_device, second_credential = second_result
+                assert first_device.id == second_device.id == device_id
+                assert first_credential.raw_token == second_credential.raw_token
+                assert first_credential.credential.id == second_credential.credential.id
+
+            async with session_factory() as assertion_session:
+                devices = list(
+                    await assertion_session.scalars(
+                        select(EgoBrowserDevice).where(EgoBrowserDevice.user_id == user_id)
+                    )
+                )
+                ensure_requests = list(
+                    await assertion_session.scalars(
+                        select(EgoBrowserEnsureRequest).where(
+                            EgoBrowserEnsureRequest.user_id == user_id
+                        )
+                    )
+                )
+                assert [device.id for device in devices] == [device_id]
+                assert len(ensure_requests) == 1
+                assert ensure_requests[0].ego_browser_device_id == device_id
+        finally:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.drop_all)
+                await connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+            await engine.dispose()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("first_operation", ["renew", "stop"])
@@ -33,13 +204,21 @@ def test_stop_wins_concurrent_postgres_renewal(
     first_operation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """真实行锁的两种取得顺序最终都必须保留停止状态。"""
+    """
+    真实行锁的两种取得顺序最终都必须保留停止状态。
+
+    :param first_operation (str): first 操作
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     database_url = os.getenv("AGENT_REMOTE_INTEGRATION_DATABASE_URL")
     if database_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_DATABASE_URL is not configured")
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine(database_url)
         try:
             async with engine.begin() as connection:
@@ -71,6 +250,13 @@ def test_stop_wins_concurrent_postgres_renewal(
                     *,
                     for_update: bool = False,
                 ) -> EgoBrowserBinding | None:
+                    """
+                    获取绑定带屏障。
+
+                    :param current_binding_id (UUID): 当前绑定 ID
+                    :param for_update (bool): 对应更新
+                    :return EgoBrowserBinding | None: 绑定带屏障
+                    """
                     current = await original_get_binding(
                         current_binding_id,
                         for_update=for_update,
@@ -87,6 +273,11 @@ def test_stop_wins_concurrent_postgres_renewal(
                 )
 
                 async def renew() -> EgoBrowserBinding:
+                    """
+                    续期当前绑定。
+
+                    :return EgoBrowserBinding: 续期
+                    """
                     return await renew_service.renew(
                         user=renew_user,
                         binding_id=binding_id,
@@ -99,6 +290,11 @@ def test_stop_wins_concurrent_postgres_renewal(
                     )
 
                 async def stop() -> EgoBrowserBinding:
+                    """
+                    停止当前会话。
+
+                    :return EgoBrowserBinding: 停止
+                    """
                     return await stop_service.stop_by_user(
                         user=stop_user,
                         binding_id=binding_id,
@@ -165,13 +361,21 @@ def test_postgres_response_cancel_race_has_one_durable_request_outcome(
     first_operation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Response 与 cancel 的真实行锁竞态必须由先取得 admission 的一方决定。"""
+    """
+    Response 与 cancel 的真实行锁竞态必须由先取得 admission 的一方决定。
+
+    :param first_operation (str): first 操作
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     database_url = os.getenv("AGENT_REMOTE_INTEGRATION_DATABASE_URL")
     if database_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_DATABASE_URL is not configured")
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine(database_url)
         try:
             async with engine.begin() as connection:
@@ -248,6 +452,13 @@ def test_postgres_response_cancel_race_has_one_durable_request_outcome(
                     *,
                     for_update: bool = False,
                 ) -> EgoBrowserBinding | None:
+                    """
+                    获取绑定带屏障。
+
+                    :param current_binding_id (UUID): 当前绑定 ID
+                    :param for_update (bool): 对应更新
+                    :return EgoBrowserBinding | None: 绑定带屏障
+                    """
                     current = await original_get_binding(
                         current_binding_id,
                         for_update=for_update,
@@ -264,12 +475,18 @@ def test_postgres_response_cancel_race_has_one_durable_request_outcome(
                 )
 
                 async def admit_response() -> None:
+                    """
+                    准入响应。
+                    """
                     await response_service.admit_outer_envelope(
                         claims=response_claims,
                         envelope=response_envelope,
                     )
 
                 async def admit_cancel() -> None:
+                    """
+                    准入取消。
+                    """
                     await cancel_service.admit_outer_envelope(
                         claims=cancel_claims,
                         envelope=cancel_envelope,
@@ -335,6 +552,12 @@ def test_postgres_response_cancel_race_has_one_durable_request_outcome(
 async def _seed_active_binding(
     session: AsyncSession,
 ) -> tuple[User, Node, EgoBrowserDevice, EgoBrowserBinding]:
+    """
+    准备活动绑定。
+
+    :param session (AsyncSession): 会话
+    :return tuple[User, Node, EgoBrowserDevice, EgoBrowserBinding]: 活动绑定
+    """
     now = datetime.now(UTC)
     suffix = uuid4().hex
     user = User(

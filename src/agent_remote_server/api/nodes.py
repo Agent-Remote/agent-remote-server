@@ -1,3 +1,7 @@
+"""
+提供节点 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -20,6 +24,12 @@ from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.nodes import (
     CreateNodeRequest,
     NodeData,
+    NodeJoinCodeIssueData,
+    NodeJoinCodeIssueRequest,
+    NodeJoinCodeIssueResponse,
+    NodeJoinCodeRevokeData,
+    NodeJoinCodeRevokeRequest,
+    NodeJoinCodeRevokeResponse,
     NodeListData,
     NodeListResponse,
     NodeRegistrationTokenData,
@@ -37,15 +47,45 @@ from agent_remote_server.services.nodes import NodeService
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
-def node_data(node: Node) -> NodeData:
+def node_data(node: Node, settings: Settings | None = None) -> NodeData:
     """
     转换节点响应数据
 
     :param node (Node): 节点实体
-
+    :param settings (Settings | None): 用于计算实时执行准入的应用配置
     :return NodeData: 节点响应数据
     """
 
+    bridge = node.runtime_capabilities.get("ego_browser_bridge")
+    bridge_data = bridge if isinstance(bridge, dict) else {}
+    configured_enabled = bool(node.ego_browser_enabled)
+    # 心跳是快照，Server 门禁是实时策略；每次响应都重新计算投影。
+    effective_enabled = bridge_data.get("effective_enabled") is True and configured_enabled
+    admission_fields = {
+        "configured_enabled",
+        "effective_enabled",
+        "node_execution_allowed",
+    }
+    present_admission_fields = admission_fields.intersection(bridge_data)
+    execution_admission = (
+        settings.ego_browser_bridge_enabled
+        if settings is not None
+        else bool(bridge_data.get("node_execution_allowed", False))
+    )
+    if present_admission_fields and present_admission_fields != admission_fields:
+        # 部分准入投影只能用于诊断，不能证明可执行能力。
+        effective_enabled = False
+        node_execution_allowed = False
+    elif present_admission_fields == admission_fields:
+        node_execution_allowed = (
+            effective_enabled
+            and bridge_data.get("configured_enabled") is True
+            and bridge_data.get("node_execution_allowed") is True
+            and execution_admission
+        )
+    else:
+        # 旧心跳在兼容期可读，但仍受实时执行门禁约束；登记门禁独立生效。
+        node_execution_allowed = effective_enabled and execution_admission
     return NodeData(
         id=node.id,
         name=node.name,
@@ -64,6 +104,16 @@ def node_data(node: Node) -> NodeData:
         default_runtime_backend=node.default_runtime_backend,
         runtime_policy=node.runtime_policy,
         runtime_capabilities=node.runtime_capabilities,
+        ego_browser_enabled=node.ego_browser_enabled,
+        configured_enabled=configured_enabled,
+        effective_enabled=effective_enabled,
+        node_execution_allowed=node_execution_allowed,
+        enrollment_admission=(
+            settings.ego_browser_enrollment_enabled if settings is not None else True
+        ),
+        execution_admission=(
+            settings.ego_browser_bridge_enabled if settings is not None else node_execution_allowed
+        ),
         last_heartbeat_at=node.last_heartbeat_at,
         version=node.version,
         created_at=node.created_at,
@@ -76,7 +126,6 @@ def node_task_result_data(result: NodeTaskResult) -> NodeTaskResultData:
     转换节点任务结果响应数据
 
     :param result (NodeTaskResult): 节点任务结果实体
-
     :return NodeTaskResultData: 节点任务结果响应数据
     """
 
@@ -96,7 +145,6 @@ async def node_task_data(repository: NodeRepository, task: NodeTask) -> NodeTask
 
     :param repository (NodeRepository): 节点仓储
     :param task (NodeTask): 节点任务实体
-
     :return NodeTaskData: 节点任务响应数据
     """
 
@@ -132,7 +180,6 @@ async def list_nodes(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
-
     :return NodeListResponse: 节点列表响应
     """
 
@@ -143,7 +190,7 @@ async def list_nodes(
         ego_browser_revocation_publisher=ego_browser_revocation_bus,
     ).list_nodes()
     return NodeListResponse(
-        data=NodeListData(items=[node_data(node) for node in nodes]),
+        data=NodeListData(items=[node_data(node, settings) for node in nodes]),
         request_id=get_request_id(),
     )
 
@@ -162,7 +209,6 @@ async def create_node(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return NodeRegistrationTokenResponse: 节点注册 token 响应
     """
 
@@ -182,12 +228,79 @@ async def create_node(
         ssh_host=payload.ssh_host,
         ssh_port=payload.ssh_port,
         ssh_user=payload.ssh_user,
+        ego_browser_enabled=payload.ego_browser_enabled,
     )
     return NodeRegistrationTokenResponse(
         data=NodeRegistrationTokenData(
-            node=node_data(result.node), registration_token=result.raw_token
+            node=node_data(result.node, settings), registration_token=result.raw_token
         ),
         request_id=get_request_id(),
+    )
+
+
+@router.post("/{node_id}/join-code", response_model=NodeJoinCodeIssueResponse)
+async def issue_join_code(
+    node_id: UUID,
+    payload: NodeJoinCodeIssueRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> NodeJoinCodeIssueResponse:
+    """
+    为 Node 签发仅显示一次的一次性加入码。
+
+    :param node_id (UUID): 目标 Node 标识
+    :param payload (NodeJoinCodeIssueRequest): 加入码有效期与能力意图
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :param admin (User): 当前管理员
+    :return NodeJoinCodeIssueResponse: 一次性加入码响应
+    """
+
+    result = await NodeService(session, settings).issue_join_code(
+        actor=admin,
+        node_id=node_id,
+        expires_in_seconds=payload.expires_in_seconds,
+        ego_browser_enabled=payload.ego_browser_enabled,
+        exchange_id=payload.exchange_id,
+    )
+    return NodeJoinCodeIssueResponse(
+        data=NodeJoinCodeIssueData(
+            node_id=result.node.id,
+            code=result.raw_code,
+            expires_at=result.expires_at,
+            ego_browser_enabled=result.ego_browser_enabled,
+        ),
+        request_id=get_request_id(),
+    )
+
+
+@router.post("/{node_id}/join-code/revoke", response_model=NodeJoinCodeRevokeResponse)
+async def revoke_join_code(
+    node_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+    payload: NodeJoinCodeRevokeRequest | None = None,
+) -> NodeJoinCodeRevokeResponse:
+    """
+    撤销指定 Node 尚未消费的加入码。
+
+    :param node_id (UUID): 目标 Node 标识
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :param admin (User): 当前管理员
+    :param payload (NodeJoinCodeRevokeRequest | None): 可选的精确交换撤销范围
+    :return NodeJoinCodeRevokeResponse: 可判定是否需要恢复同一交换的撤销结果
+    """
+
+    state = await NodeService(session, settings).revoke_join_codes(
+        actor=admin,
+        node_id=node_id,
+        exchange_id=payload.exchange_id if payload is not None else None,
+    )
+    return NodeJoinCodeRevokeResponse(
+        data=NodeJoinCodeRevokeData(state=state), request_id=get_request_id()
     )
 
 
@@ -205,7 +318,6 @@ async def list_node_tasks(
     :param admin (User): 当前管理员
     :param status (str | None): 状态过滤
     :param limit (int): 最大返回数量
-
     :return NodeTaskListResponse: 节点任务列表响应
     """
 
@@ -230,9 +342,7 @@ async def get_node_task(
     :param task_id (str): 任务 ID
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return NodeTaskResponse: 节点任务响应
-
     :raises ApiError: 节点任务不存在
     """
 
@@ -265,7 +375,6 @@ async def get_node(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
-
     :return NodeResponse: 节点响应
     """
 
@@ -275,7 +384,7 @@ async def get_node(
         settings,
         ego_browser_revocation_publisher=ego_browser_revocation_bus,
     ).get_node(node_id)
-    return NodeResponse(data=node_data(node), request_id=get_request_id())
+    return NodeResponse(data=node_data(node, settings), request_id=get_request_id())
 
 
 @router.patch("/{node_id}", response_model=NodeResponse)
@@ -298,7 +407,6 @@ async def update_node(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return NodeResponse: 节点响应
     """
 
@@ -321,8 +429,9 @@ async def update_node(
         ssh_host=payload.ssh_host,
         ssh_port=payload.ssh_port,
         ssh_user=payload.ssh_user,
+        ego_browser_enabled=payload.ego_browser_enabled,
     )
-    return NodeResponse(data=node_data(node), request_id=get_request_id())
+    return NodeResponse(data=node_data(node, settings), request_id=get_request_id())
 
 
 @router.post("/{node_id}/registration-token", response_model=NodeRegistrationTokenResponse)
@@ -339,7 +448,6 @@ async def rotate_registration_token(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return NodeRegistrationTokenResponse: 节点注册 token 响应
     """
 
@@ -349,7 +457,7 @@ async def rotate_registration_token(
     )
     return NodeRegistrationTokenResponse(
         data=NodeRegistrationTokenData(
-            node=node_data(result.node), registration_token=result.raw_token
+            node=node_data(result.node, settings), registration_token=result.raw_token
         ),
         request_id=get_request_id(),
     )
@@ -373,14 +481,13 @@ async def set_maintenance(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return NodeResponse: 节点响应
     """
 
     node = await NodeService(
         session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
     ).set_maintenance(actor=admin, node_id=node_id)
-    return NodeResponse(data=node_data(node), request_id=get_request_id())
+    return NodeResponse(data=node_data(node, settings), request_id=get_request_id())
 
 
 @router.post("/{node_id}/disable", response_model=NodeResponse)
@@ -401,14 +508,13 @@ async def disable_node(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return NodeResponse: 节点响应
     """
 
     node = await NodeService(
         session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
     ).disable_node(actor=admin, node_id=node_id)
-    return NodeResponse(data=node_data(node), request_id=get_request_id())
+    return NodeResponse(data=node_data(node, settings), request_id=get_request_id())
 
 
 @router.delete("/{node_id}", response_model=EmptyResponse)
@@ -429,7 +535,6 @@ async def delete_node(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 

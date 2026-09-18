@@ -1,3 +1,7 @@
+"""
+定义用户持久化模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 

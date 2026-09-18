@@ -1,14 +1,25 @@
+"""
+导出持久化模型。
+"""
+
 from agent_remote_server.models.audit import AuditLog
 from agent_remote_server.models.auth import AuthToken, CliLoginCode
 from agent_remote_server.models.ego_browser import (
     EgoBrowserBinding,
     EgoBrowserDevice,
     EgoBrowserDeviceCredential,
+    EgoBrowserEnsureRequest,
     EgoBrowserRequestLedger,
     EgoBrowserRevocationOutbox,
 )
 from agent_remote_server.models.network import WireGuardPeer
-from agent_remote_server.models.nodes import Node, NodeHeartbeat, NodeTask, NodeTaskResult
+from agent_remote_server.models.nodes import (
+    Node,
+    NodeHeartbeat,
+    NodeJoinCode,
+    NodeTask,
+    NodeTaskResult,
+)
 from agent_remote_server.models.sessions import (
     BrowserSession,
     DeviceSession,
@@ -35,12 +46,14 @@ __all__ = [
     "EgoBrowserBinding",
     "EgoBrowserDevice",
     "EgoBrowserDeviceCredential",
+    "EgoBrowserEnsureRequest",
     "EgoBrowserRequestLedger",
     "EgoBrowserRevocationOutbox",
     "DeviceSession",
     "DeviceSessionApproval",
     "Node",
     "NodeHeartbeat",
+    "NodeJoinCode",
     "NodeTask",
     "NodeTaskResult",
     "PortForward",

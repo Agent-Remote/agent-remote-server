@@ -1,8 +1,5 @@
-"""添加工作区 Git 同步策略
-
-Revision ID: 0006_workspace_git_sync_policy
-Revises: 0005_tool_account_binding
-Create Date: 2026-07-06 00:00:00.000000
+"""
+添加工作区 Git 同步策略
 """
 
 from collections.abc import Sequence
@@ -36,7 +33,9 @@ DEFAULT_EXCLUDES = [
 
 
 def upgrade() -> None:
-    """增加开发者凭据关联和工作区 Git 同步策略字段。"""
+    """
+    增加开发者凭据关联和工作区 Git 同步策略字段。
+    """
 
     op.create_table(
         "developer_credential_profiles",
@@ -122,7 +121,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """移除开发者凭据关联和工作区 Git 同步策略字段。"""
+    """
+    移除开发者凭据关联和工作区 Git 同步策略字段。
+    """
 
     op.drop_column("sync_sessions", "exclude_patterns")
     op.drop_column("sync_sessions", "sync_git")

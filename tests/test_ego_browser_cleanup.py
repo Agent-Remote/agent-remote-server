@@ -1,3 +1,7 @@
+"""
+验证Ego Browser 清理行为。
+"""
+
 from types import SimpleNamespace
 from typing import cast
 
@@ -11,36 +15,80 @@ from agent_remote_server.ego_browser import cleanup as ego_browser_cleanup
 async def test_cleanup_expires_bindings_and_publishes_outbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """后台循环必须在同一批次中过期 binding 并发布 durable outbox。"""
+    """
+    后台循环必须在同一批次中过期 binding 并发布 durable outbox。
+
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     stop = ego_browser_cleanup.asyncio.Event()
     calls: list[object] = []
     session_marker = object()
 
     class SessionContext:
+        """
+        定义会话上下文。
+        """
+
         async def __aenter__(self) -> object:
+            """
+            进入异步上下文。
+
+            :return object: 进入异步上下文
+            """
             calls.append("session_opened")
             return session_marker
 
         async def __aexit__(self, *_: object) -> None:
+            """
+            退出异步上下文。
+
+            :param _ (object): 未使用的参数
+            """
             calls.append("session_closed")
 
     class Service:
+        """
+        定义业务服务。
+        """
+
         def __init__(
             self, session: object, settings: object, *, revocation_publisher: object
         ) -> None:
+            """
+            初始化业务服务。
+
+            :param session (object): 会话
+            :param settings (object): 配置
+            :param revocation_publisher (object): 撤销发布器
+            """
             calls.append((session, settings, revocation_publisher))
 
         async def expire_due(self) -> int:
+            """
+            过期处理到期项。
+
+            :return int: 到期项
+            """
             calls.append("expired")
             return 2
 
         async def publish_pending_revocations(self, *, limit: int) -> int:
+            """
+            发布待处理状态撤销事件。
+
+            :param limit (int): 限制
+            :return int: 待处理状态撤销事件
+            """
             calls.append(("published", limit))
             stop.set()
             return 3
 
     class Nodes:
+        """
+        定义节点。
+        """
+
         def __init__(
             self,
             session: object,
@@ -48,9 +96,21 @@ async def test_cleanup_expires_bindings_and_publishes_outbox(
             *,
             ego_browser_revocation_publisher: object,
         ) -> None:
+            """
+            初始化节点。
+
+            :param session (object): 会话
+            :param settings (object): 配置
+            :param ego_browser_revocation_publisher (object): Ego Browser 撤销发布器
+            """
             calls.append(("nodes", session, settings, ego_browser_revocation_publisher))
 
         async def expire_stale_nodes(self) -> int:
+            """
+            过期处理过期节点。
+
+            :return int: 过期节点
+            """
             calls.append("stale_nodes")
             return 1
 

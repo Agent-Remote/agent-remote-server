@@ -1,3 +1,7 @@
+"""
+提供浏览器会话数据访问。
+"""
+
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
@@ -14,6 +18,11 @@ class BrowserSessionRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化浏览器会话数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_browser_session(self, browser_session: BrowserSession) -> BrowserSession:
@@ -33,7 +42,7 @@ class BrowserSessionRepository:
         按 ID 读取浏览器 session
 
         :param browser_session_id (UUID): 浏览器 session ID
-        :return BrowserSession: 浏览器 session 实体
+        :return BrowserSession | None: 浏览器 session 实体
         """
 
         return await self._session.get(BrowserSession, browser_session_id)
@@ -52,7 +61,7 @@ class BrowserSessionRepository:
         列出用户浏览器 session
 
         :param user_id (UUID): 用户 ID
-        :return Sequence: 浏览器 session 列表
+        :return Sequence[BrowserSession]: 浏览器 session 列表
         """
 
         result = await self._session.scalars(
@@ -67,7 +76,7 @@ class BrowserSessionRepository:
         列出已过期但未终止的浏览器 session
 
         :param now (datetime): 当前时间
-        :return Sequence: 浏览器 session 列表
+        :return Sequence[BrowserSession]: 浏览器 session 列表
         """
 
         normalized_now = now if now.tzinfo else now.replace(tzinfo=UTC)
@@ -84,7 +93,7 @@ class BrowserSessionRepository:
         读取工具账户
 
         :param account_id (UUID): 工具账户 ID
-        :return ToolAccount: 工具账户实体
+        :return ToolAccount | None: 工具账户实体
         """
 
         return await self._session.get(ToolAccount, account_id)
@@ -94,7 +103,7 @@ class BrowserSessionRepository:
         读取节点
 
         :param node_id (UUID): 节点 ID
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -106,8 +115,8 @@ class BrowserSessionRepository:
         列出可承载浏览器 session 的候选节点
 
         :param region_code (str): 地区代码
-        :param preferred_tags (list): 偏好标签
-        :return Sequence: 节点列表
+        :param preferred_tags (list[str]): 偏好标签
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(
@@ -141,7 +150,7 @@ class BrowserSessionRepository:
         按 task_id 读取任务
 
         :param task_id (str): 任务 ID
-        :return NodeTask: 节点任务实体
+        :return NodeTask | None: 节点任务实体
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))

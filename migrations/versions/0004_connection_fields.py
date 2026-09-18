@@ -1,8 +1,5 @@
-"""为节点添加连接字段。
-
-Revision ID: 0004_connection_fields
-Revises: 0003_node_control
-Create Date: 2026-07-04
+"""
+为节点添加连接字段。
 """
 
 from collections.abc import Sequence
@@ -17,7 +14,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """增加节点连接所需的字段。"""
+    """
+    增加节点连接所需的字段。
+    """
 
     op.add_column("nodes", sa.Column("wireguard_public_key", sa.Text(), nullable=True))
     op.add_column("nodes", sa.Column("wireguard_endpoint", sa.String(length=255), nullable=True))
@@ -27,7 +26,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """移除节点连接字段。"""
+    """
+    移除节点连接字段。
+    """
 
     op.drop_column("nodes", "ssh_user")
     op.drop_column("nodes", "ssh_port")

@@ -1,4 +1,6 @@
-"""解析并验证 ego-browser relay 的外层信封。"""
+"""
+解析并验证 ego-browser relay 的外层信封。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +16,12 @@ from agent_remote_server.ego_browser.relay.contracts import (
 
 
 def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """
+    拒绝包含重复键的 JSON 对象。
+
+    :param pairs (list[tuple[str, object]]): 键值对
+    :return dict[str, object]: 无重复键的对象
+    """
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
@@ -24,15 +32,11 @@ def _reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object
 
 def parse_outer_envelope(raw: bytes, *, maximum_bytes: int) -> dict[str, object]:
     """
-    解析并校验服务端可见的外层元数据。
-
-    该函数只返回密文字符串，永远不会解码或检查其明文。
+    解析服务端可见的外层元数据，只返回密文而不检查明文。
 
     :param raw (bytes): 原始外层信封字节
     :param maximum_bytes (int): 允许的最大信封字节数
-
     :return dict[str, object]: 通过协议、大小和规范编码校验的外层信封
-
     :raises ValueError: 信封超过大小限制或不符合外层协议与规范编码
     """
 
@@ -142,7 +146,12 @@ def parse_outer_envelope(raw: bytes, *, maximum_bytes: int) -> dict[str, object]
 
 
 def _is_canonical_b64url(value: str) -> bool:
-    """仅接受无填充且字符集合法的规范 base64url 文本。"""
+    """
+    仅接受无填充且字符集合法的规范 base64url 文本。
+
+    :param value (str): 值
+    :return bool: 是否满足校验条件
+    """
 
     alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
     if not value or any(char not in alphabet for char in value):
@@ -155,4 +164,6 @@ def _is_canonical_b64url(value: str) -> bool:
 
 
 class ApiEnvelopeError(ValueError):
-    """调用方在 outer envelope 不满足 binding admission 时抛出的错误。"""
+    """
+    调用方在 outer envelope 不满足 binding admission 时抛出的错误。
+    """

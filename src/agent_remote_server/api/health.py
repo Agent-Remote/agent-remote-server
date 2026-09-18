@@ -1,3 +1,7 @@
+"""
+提供健康状态 API。
+"""
+
 import asyncio
 import time
 from typing import Annotated, Literal
@@ -22,6 +26,15 @@ def _base_response(
     status: Literal["ok", "degraded"],
     components: dict[str, HealthComponent],
 ) -> HealthResponse:
+    """
+    返回基础响应。
+
+    :param request (Request): HTTP 请求
+    :param settings (Settings): 配置
+    :param status (Literal["ok", "degraded"]): 状态
+    :param components (dict[str, HealthComponent]): 健康检查组件
+    :return HealthResponse: 基础响应
+    """
     return HealthResponse(
         status=status,
         service=settings.app_name,
@@ -42,7 +55,6 @@ async def healthz(
 
     :param request (Request): 当前请求对象
     :param settings (Settings): 应用配置
-
     :return HealthResponse: 健康检查响应
     """
 
@@ -69,7 +81,6 @@ async def readyz(
 
     :param request (Request): 当前请求对象
     :param settings (Settings): 应用配置
-
     :return HealthResponse: 就绪检查响应
     """
 

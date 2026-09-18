@@ -1,3 +1,7 @@
+"""
+验证中继绑定行为。
+"""
+
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -9,7 +13,9 @@ from agent_remote_server.relay.binding import RelayBinding
 
 
 def test_relay_binding_kind_separates_identical_business_identifiers() -> None:
-    """相同 ID 和 generation 不会让两类 relay binding 发生碰撞。"""
+    """
+    相同 ID 和 generation 不会让两类 relay binding 发生碰撞。
+    """
 
     binding_id = uuid4()
     device_binding = DeviceRelayBinding(
@@ -34,7 +40,9 @@ def test_relay_binding_kind_separates_identical_business_identifiers() -> None:
 
 
 def test_generic_relay_identity_preserves_deployed_redis_namespaces() -> None:
-    """通用 relay 身份不会改变旧设备或浏览器 Redis 键格式。"""
+    """
+    通用 relay 身份不会改变旧设备或浏览器 Redis 键格式。
+    """
 
     binding_id = uuid4()
     device_binding = DeviceRelayBinding(
@@ -57,4 +65,10 @@ def test_generic_relay_identity_preserves_deployed_redis_namespaces() -> None:
 
 
 def _browser_key(binding_id: UUID) -> RelayBinding:
+    """
+    返回浏览器键。
+
+    :param binding_id (UUID): 绑定 ID
+    :return RelayBinding: 浏览器键
+    """
     return RelayBinding(kind="ego_browser", binding_id=binding_id, generation=9)

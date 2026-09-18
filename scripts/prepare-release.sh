@@ -3,7 +3,6 @@ set -euo pipefail
 
 usage() {
   echo "Usage: $0 <version>" >&2
-  echo "Example: $0 0.2.16" >&2
 }
 
 if [[ $# -ne 1 ]]; then
@@ -21,9 +20,7 @@ python3 - "$VERSION" <<'PY'
 from __future__ import annotations
 
 import re
-import stat
 import sys
-import tempfile
 from pathlib import Path
 
 version = sys.argv[1]
@@ -32,56 +29,14 @@ package_version = (
     f"{fix_match.group(1)}+fix.{fix_match.group(2)}" if fix_match else version
 )
 
-script = Path("scripts/prepare-release.sh")
-text = script.read_text()
-text = re.sub(r"Example: \$0 [0-9A-Za-z.+-]+", f"Example: $0 {version}", text)
-mode = stat.S_IMODE(script.stat().st_mode)
-with tempfile.NamedTemporaryFile(
-    mode="w", encoding="utf-8", dir=script.parent, delete=False
-) as temporary:
-    temporary.write(text)
-replacement = Path(temporary.name)
-replacement.chmod(mode)
-replacement.replace(script)
-
 pyproject = Path("pyproject.toml")
 text = pyproject.read_text()
-version_match = re.search(r'(?m)^version = "([^"]+)"$', text)
-if version_match is None:
-    raise SystemExit("Could not find the project version in pyproject.toml")
-current_package_version = version_match.group(1)
-text = re.sub(
+text, count = re.subn(
     r'(?m)^version = "[^"]+"$', f'version = "{package_version}"', text, count=1
 )
+if count != 1:
+    raise SystemExit("Project version was not updated exactly once")
 pyproject.write_text(text)
-
-dockerfile = Path("Dockerfile")
-text = dockerfile.read_text()
-text = re.sub(
-    r"ARG AGENT_REMOTE_VERSION=[0-9A-Za-z.+-]+",
-    f"ARG AGENT_REMOTE_VERSION={version}",
-    text,
-    count=1,
-)
-dockerfile.write_text(text)
-
-runtime = Path("src/agent_remote_server/__init__.py")
-text = runtime.read_text()
-text = re.sub(
-    r'_version = "[0-9A-Za-z.+-]+"',
-    f'_version = "{package_version}"',
-    text,
-    count=1,
-)
-runtime.write_text(text)
-
-for path in sorted(Path("tests").glob("test_*.py")):
-    text = path.read_text()
-    text = text.replace(
-        f'"version": "{current_package_version}"',
-        f'"version": "{package_version}"',
-    )
-    path.write_text(text)
 PY
 
 uv lock

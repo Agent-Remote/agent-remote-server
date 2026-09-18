@@ -1,8 +1,5 @@
-"""允许替换 live 设备控制 binding。
-
-Revision ID: 0016_device_binding_rebind
-Revises: 0015_session_device_control
-Create Date: 2026-08-03 12:00:00.000000
+"""
+允许替换 live 设备控制 binding。
 """
 
 from collections.abc import Sequence
@@ -22,11 +19,7 @@ UUID = postgresql.UUID(as_uuid=True)
 
 def upgrade() -> None:
     """
-    将设备控制绑定唯一约束改为仅约束非终态记录
-
-    历史终态记录必须保留用于审计，但不能继续占用 Claude session 或本机设备
-    的 live binding 槽位。迁移前若已有同一设备的多个 live 记录，保留最新一条，
-    其余记录以 rebound 终止，确保新索引可以安全创建。
+    仅让非终态绑定占用唯一槽位，并以 rebound 终止较旧的活动绑定。
     """
 
     op.drop_index("device_sessions_tool_uidx", table_name="device_sessions")
@@ -100,10 +93,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """
-    恢复设备控制绑定的全生命周期 Claude session 唯一约束
-
-    旧 schema 无法表示同一 Claude session 的多次绑定历史，因此回退时每个
-    tool_session_id 只保留最新记录。生产回退前必须先导出终态历史。
+    恢复全生命周期唯一约束；每个工具会话仅保留最新记录，回退前须导出历史。
     """
 
     op.drop_index("device_sessions_device_live_uidx", table_name="device_sessions")

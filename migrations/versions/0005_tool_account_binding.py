@@ -1,8 +1,5 @@
-"""扩展工具账号绑定状态
-
-Revision ID: 0005_tool_account_binding
-Revises: 0004_connection_fields
-Create Date: 2026-07-05 00:00:00.000000
+"""
+扩展工具账号绑定状态
 """
 
 from collections.abc import Sequence
@@ -29,7 +26,9 @@ NEW_STATES = (
 
 
 def upgrade() -> None:
-    """扩展工具账户绑定状态约束。"""
+    """
+    扩展工具账户绑定状态约束。
+    """
 
     op.drop_constraint("tool_accounts_status_ck", "tool_accounts", type_="check")
     op.create_check_constraint(
@@ -40,7 +39,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """恢复旧版工具账户绑定状态约束。"""
+    """
+    恢复旧版工具账户绑定状态约束。
+    """
 
     op.drop_constraint("tool_accounts_status_ck", "tool_accounts", type_="check")
     op.create_check_constraint(

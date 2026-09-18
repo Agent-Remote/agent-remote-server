@@ -1,3 +1,7 @@
+"""
+验证端口转发 API行为。
+"""
+
 import asyncio
 import json
 from collections.abc import Iterator
@@ -32,9 +36,14 @@ NODE_TOKEN = "node-port-forward-test-token"
 
 
 def test_in_memory_token_store_enforces_one_time_ttl_rate_and_cleanup() -> None:
-    """内存实现必须与生产 Redis store 保持一次性和限速语义一致。"""
+    """
+    内存实现必须与生产 Redis store 保持一次性和限速语义一致。
+    """
 
     async def exercise() -> None:
+        """
+        执行完整测试流程。
+        """
         store = InMemoryPortForwardTokenStore()
         claims = PortForwardTokenClaims(
             forward_id=UUID("11111111-1111-4111-8111-111111111111"),
@@ -63,7 +72,11 @@ def test_in_memory_token_store_enforces_one_time_ttl_rate_and_cleanup() -> None:
 
 
 async def create_schema(app: FastAPI) -> None:
-    """创建测试数据库 schema。"""
+    """
+    创建测试数据库 schema。
+
+    :param app (FastAPI): ASGI 应用
+    """
 
     async with app.state.database_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -71,7 +84,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """创建使用内存 token store 的测试客户端。"""
+    """
+    创建使用内存 token store 的测试客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
 
     settings = Settings(
         secret_key="test-secret",
@@ -87,13 +104,23 @@ def client() -> Iterator[TestClient]:
 
 
 def auth_header(token: str) -> dict[str, str]:
-    """创建 Bearer 请求头。"""
+    """
+    创建 Bearer 请求头。
+
+    :param token (str): 令牌
+    :return dict[str, str]: 认证请求头
+    """
 
     return {"Authorization": f"Bearer {token}"}
 
 
 def bootstrap(client: TestClient) -> str:
-    """初始化管理员并返回用户 token。"""
+    """
+    初始化管理员并返回用户 token。
+
+    :param client (TestClient): 测试 API 客户端
+    :return str: 管理员访问令牌
+    """
 
     response = client.post(
         "/api/v1/auth/bootstrap",
@@ -104,7 +131,13 @@ def bootstrap(client: TestClient) -> str:
 
 
 def register_device(client: TestClient, user_token: str) -> tuple[str, str, str]:
-    """注册设备并返回设备、token 和 SSH key ID。"""
+    """
+    注册设备并返回设备、token 和 SSH key ID。
+
+    :param client (TestClient): 测试 API 客户端
+    :param user_token (str): 用户令牌
+    :return tuple[str, str, str]: 设备
+    """
 
     response = client.post(
         "/api/v1/devices/register",
@@ -131,7 +164,15 @@ async def seed_running_session(
     capability: bool = True,
     runtime_backend: str = "native",
 ) -> tuple[str, str]:
-    """写入具备端口转发条件的 Node 和运行 session。"""
+    """
+    写入具备端口转发条件的 Node 和运行 session。
+
+    :param client (TestClient): 测试 API 客户端
+    :param device_id (str): 设备 ID
+    :param capability (bool): 能力
+    :param runtime_backend (str): 运行时后端
+    :return tuple[str, str]: 运行中会话
+    """
 
     app = cast(FastAPI, client.app)
     async with app.state.session_factory() as session:
@@ -208,7 +249,12 @@ async def seed_running_session(
 
 
 async def set_node_token(client: TestClient, node_id: str) -> None:
-    """为测试 Node 设置可认证 token。"""
+    """
+    为测试 Node 设置可认证 token。
+
+    :param client (TestClient): 测试 API 客户端
+    :param node_id (str): 节点 ID
+    """
 
     from agent_remote_server.security import hash_token
 
@@ -221,7 +267,14 @@ async def set_node_token(client: TestClient, node_id: str) -> None:
 
 
 def create_forward(client: TestClient, device_token: str, session_id: str) -> dict[str, object]:
-    """创建测试端口转发。"""
+    """
+    创建测试端口转发。
+
+    :param client (TestClient): 测试 API 客户端
+    :param device_token (str): 设备令牌
+    :param session_id (str): 会话 ID
+    :return dict[str, object]: 转发
+    """
 
     response = client.post(
         f"/api/v1/sessions/{session_id}/port-forwards",
@@ -243,6 +296,12 @@ def test_port_forward_full_lifecycle_and_generation_fencing(
     client: TestClient,
     runtime_backend: str,
 ) -> None:
+    """
+    验证端口转发完整生命周期并代次隔离。
+
+    :param client (TestClient): 测试 API 客户端
+    :param runtime_backend (str): 运行时后端
+    """
     user_token = bootstrap(client)
     device_id, device_token, ssh_key_id = register_device(client, user_token)
     session_id, node_id = asyncio.run(
@@ -377,6 +436,9 @@ def test_port_forward_full_lifecycle_and_generation_fencing(
     assert stopped.json()["data"]["connection_count"] == 3
 
     async def inspect() -> None:
+        """
+        检查持久化状态。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             value = await session.get(PortForward, UUID(forward_id))
@@ -392,6 +454,11 @@ def test_port_forward_full_lifecycle_and_generation_fencing(
 
 
 def test_port_forward_cleanup_expires_disconnects_and_revokes(client: TestClient) -> None:
+    """
+    验证端口转发清理使其过期断开连接并撤销。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     user_token = bootstrap(client)
     device_id, device_token, ssh_key_id = register_device(client, user_token)
     session_id, node_id = asyncio.run(seed_running_session(client, device_id=device_id))
@@ -401,6 +468,9 @@ def test_port_forward_cleanup_expires_disconnects_and_revokes(client: TestClient
     expired_id = str(expired["id"])
 
     async def expire_and_cleanup() -> None:
+        """
+        过期处理并清理。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             value = await session.get(PortForward, UUID(expired_id))
@@ -435,6 +505,9 @@ def test_port_forward_cleanup_expires_disconnects_and_revokes(client: TestClient
     assert redeemed.status_code == 200
 
     async def disconnect_and_revoke() -> None:
+        """
+        断开并并撤销。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             value = await session.get(PortForward, UUID(active_id))
@@ -468,7 +541,11 @@ def test_port_forward_cleanup_expires_disconnects_and_revokes(client: TestClient
 
 
 def test_port_forward_cleanup_rotates_past_healthy_batches(client: TestClient) -> None:
-    """健康的首批记录不能让后续待回收记录长期饥饿。"""
+    """
+    健康的首批记录不能让后续待回收记录长期饥饿。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
@@ -479,6 +556,9 @@ def test_port_forward_cleanup_rotates_past_healthy_batches(client: TestClient) -
     earlier_id, later_id = sorted((UUID(str(first["id"])), UUID(str(second["id"]))))
 
     async def rotate_cleanup() -> None:
+        """
+        轮换清理。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             later = await session.get(PortForward, later_id)
@@ -505,6 +585,11 @@ def test_port_forward_cleanup_rotates_past_healthy_batches(client: TestClient) -
 
 
 def test_port_forward_enforces_device_capability_port_and_quota(client: TestClient) -> None:
+    """
+    验证端口转发强制执行设备能力端口并配额。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
     unsupported_session, _node_id = asyncio.run(
@@ -555,7 +640,11 @@ def test_port_forward_enforces_device_capability_port_and_quota(client: TestClie
 
 
 def test_port_forward_requests_reject_unknown_target_fields(client: TestClient) -> None:
-    """客户端不能通过未声明字段扩展固定 loopback 目标。"""
+    """
+    客户端不能通过未声明字段扩展固定 loopback 目标。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
@@ -574,7 +663,11 @@ def test_port_forward_requests_reject_unknown_target_fields(client: TestClient) 
 
 
 def test_port_forward_create_rate_limit_returns_stable_error(client: TestClient) -> None:
-    """创建限速必须在生成额外授权前返回稳定错误。"""
+    """
+    创建限速必须在生成额外授权前返回稳定错误。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     app = cast(FastAPI, client.app)
     app.state.settings.port_forward_create_rate_limit_per_minute = 1
@@ -597,6 +690,11 @@ def test_port_forward_create_rate_limit_returns_stable_error(client: TestClient)
 
 
 def test_revoked_device_invalidates_active_forward_lease(client: TestClient) -> None:
+    """
+    验证已撤销状态设备使其失效活动状态转发租约。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     user_token = bootstrap(client)
     device_id, device_token, ssh_key_id = register_device(client, user_token)
     session_id, node_id = asyncio.run(seed_running_session(client, device_id=device_id))
@@ -632,7 +730,11 @@ def test_revoked_device_invalidates_active_forward_lease(client: TestClient) -> 
 
 
 def test_stopping_session_immediately_revokes_forward(client: TestClient) -> None:
-    """显式停止 session 的事务必须同步收敛关联转发。"""
+    """
+    显式停止 session 的事务必须同步收敛关联转发。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
@@ -653,7 +755,11 @@ def test_stopping_session_immediately_revokes_forward(client: TestClient) -> Non
 
 
 def test_disabling_node_immediately_revokes_forward(client: TestClient) -> None:
-    """管理员禁用 Node 时关联转发必须在同一事务进入终态。"""
+    """
+    管理员禁用 Node 时关联转发必须在同一事务进入终态。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
@@ -675,7 +781,11 @@ def test_disabling_node_immediately_revokes_forward(client: TestClient) -> None:
 
 
 def test_expired_forward_is_persisted_before_connection_is_rejected(client: TestClient) -> None:
-    """过期检查必须持久化终态和审计后再拒绝重连。"""
+    """
+    过期检查必须持久化终态和审计后再拒绝重连。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, _ssh_key_id = register_device(client, user_token)
@@ -684,6 +794,9 @@ def test_expired_forward_is_persisted_before_connection_is_rejected(client: Test
     forward_id = str(created["id"])
 
     async def expire() -> None:
+        """
+        将测试记录设为过期。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             value = await session.get(PortForward, UUID(forward_id))
@@ -700,6 +813,9 @@ def test_expired_forward_is_persisted_before_connection_is_rejected(client: Test
     assert response.json()["error"]["code"] == "AUTH_EXPIRED"
 
     async def inspect() -> None:
+        """
+        检查持久化状态。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             value = await session.get(PortForward, UUID(forward_id))
@@ -715,7 +831,11 @@ def test_expired_forward_is_persisted_before_connection_is_rejected(client: Test
 
 
 def test_capability_requires_protocol_and_caps_policy_streams(client: TestClient) -> None:
-    """不兼容协议必须拒绝，策略并发不得超过 Node capability。"""
+    """
+    不兼容协议必须拒绝，策略并发不得超过 Node capability。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     user_token = bootstrap(client)
     device_id, device_token, ssh_key_id = register_device(client, user_token)
@@ -723,6 +843,12 @@ def test_capability_requires_protocol_and_caps_policy_streams(client: TestClient
     asyncio.run(set_node_token(client, node_id))
 
     async def configure(*, versions: list[int], max_streams: int) -> None:
+        """
+        配置测试场景。
+
+        :param versions (list[int]): 协议版本列表
+        :param max_streams (int): 最大并发流数
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             node = await session.get(Node, UUID(node_id))

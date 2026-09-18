@@ -1,4 +1,9 @@
+"""
+验证节点 API行为。
+"""
+
 import asyncio
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -29,6 +34,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -47,8 +57,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -59,7 +68,6 @@ def bootstrap(client: TestClient) -> str:
     初始化管理员并返回令牌
 
     :param client (TestClient): 测试客户端
-
     :return str: 管理员令牌
     """
 
@@ -71,14 +79,43 @@ def bootstrap(client: TestClient) -> str:
     return str(response.json()["data"]["access_token"])
 
 
+def create_user(client: TestClient, admin_token: str, username: str) -> str:
+    """
+    创建普通用户并返回其访问 token。
+
+    :param client (TestClient): 测试 API 客户端
+    :param admin_token (str): 管理员令牌
+    :param username (str): 用户名
+    :return str: 用户
+    """
+
+    password = f"{username}-secret"
+    created = client.post(
+        "/api/v1/users",
+        headers=auth_header(admin_token),
+        json={
+            "username": username,
+            "password": password,
+            "display_name": username.title(),
+            "role": "user",
+        },
+    )
+    assert created.status_code == 200
+    logged_in = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
+    )
+    assert logged_in.status_code == 200
+    return str(logged_in.json()["data"]["access_token"])
+
+
 def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str, str]:
     """
     创建并注册节点
 
     :param client (TestClient): 测试客户端
     :param admin_token (str): 管理员令牌
-
-    :return tuple: 节点 ID 和 node token
+    :return tuple[str, str]: 节点 ID 和 node token
     """
 
     create_response = client.post(
@@ -109,6 +146,115 @@ def create_and_register_node(client: TestClient, admin_token: str) -> tuple[str,
     return node_id, str(register_response.json()["data"]["node_token"])
 
 
+def test_node_join_code_http_contract_is_admin_only_and_secret_free(
+    client: TestClient,
+) -> None:
+    """
+    加入码 HTTP 接口返回确定状态，且审计不记录 code 或 Node token。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    user_token = create_user(client, admin_token, "join-code-user")
+    node_id, _ = create_and_register_node(client, admin_token)
+    revoked_exchange = "http-revoked-exchange-0001"
+    consumed_exchange = "http-consumed-exchange-001"
+    missing_exchange = "http-missing-exchange-00001"
+
+    forbidden_issue = client.post(
+        f"/api/v1/nodes/{node_id}/join-code",
+        headers=auth_header(user_token),
+        json={"exchange_id": revoked_exchange},
+    )
+    assert forbidden_issue.status_code == 403
+    assert forbidden_issue.json()["error"]["code"] == "COMMON_FORBIDDEN"
+    forbidden_revoke = client.post(
+        f"/api/v1/nodes/{node_id}/join-code/revoke",
+        headers=auth_header(user_token),
+        json={"exchange_id": revoked_exchange},
+    )
+    assert forbidden_revoke.status_code == 403
+    assert forbidden_revoke.json()["error"]["code"] == "COMMON_FORBIDDEN"
+
+    revoked_issue = client.post(
+        f"/api/v1/nodes/{node_id}/join-code",
+        headers=auth_header(admin_token),
+        json={"exchange_id": revoked_exchange, "ego_browser_enabled": False},
+    )
+    assert revoked_issue.status_code == 200, revoked_issue.text
+    revoked_data = revoked_issue.json()["data"]
+    assert set(revoked_data) == {
+        "node_id",
+        "code",
+        "expires_at",
+        "ego_browser_enabled",
+    }
+    assert revoked_data["node_id"] == node_id
+    assert revoked_data["ego_browser_enabled"] is False
+    revoked_code = str(revoked_data["code"])
+
+    revoked = client.post(
+        f"/api/v1/nodes/{node_id}/join-code/revoke",
+        headers=auth_header(admin_token),
+        json={"exchange_id": revoked_exchange},
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["data"] == {"state": "revoked"}
+
+    consumed_issue = client.post(
+        f"/api/v1/nodes/{node_id}/join-code",
+        headers=auth_header(admin_token),
+        json={"exchange_id": consumed_exchange},
+    )
+    assert consumed_issue.status_code == 200, consumed_issue.text
+    consumed_code = str(consumed_issue.json()["data"]["code"])
+    exchanged = client.post(
+        "/api/v1/node-api/join-code/exchange",
+        json={
+            "node_id": node_id,
+            "version": "0.2.16",
+            "join_code": consumed_code,
+            "exchange_id": consumed_exchange,
+            "wrapper_version": "0.1.11",
+            "skill_version": "1.2.3",
+            "artifact_digest": (
+                "sha256:262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"
+            ),
+        },
+    )
+    assert exchanged.status_code == 200, exchanged.text
+    node_token = str(exchanged.json()["data"]["node_token"])
+
+    for exchange_id, expected_state in (
+        (consumed_exchange, "consumed"),
+        (missing_exchange, "missing"),
+    ):
+        response = client.post(
+            f"/api/v1/nodes/{node_id}/join-code/revoke",
+            headers=auth_header(admin_token),
+            json={"exchange_id": exchange_id},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["data"] == {"state": expected_state}
+
+    async def inspect_audit() -> None:
+        """
+        检查审计。
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            logs = list(await session.scalars(select(AuditLog)))
+            rendered = json.dumps([log.details for log in logs], sort_keys=True)
+            assert revoked_exchange in rendered
+            assert consumed_exchange in rendered
+            assert revoked_code not in rendered
+            assert consumed_code not in rendered
+            assert node_token not in rendered
+
+    asyncio.run(inspect_audit())
+
+
 def heartbeat_payload(
     node_id: str, *, docker_ok: bool = True, tmux_ok: bool = True
 ) -> dict[str, object]:
@@ -118,8 +264,7 @@ def heartbeat_payload(
     :param node_id (str): 节点 ID
     :param docker_ok (bool): Docker 是否可用
     :param tmux_ok (bool): Tmux 是否可用
-
-    :return dict: 心跳 payload
+    :return dict[str, object]: 心跳 payload
     """
 
     return {
@@ -147,6 +292,11 @@ def heartbeat_payload(
 
 
 def test_node_registration_heartbeat_and_offline_marking(client: TestClient) -> None:
+    """
+    验证节点注册心跳并离线标记。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
 
@@ -185,6 +335,9 @@ def test_node_registration_heartbeat_and_offline_marking(client: TestClient) -> 
     ]
 
     async def make_stale() -> None:
+        """
+        设置过期。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             node = await session.get(Node, UUID(node_id))
@@ -200,10 +353,18 @@ def test_node_registration_heartbeat_and_offline_marking(client: TestClient) -> 
 
 
 def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
+    """
+    验证节点任务租约并幂等完成结果。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
 
     async def create_task() -> None:
+        """
+        创建任务。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             await NodeService(session, app.state.settings).create_task(
@@ -250,6 +411,9 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
     assert duplicate_complete.status_code == 200
 
     async def count_results() -> None:
+        """
+        统计results。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             results = list(await session.scalars(select(NodeTaskResult)))
@@ -260,7 +424,11 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
 
 
 def test_ego_browser_cancel_task_results_are_content_free(client: TestClient) -> None:
-    """Browser 取消任务只持久化严格协议结果或固定失败信息。"""
+    """
+    Browser 取消任务只持久化严格协议结果或固定失败信息。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
@@ -268,6 +436,9 @@ def test_ego_browser_cancel_task_results_are_content_free(client: TestClient) ->
     failure_task_id = "cancel_ego_browser_request:content-safe-failure"
 
     async def create_tasks() -> None:
+        """
+        创建任务。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             service = NodeService(session, app.state.settings)
@@ -309,6 +480,9 @@ def test_ego_browser_cancel_task_results_are_content_free(client: TestClient) ->
     assert failed.status_code == 200, failed.text
 
     async def verify_results() -> None:
+        """
+        验证任务结果。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             completion = await session.scalar(
@@ -336,10 +510,18 @@ def test_ego_browser_cancel_task_results_are_content_free(client: TestClient) ->
 
 
 def test_expired_running_node_task_is_released(client: TestClient) -> None:
+    """
+    验证过期状态运行中节点任务为释放。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
 
     async def create_task() -> None:
+        """
+        创建任务。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             await NodeService(session, app.state.settings).create_task(
@@ -364,6 +546,9 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
     assert start_response.status_code == 200
 
     async def expire_lease() -> None:
+        """
+        过期处理租约。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             task = await session.scalar(
@@ -382,6 +567,9 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
     assert [task["task_id"] for task in tasks] == ["task_expired_running"]
 
     async def assert_released() -> None:
+        """
+        断言释放。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             task = await session.scalar(
@@ -395,10 +583,18 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
 
 
 def test_admin_can_list_failed_node_tasks(client: TestClient) -> None:
+    """
+    验证管理员可列出失败节点任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
 
     async def create_task() -> None:
+        """
+        创建任务。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             await NodeService(session, app.state.settings).create_task(
@@ -438,6 +634,11 @@ def test_admin_can_list_failed_node_tasks(client: TestClient) -> None:
 
 
 def test_node_reconcile_and_disable(client: TestClient) -> None:
+    """
+    验证节点协调并禁用。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_and_register_node(client, admin_token)
 
@@ -466,6 +667,9 @@ def test_node_reconcile_and_disable(client: TestClient) -> None:
     assert heartbeat_response.status_code == 401
 
     async def inspect_audit() -> None:
+        """
+        检查审计。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             logs = list(await session.scalars(select(AuditLog)))
@@ -476,6 +680,11 @@ def test_node_reconcile_and_disable(client: TestClient) -> None:
 
 
 def test_node_delete_requires_disabled_unreferenced_node(client: TestClient) -> None:
+    """
+    验证节点删除要求禁用状态未引用节点。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     created = client.post(
         "/api/v1/nodes",
@@ -509,7 +718,11 @@ def test_node_delete_requires_disabled_unreferenced_node(client: TestClient) -> 
 
 
 def test_node_delete_is_blocked_by_retained_device_binding(client: TestClient) -> None:
-    """禁用 Node 也不能级联删除受 retention 管理的设备控制历史。"""
+    """
+    禁用 Node 也不能级联删除受 retention 管理的设备控制历史。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     created = client.post(
@@ -527,6 +740,9 @@ def test_node_delete_is_blocked_by_retained_device_binding(client: TestClient) -
     node_id = UUID(created.json()["data"]["node"]["id"])
 
     async def add_retained_binding() -> None:
+        """
+        添加保留绑定。
+        """
         app = cast(FastAPI, client.app)
         tool_session_id = uuid4()
         async with app.state.session_factory() as session:

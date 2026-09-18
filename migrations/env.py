@@ -1,3 +1,7 @@
+"""
+执行环境数据库迁移。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +35,9 @@ def get_url() -> str:
 
 
 def run_migrations_offline() -> None:
-    """执行不建立数据库连接的离线迁移。"""
+    """
+    执行不建立数据库连接的离线迁移。
+    """
 
     context.configure(
         url=get_url(),
@@ -58,7 +64,9 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    """创建异步数据库连接并执行在线迁移。"""
+    """
+    创建异步数据库连接并执行在线迁移。
+    """
 
     section = config.get_section(config.config_ini_section, {})
     section["sqlalchemy.url"] = get_url()

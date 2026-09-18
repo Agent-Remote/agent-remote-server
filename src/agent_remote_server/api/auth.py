@@ -1,3 +1,7 @@
+"""
+提供认证 API。
+"""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -35,6 +39,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _token_data(token_issue: TokenIssue) -> AuthTokenData:
+    """
+    返回令牌数据。
+
+    :param token_issue (TokenIssue): 令牌签发
+    :return AuthTokenData: 令牌数据
+    """
     return AuthTokenData(
         access_token=token_issue.raw_token,
         token_type="bearer",
@@ -52,7 +62,6 @@ async def bootstrap_status(
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return BootstrapStatusResponse: 初始化状态
     """
 
@@ -75,7 +84,6 @@ async def bootstrap_admin(
     :param payload (BootstrapAdminRequest): 初始化请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return AuthTokenResponse: 登录令牌响应
     """
 
@@ -99,7 +107,6 @@ async def login(
     :param payload (LoginRequest): 登录请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return AuthTokenResponse: 登录令牌响应
     """
 
@@ -123,7 +130,6 @@ async def logout(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前令牌
-
     :return EmptyResponse: 空响应
     """
 
@@ -143,7 +149,6 @@ async def refresh(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前令牌
-
     :return AuthTokenResponse: 新令牌响应
     """
 
@@ -161,7 +166,6 @@ async def start_cli_login(
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return CliLoginStartResponse: CLI 登录启动响应
     """
 
@@ -192,7 +196,6 @@ async def approve_cli_login(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return EmptyResponse: 空响应
     """
 
@@ -214,7 +217,6 @@ async def complete_cli_login(
     :param payload (CliLoginCompleteRequest): 完成请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return AuthTokenResponse: 登录令牌响应
     """
 
@@ -236,7 +238,6 @@ async def setup_totp(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return TotpSetupResponse: TOTP 设置响应
     """
 
@@ -264,7 +265,6 @@ async def verify_totp(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return EmptyResponse: 空响应
     """
 

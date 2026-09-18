@@ -1,3 +1,7 @@
+"""
+验证会话 API行为。
+"""
+
 import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -28,6 +32,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -46,7 +55,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -76,7 +85,7 @@ def create_node(client: TestClient, token: str, *, name: str, weight: int) -> tu
     :param token (str): 管理员令牌
     :param name (str): 节点名称
     :param weight (int): 调度权重
-    :return tuple: 节点 ID 和 node token
+    :return tuple[str, str]: 节点 ID 和 node token
     """
 
     response = client.post(
@@ -115,7 +124,7 @@ def register_device(client: TestClient, token: str) -> tuple[str, str]:
 
     :param client (TestClient): 测试客户端
     :param token (str): 用户令牌
-    :return tuple: 设备 ID 和设备令牌
+    :return tuple[str, str]: 设备 ID 和设备令牌
     """
 
     response = client.post(
@@ -143,7 +152,7 @@ def create_workspace(
     :param device_token (str): 设备令牌
     :param device_id (str): 设备 ID
     :param project_key (str): 项目 key
-    :return str: workspace ID
+    :return str: 工作区
     """
 
     response = client.post(
@@ -185,6 +194,9 @@ def create_account(client: TestClient, token: str) -> str:
     account_id = str(response.json()["data"]["id"])
 
     async def activate() -> None:
+        """
+        激活目标记录。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
@@ -197,6 +209,11 @@ def create_account(client: TestClient, token: str) -> str:
 
 
 def test_create_session_polls_create_tool_session_task(client: TestClient) -> None:
+    """
+    验证创建会话时轮询节点任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_node(client, token, name="us-west-1", weight=10)
     device_id, device_token = register_device(client, token)
@@ -259,6 +276,11 @@ def test_create_session_polls_create_tool_session_task(client: TestClient) -> No
 
 
 def test_create_session_failure_does_not_fail_tool_account(client: TestClient) -> None:
+    """
+    验证会话创建失败不会使工具账号失效。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     _node_id, node_token = create_node(client, token, name="us-west-1", weight=10)
     device_id, device_token = register_device(client, token)
@@ -306,6 +328,11 @@ def test_create_session_failure_does_not_fail_tool_account(client: TestClient) -
 def test_list_sessions_includes_workspace_paths_and_filters_statuses(
     client: TestClient,
 ) -> None:
+    """
+    验证列表会话包含工作区路径并过滤状态。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, _node_token = create_node(client, token, name="us-west-list", weight=10)
     device_id, device_token = register_device(client, token)
@@ -326,6 +353,11 @@ def test_list_sessions_includes_workspace_paths_and_filters_statuses(
     starting_id = str(created.json()["data"]["id"])
 
     async def seed_stopped_session() -> str:
+        """
+        准备已停止会话。
+
+        :return str: 已停止会话
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
@@ -376,6 +408,11 @@ def test_list_sessions_includes_workspace_paths_and_filters_statuses(
 
 
 def test_delete_terminal_sessions_and_bulk_delete_inactive_sessions(client: TestClient) -> None:
+    """
+    验证删除终态会话并批量删除非活动会话。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, _node_token = create_node(client, token, name="us-west-delete", weight=10)
     device_id, device_token = register_device(client, token)
@@ -396,6 +433,11 @@ def test_delete_terminal_sessions_and_bulk_delete_inactive_sessions(client: Test
     starting_id = str(created.json()["data"]["id"])
 
     async def seed_inactive_sessions() -> tuple[str, str, str, str, str, str]:
+        """
+        准备非活动会话。
+
+        :return tuple[str, str, str, str, str, str]: 非活动会话
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
@@ -481,6 +523,9 @@ def test_delete_terminal_sessions_and_bulk_delete_inactive_sessions(client: Test
     assert repeated.status_code == 200
 
     async def assert_port_forwards_revoked_before_deletion() -> None:
+        """
+        断言端口转发已撤销状态之前删除。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             for forward_id in (failed_forward_id, bulk_forward_id):
@@ -501,6 +546,11 @@ def test_delete_terminal_sessions_and_bulk_delete_inactive_sessions(client: Test
 
 
 def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> None:
+    """
+    验证同一账号的活动会话复用同一节点。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     first_node_id, _ = create_node(client, token, name="us-west-1", weight=10)
     second_node_id, second_node_token = create_node(client, token, name="us-west-2", weight=100)
@@ -510,6 +560,9 @@ def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> Non
     account_id = create_account(client, token)
 
     async def seed_active_session() -> None:
+        """
+        准备活动状态会话。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
@@ -555,6 +608,11 @@ def test_same_account_active_sessions_reuse_same_node(client: TestClient) -> Non
 
 
 def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestClient) -> None:
+    """
+    验证原生运行时协调中断并替代为显式。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_node(client, token, name="us-west-native", weight=10)
     device_id, device_token = register_device(client, token)
@@ -575,6 +633,9 @@ def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestCli
     session_id = str(created.json()["data"]["id"])
 
     async def make_native_running() -> None:
+        """
+        设置原生运行时运行中。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(session_id))
@@ -623,6 +684,12 @@ def test_native_reconcile_interrupts_and_replacement_is_explicit(client: TestCli
 def test_process_exit_interrupts_and_runs_idempotent_cleanup(
     client: TestClient, runtime_backend: str
 ) -> None:
+    """
+    验证进程退出中断并执行幂等清理。
+
+    :param client (TestClient): 测试 API 客户端
+    :param runtime_backend (str): 运行时后端
+    """
     token = bootstrap(client)
     node_id, node_token = create_node(client, token, name="us-west-exit", weight=10)
     device_id, device_token = register_device(client, token)
@@ -654,6 +721,9 @@ def test_process_exit_interrupts_and_runs_idempotent_cleanup(
     assert create_completed.status_code == 200
 
     async def make_native_running() -> None:
+        """
+        设置原生运行时运行中。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(session_id))
@@ -692,6 +762,11 @@ def test_process_exit_interrupts_and_runs_idempotent_cleanup(
     assert interrupted.json()["data"]["status"] == "interrupted"
 
     async def count_cleanup_tasks() -> int:
+        """
+        统计清理任务。
+
+        :return int: 清理任务
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             return int(

@@ -1,3 +1,7 @@
+"""
+验证设备控制保留策略行为。
+"""
+
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -16,7 +20,9 @@ from agent_remote_server.services.device_control_retention import DeviceControlR
 
 
 async def test_retention_cleanup_deletes_only_expired_terminal_device_metadata() -> None:
-    """保留清理必须保留活动、近期和非设备会话审计数据。"""
+    """
+    保留清理必须保留活动、近期和非设备会话审计数据。
+    """
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     now = datetime(2026, 7, 31, 4, 0, tzinfo=UTC)
@@ -135,26 +141,58 @@ async def test_retention_cleanup_deletes_only_expired_terminal_device_metadata()
 
 
 class _Session:
+    """
+    定义会话。
+    """
+
     async def __aenter__(self) -> "_Session":
+        """
+        进入异步上下文。
+
+        :return "_Session": 进入异步上下文
+        """
         return self
 
     async def __aexit__(self, *_args: object) -> None:
+        """
+        退出异步上下文。
+
+        :param _args (object): 未使用的位置参数
+        """
         return None
 
 
 def test_retention_runner_executes_cleanup_and_stops(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """后台保留任务必须执行一轮清理并及时响应关闭。"""
+    """
+    后台保留任务必须执行一轮清理并及时响应关闭。
+
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     stop = asyncio.Event()
     calls = 0
 
     class Service:
+        """
+        定义业务服务。
+        """
+
         def __init__(self, *_args: object) -> None:
+            """
+            初始化业务服务。
+
+            :param _args (object): 未使用的位置参数
+            """
             pass
 
         async def cleanup(self) -> SimpleNamespace:
+            """
+            返回清理。
+
+            :return SimpleNamespace: 清理
+            """
             nonlocal calls
             calls += 1
             stop.set()

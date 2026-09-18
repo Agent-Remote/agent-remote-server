@@ -1,3 +1,7 @@
+"""
+提供用户 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -30,6 +34,12 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 def _user_data(user: User) -> UserData:
+    """
+    返回用户数据。
+
+    :param user (User): 用户
+    :return UserData: 用户数据
+    """
     return UserData(
         id=user.id,
         username=user.username,
@@ -48,7 +58,6 @@ async def get_me(user: Annotated[User, Depends(get_current_user)]) -> UserRespon
     返回当前用户
 
     :param user (User): 当前用户
-
     :return UserResponse: 用户响应
     """
 
@@ -69,7 +78,6 @@ async def update_me(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return UserResponse: 用户响应
     """
 
@@ -146,7 +154,6 @@ async def get_user(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return UserResponse: 用户响应
     """
 
@@ -175,7 +182,6 @@ async def update_user(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
-
     :return UserResponse: 用户响应
     """
 
@@ -210,7 +216,6 @@ async def disable_user(
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销总线
-
     :return UserResponse: 用户响应
     """
 

@@ -1,4 +1,6 @@
-"""校验 ego-browser relay 外层信封并收敛请求账本。"""
+"""
+校验 ego-browser relay 外层信封并收敛请求账本。
+"""
 
 from __future__ import annotations
 
@@ -23,7 +25,9 @@ from agent_remote_server.services.ego_browser.relay import _EgoBrowserRelayOpera
 
 
 class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
-    """实现不解密业务内容的 relay admission。"""
+    """
+    实现不解密业务内容的 relay admission。
+    """
 
     async def admit_outer_envelope(
         self,
@@ -36,10 +40,12 @@ class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
 
         :param claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
         :param envelope (dict[str, object]): 已解析的外层信封元数据
-
         :raises ValueError: 信封身份、租约、密钥包装、顺序或重放状态未通过 admission
         """
 
+        # 每帧重验执行门禁，确保策略变更立即终止已配对连接的执行权。
+        if not self._settings.ego_browser_bridge_enabled:
+            raise ValueError("execution_admission")
         if (
             envelope.get("protocol") != EGO_BROWSER_PROTOCOL
             or envelope.get("channel") != "ego_browser_bridge"
@@ -67,7 +73,7 @@ class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
         binding = await self._repository.get_binding(binding_id, for_update=True)
         if binding is None or binding.generation != claims.binding.generation:
             raise ValueError("binding")
-        device = await self._repository.get_device(binding.ego_browser_device_id)
+        device = await self._repository.get_device(binding.ego_browser_device_id, for_update=True)
         if device is None or device.encryption_public_key is None:
             raise ValueError("encryption_key")
         if (
@@ -139,6 +145,7 @@ class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
                 raise ValueError("cancel_without_request")
             if request.status == "completed":
                 # 终态响应已先提交；继续转发通过认证的迟到取消，可让 Bridge 独立确认目标已消失。
+                self._bind_legacy_device_origin(device)
                 await self._session.commit()
                 return
             if request.status == "cancelled":
@@ -158,6 +165,7 @@ class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
                     "payload_bytes": payload_bytes,
                 },
             )
+            self._bind_legacy_device_origin(device)
             await self._session.commit()
             return
         if direction == "response":
@@ -214,6 +222,7 @@ class _EgoBrowserAdmissionOperations(_EgoBrowserRelayOperations):
                             "payload_bytes": payload_bytes,
                         },
                     )
+            self._bind_legacy_device_origin(device)
             await self._session.commit()
         except IntegrityError as exc:
             raise ValueError("replay") from exc

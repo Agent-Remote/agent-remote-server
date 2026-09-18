@@ -1,3 +1,7 @@
+"""
+实现create 设备控制发布证据脚本。
+"""
+
 import argparse
 import base64
 import json
@@ -22,6 +26,13 @@ _MAXIMUM_PRIVATE_KEY_BYTES = 16_384
 
 
 def _private_regular_file(path: Path, maximum_bytes: int) -> bytes:
+    """
+    返回私有常规文件。
+
+    :param path (Path): 路径
+    :param maximum_bytes (int): maximum 字节
+    :return bytes: 私有常规文件
+    """
     info = path.lstat()
     if (
         not stat.S_ISREG(info.st_mode)
@@ -34,6 +45,12 @@ def _private_regular_file(path: Path, maximum_bytes: int) -> bytes:
 
 
 def _load_private_key(path: Path) -> Ed25519PrivateKey:
+    """
+    加载私钥。
+
+    :param path (Path): 路径
+    :return Ed25519PrivateKey: 私钥
+    """
     key_data = _private_regular_file(path, _MAXIMUM_PRIVATE_KEY_BYTES)
     key = serialization.load_pem_private_key(key_data, password=None)
     if not isinstance(key, Ed25519PrivateKey):
@@ -42,6 +59,12 @@ def _load_private_key(path: Path) -> Ed25519PrivateKey:
 
 
 def _load_draft(path: Path) -> dict[str, object]:
+    """
+    加载草稿。
+
+    :param path (Path): 路径
+    :return dict[str, object]: 草稿
+    """
     data = _private_regular_file(path, _MAXIMUM_DRAFT_BYTES)
     value = json.loads(data)
     if not isinstance(value, dict) or "signature" in value:
@@ -50,6 +73,12 @@ def _load_draft(path: Path) -> dict[str, object]:
 
 
 def _write_new_file(path: Path, data: bytes) -> None:
+    """
+    写入新文件。
+
+    :param path (Path): 路径
+    :param data (bytes): 数据
+    """
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(descriptor, "wb", closefd=True) as output:
@@ -63,6 +92,12 @@ def _write_new_file(path: Path, data: bytes) -> None:
 
 
 def _raw_public_key_base64(private_key: Ed25519PrivateKey) -> str:
+    """
+    返回原始数据公钥 Base64。
+
+    :param private_key (Ed25519PrivateKey): 私钥
+    :return str: 原始数据公钥 Base64
+    """
     public_key: Ed25519PublicKey = private_key.public_key()
     raw = public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -97,8 +132,7 @@ def main() -> None:
             update={"signature": base64.b64encode(signature).decode("ascii")}
         )
         public_key_base64 = _raw_public_key_base64(private_key)
-        # Schema 9's canonical root verifier requires nullable compatibility fields
-        # to remain explicit JSON nulls; only the legacy formats may omit them.
+        # Schema 9 要求兼容字段显式为 null；仅旧格式可省略。
         encoded_manifest = (
             manifest.encoded_manifest()
             if manifest.schema_version >= 8

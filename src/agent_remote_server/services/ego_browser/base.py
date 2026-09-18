@@ -1,7 +1,12 @@
-"""封装 ego-browser 服务共享的状态、校验与事务操作。"""
+"""
+封装 ego-browser 服务共享的状态、校验与事务操作。
+"""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Literal, NoReturn
@@ -36,10 +41,15 @@ from agent_remote_server.schemas.ego_browser import (
 )
 from agent_remote_server.security import hash_token
 from agent_remote_server.services.ego_browser.contracts import (
+    EXPLICIT_DIGEST,
     KNOWN_CAPABILITIES,
+    LEGACY_NODE_CAPABILITY_FIELDS,
+    NODE_ADMISSION_CAPABILITY_FIELDS,
     NODE_CAPABILITY_FIELDS,
     POLICY_CAPABILITIES,
     REQUIRED_CAPABILITIES,
+    SAFE_DIGEST,
+    SUPPORTED_CREDENTIAL_PROFILES,
     TERMINAL_STATUSES,
 )
 from agent_remote_server.services.ego_browser.helpers import (
@@ -54,7 +64,9 @@ from agent_remote_server.services.ego_browser.helpers import (
 
 
 class _EgoBrowserServiceBase:
-    """保存 ego-browser 服务依赖并实现跨操作共享的不变量。"""
+    """
+    保存 ego-browser 服务依赖并实现跨操作共享的不变量。
+    """
 
     def __init__(
         self,
@@ -63,15 +75,50 @@ class _EgoBrowserServiceBase:
         relay_store: EgoBrowserRelayStore | None = None,
         revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
+        """
+        初始化Ego Browser 业务服务基础。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        :param relay_store (EgoBrowserRelayStore | None): 中继存储
+        :param revocation_publisher (EgoBrowserRevocationPublisher | None): 撤销发布器
+        """
         self._session = session
         self._settings = settings
         self._repository = EgoBrowserRepository(session)
         self._relay_store = relay_store
         self._revocation_publisher = revocation_publisher
 
-    def _require_enabled(self) -> None:
+    def _require_enrollment(self) -> None:
+        """
+        检查设备登记、状态查询和短期凭据刷新闸门。
+        """
+
+        if not self._settings.ego_browser_enrollment_enabled:
+            self._error(
+                "EGO_BROWSER_ENROLLMENT_DISABLED",
+                "Ego-browser device enrollment is disabled.",
+                503,
+            )
+
+    def _require_execution(self) -> None:
+        """
+        检查 claim、relay 和远端执行闸门。
+        """
+
         if not self._settings.ego_browser_bridge_enabled:
-            self._error("EGO_BROWSER_BRIDGE_DISABLED", "The ego-browser bridge is disabled.", 503)
+            self._error(
+                "EGO_BROWSER_EXECUTION_ADMISSION_DISABLED",
+                "Ego-browser execution admission is disabled.",
+                503,
+            )
+
+    def _require_enabled(self) -> None:
+        """
+        兼容旧调用方，将旧 bridge 开关解释为执行准入。
+        """
+
+        self._require_execution()
 
     def _validate_profile(
         self,
@@ -80,6 +127,13 @@ class _EgoBrowserServiceBase:
         credential_profile: str,
         signer_certificate_sha256: str | None,
     ) -> None:
+        """
+        校验配置。
+
+        :param release_profile (str): 发布配置
+        :param credential_profile (str): 凭据配置
+        :param signer_certificate_sha256 (str | None): 签名者 certificate sha256
+        """
         expected = self._settings.ego_browser_expected_release_profile
         if (
             self._settings.environment.strip().lower() == "production"
@@ -90,9 +144,11 @@ class _EgoBrowserServiceBase:
                 "The release profile is not accepted by this server.",
                 409,
             )
-        if credential_profile not in {"community_file", "keychain_access_group"}:
+        if credential_profile not in SUPPORTED_CREDENTIAL_PROFILES:
             self._error(
-                "EGO_BROWSER_PROFILE_MISMATCH", "The credential profile is not accepted.", 409
+                "EGO_BROWSER_CREDENTIAL_PROFILE_UNSUPPORTED",
+                "The requested credential storage profile is not implemented by this client.",
+                409,
             )
         pinned = self._settings.ego_browser_expected_signer_certificate_sha256
         if pinned and signer_certificate_sha256 != pinned:
@@ -101,30 +157,192 @@ class _EgoBrowserServiceBase:
                 "The signer certificate is not pinned by this server.",
                 409,
             )
+        # 开发占位值仅限隔离测试；社区和开发者发布必须提供真实的小写 SHA-256 指纹。
+        signer_is_hex = (
+            isinstance(signer_certificate_sha256, str)
+            and re.fullmatch(r"[0-9a-f]{64}", signer_certificate_sha256) is not None
+        )
+        if release_profile in {"community-local-trust", "developer-id"}:
+            if not signer_is_hex:
+                self._error(
+                    "EGO_BROWSER_SIGNER_INVALID",
+                    "A production release profile requires a lowercase 64-character signer digest.",
+                    422,
+                )
+        elif release_profile in {"logic-test", "development-local"}:
+            if signer_certificate_sha256 != "development" and not signer_is_hex:
+                self._error(
+                    "EGO_BROWSER_SIGNER_INVALID",
+                    "The development signer must be the approved sentinel or a lowercase digest.",
+                    422,
+                )
+        else:
+            self._error(
+                "EGO_BROWSER_PROFILE_MISMATCH",
+                "The release profile is not accepted by this server.",
+                409,
+            )
+
+    def _validate_device_origin(self, device: EgoBrowserDevice, *, bind_legacy: bool = True) -> str:
+        """
+        校验设备固定的 Server origin，并为旧记录执行一次性绑定。
+
+        :param device (EgoBrowserDevice): 待校验的设备
+        :param bind_legacy (bool): 是否将旧 null origin 绑定到当前 origin
+        :return str: 当前规范 Server origin
+        """
+
+        current_origin = self._settings.public_origin
+        stored_origin = getattr(device, "server_origin", None)
+        if stored_origin is None:
+            if bind_legacy:
+                self._bind_legacy_device_origin(device)
+            return current_origin
+        if stored_origin != current_origin:
+            self._error(
+                "EGO_BROWSER_IDENTITY_ORIGIN_CONFLICT",
+                "The device identity belongs to a different Server origin.",
+                409,
+            )
+        return stored_origin
+
+    def _bind_legacy_device_origin(self, device: EgoBrowserDevice) -> bool:
+        """
+        在一次成功的认证操作中绑定旧设备的 Server origin。
+
+        :param device (EgoBrowserDevice): 待绑定的独立设备
+        :return bool: 是否刚刚写入了 origin
+        """
+
+        if getattr(device, "server_origin", None) is not None:
+            return False
+        device.server_origin = self._settings.public_origin
+        return True
 
     def _binding_profile_is_current(
         self, binding: EgoBrowserBinding, device: EgoBrowserDevice
     ) -> bool:
-        """判断已持久化的发布身份是否仍符合当前策略。"""
+        """
+        判断已持久化的发布身份是否仍符合当前策略。
 
-        expected = self._settings.ego_browser_expected_release_profile
-        production = self._settings.environment.strip().lower() == "production"
-        pinned = self._settings.ego_browser_expected_signer_certificate_sha256
-        return (
-            device.status == "active"
-            and binding.release_profile == device.release_profile
-            and binding.signer_certificate_sha256 == device.signer_certificate_sha256
-            and binding.credential_profile == device.credential_profile
-            and device.credential_profile in {"community_file", "keychain_access_group"}
-            and (not production or device.release_profile == expected)
-            and (not pinned or device.signer_certificate_sha256 == pinned)
-        )
+        :param binding (EgoBrowserBinding): 绑定
+        :param device (EgoBrowserDevice): 设备
+        :return bool: 是否满足校验条件
+        """
+
+        # 布尔准入路径遇到损坏元数据必须返回 False；旧来源绑定只在认证调用方中执行。
+        try:
+            expected = self._settings.ego_browser_expected_release_profile
+            production = self._settings.environment.strip().lower() == "production"
+            pinned = self._settings.ego_browser_expected_signer_certificate_sha256
+            stored_origin = getattr(device, "server_origin", None)
+            production_profiles = {"community-local-trust", "developer-id"}
+            if (
+                device.status != "active"
+                or (stored_origin is not None and stored_origin != self._settings.public_origin)
+                or device.platform != "macos"
+                or binding.release_profile != device.release_profile
+                or binding.signer_certificate_sha256 != device.signer_certificate_sha256
+                or binding.credential_profile != device.credential_profile
+                or binding.control_channel != "ego_browser_bridge"
+                or binding.relay_binding_kind != "ego_browser"
+                or binding.authorization_mode != "ego_browser_script_full_trust"
+                or binding.authorization_policy_version != 1
+                or device.credential_profile not in SUPPORTED_CREDENTIAL_PROFILES
+                or (
+                    not production
+                    and device.release_profile
+                    not in {
+                        "logic-test",
+                        "development-local",
+                        "community-local-trust",
+                        "developer-id",
+                    }
+                )
+                or (production and device.release_profile != expected)
+                or (pinned and device.signer_certificate_sha256 != pinned)
+                or device.bridge_protocol_version != EGO_BROWSER_PROTOCOL
+                or device.bridge_protocol_version
+                != self._settings.ego_browser_expected_protocol_version
+                or binding.bridge_protocol_version != device.bridge_protocol_version
+                or binding.local_runtime_version != device.local_ego_browser_runtime_version
+                or binding.ego_lite_runtime_version != device.ego_lite_runtime_version
+                or binding.skill_version != device.skill_version
+                or binding.allowlist_revision != device.allowlist_revision
+                or binding.allowlist_roots_digest != device.allowlist_roots_digest
+                or binding.learning_bundle_digest != device.learning_bundle_digest
+                or binding.remote_platform != "linux"
+                or binding.local_platform != "macos"
+                or (
+                    device.release_profile in production_profiles
+                    and (
+                        (
+                            device.local_ego_browser_runtime_version is not None
+                            and device.local_ego_browser_runtime_version
+                            != self._settings.ego_browser_expected_local_runtime_version
+                        )
+                        or (
+                            device.ego_lite_runtime_version is not None
+                            and device.ego_lite_runtime_version
+                            != self._settings.ego_browser_expected_local_runtime_version
+                        )
+                        or (
+                            device.skill_version is not None
+                            and device.skill_version
+                            != self._settings.ego_browser_expected_skill_version
+                        )
+                    )
+                )
+            ):
+                return False
+            if (
+                isinstance(device.allowlist_revision, bool)
+                or not isinstance(device.allowlist_revision, int)
+                or device.allowlist_revision < 1
+                or isinstance(binding.allowlist_revision, bool)
+                or not isinstance(binding.allowlist_revision, int)
+                or binding.allowlist_revision < 1
+            ):
+                return False
+            for digest in (device.allowlist_roots_digest, device.learning_bundle_digest):
+                if digest is not None and SAFE_DIGEST.fullmatch(digest) is None:
+                    return False
+            if not isinstance(device.capabilities, list) or not isinstance(
+                binding.capabilities, list
+            ):
+                return False
+            canonical_capabilities = _canonical_capabilities(device.capabilities)
+            if len(device.capabilities) != len(canonical_capabilities):
+                return False
+            canonical_binding_capabilities = _canonical_capabilities(binding.capabilities)
+            if len(binding.capabilities) != len(canonical_binding_capabilities):
+                return False
+            self._validate_profile(
+                release_profile=device.release_profile,
+                credential_profile=device.credential_profile,
+                signer_certificate_sha256=device.signer_certificate_sha256,
+            )
+            self._validate_policy_capabilities(
+                canonical_capabilities,
+                allowlist_roots_digest=device.allowlist_roots_digest,
+                learning_bundle_digest=device.learning_bundle_digest,
+            )
+        except (ApiError, AttributeError, TypeError, ValueError, OverflowError):
+            return False
+        return canonical_binding_capabilities == canonical_capabilities
 
     def _validate_binding_profile(
         self, binding: EgoBrowserBinding, device: EgoBrowserDevice
     ) -> None:
-        """当 live binding 的发布身份漂移时按拒绝策略处理。"""
+        """
+        当 live binding 的发布身份漂移时按拒绝策略处理。
 
+        :param binding (EgoBrowserBinding): 绑定
+        :param device (EgoBrowserDevice): 设备
+        """
+
+        # 谓词不得提前持久化旧来源；所属操作在全部校验成功后再绑定并提交。
+        self._validate_device_origin(device, bind_legacy=False)
         self._validate_profile(
             release_profile=device.release_profile,
             credential_profile=device.credential_profile,
@@ -138,18 +356,61 @@ class _EgoBrowserServiceBase:
             )
 
     def _validate_node_capability(self, node: Node, *, runtime_backend: str | None = None) -> None:
+        """
+        校验节点能力。
+
+        :param node (Node): 节点
+        :param runtime_backend (str | None): 运行时后端
+        """
         capabilities = node.runtime_capabilities
         raw = capabilities.get("ego_browser_bridge")
-        if (
-            not isinstance(raw, dict)
-            or raw.get("supported") is not True
-            or set(raw) != NODE_CAPABILITY_FIELDS
-        ):
+        if not isinstance(raw, dict) or raw.get("supported") is not True:
             self._error(
                 "EGO_BROWSER_NODE_UNAVAILABLE",
                 "The assigned node has no complete ego-browser artifact capability.",
                 409,
             )
+        fields = set(raw)
+        if fields not in {LEGACY_NODE_CAPABILITY_FIELDS, NODE_CAPABILITY_FIELDS}:
+            self._error(
+                "EGO_BROWSER_NODE_UNAVAILABLE",
+                "The assigned node has no complete ego-browser artifact capability.",
+                409,
+            )
+        # 新客户端必须证明管理员意图及两项独立准入；旧载荷仅保留一个兼容窗口。
+        if fields == NODE_CAPABILITY_FIELDS:
+            for field in NODE_ADMISSION_CAPABILITY_FIELDS:
+                if not isinstance(raw.get(field), bool):
+                    self._error(
+                        "EGO_BROWSER_CAPABILITY_MISMATCH",
+                        "The node ego-browser admission fields are invalid.",
+                        409,
+                    )
+            if (
+                raw.get("configured_enabled") is not True
+                or raw.get("effective_enabled") is not True
+                or raw.get("node_execution_allowed") is not True
+            ):
+                self._error(
+                    "EGO_BROWSER_NODE_UNAVAILABLE",
+                    "The assigned node is not admitted for ego-browser execution.",
+                    409,
+                )
+            if raw.get("effective_enabled") is True and raw.get("configured_enabled") is not True:
+                self._error(
+                    "EGO_BROWSER_NODE_UNAVAILABLE",
+                    "The node effective capability contradicts its configured intent.",
+                    409,
+                )
+            if (
+                raw.get("node_execution_allowed") is True
+                and raw.get("effective_enabled") is not True
+            ):
+                self._error(
+                    "EGO_BROWSER_NODE_UNAVAILABLE",
+                    "The node execution admission contradicts its effective capability.",
+                    409,
+                )
         versions = raw.get("protocol_versions")
         if versions != [EGO_BROWSER_PROTOCOL]:
             self._error(
@@ -200,6 +461,13 @@ class _EgoBrowserServiceBase:
             )
 
     def _node_supports_backend(self, node: Node, runtime_backend: str) -> bool:
+        """
+        判断节点是否支持指定浏览器后端。
+
+        :param node (Node): 节点
+        :param runtime_backend (str): 运行时后端
+        :return bool: 是否满足校验条件
+        """
         try:
             self._validate_node_capability(node, runtime_backend=runtime_backend)
         except ApiError:
@@ -209,6 +477,12 @@ class _EgoBrowserServiceBase:
     def _validate_capability_payload(
         self, device: EgoBrowserDevice, payload: EgoBrowserConnectedRequest
     ) -> None:
+        """
+        校验能力载荷。
+
+        :param device (EgoBrowserDevice): 设备
+        :param payload (EgoBrowserConnectedRequest): 载荷
+        """
         if device.encryption_public_key is None:
             self._error(
                 "EGO_BROWSER_ENCRYPTION_KEY_REQUIRED",
@@ -268,7 +542,14 @@ class _EgoBrowserServiceBase:
         allowlist_roots_digest: str | None,
         learning_bundle_digest: str | None,
     ) -> list[str]:
-        """校验能力集合与本地已验证策略资源逐项一致。"""
+        """
+        校验能力集合与本地已验证策略资源逐项一致。
+
+        :param values (Iterable[str]): 待处理值
+        :param allowlist_roots_digest (str | None): 允许列表 roots 摘要
+        :param learning_bundle_digest (str | None): 学习包摘要
+        :return list[str]: 策略能力
+        """
 
         supplied = list(values)
         capabilities = _canonical_capabilities(supplied)
@@ -306,6 +587,67 @@ class _EgoBrowserServiceBase:
             )
         return capabilities
 
+    def _validate_policy_digests(
+        self,
+        *,
+        policy_digest: str | None,
+        capability_digest: str | None,
+        allowlist_revision: int,
+        allowlist_roots_digest: str | None,
+        learning_bundle_digest: str | None,
+        capabilities: Iterable[str],
+    ) -> None:
+        """
+        校验策略 digests。
+
+        :param policy_digest (str | None): 策略摘要
+        :param capability_digest (str | None): 能力摘要
+        :param allowlist_revision (int): 允许列表版本
+        :param allowlist_roots_digest (str | None): 允许列表 roots 摘要
+        :param learning_bundle_digest (str | None): 学习包摘要
+        :param capabilities (Iterable[str]): 能力
+        """
+
+        policy_material = json.dumps(
+            {
+                "allowlist_revision": allowlist_revision,
+                "allowlist_roots_digest": allowlist_roots_digest,
+                "learning_bundle_digest": learning_bundle_digest,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        expected_policy = hashlib.sha256(policy_material).hexdigest()
+        canonical_capabilities = "\n".join(sorted(set(capabilities))).encode()
+        expected_capability = hashlib.sha256(canonical_capabilities).hexdigest()
+        if policy_digest is not None and EXPLICIT_DIGEST.fullmatch(policy_digest) is None:
+            self._error(
+                "EGO_BROWSER_DIGEST_INVALID",
+                "The Bridge policy digest format is invalid.",
+                422,
+            )
+        if policy_digest is not None and policy_digest.removeprefix("sha256:") != expected_policy:
+            self._error(
+                "EGO_BROWSER_POLICY_DIGEST_MISMATCH",
+                "The Bridge policy digest does not match its declared policy.",
+                409,
+            )
+        if capability_digest is not None and EXPLICIT_DIGEST.fullmatch(capability_digest) is None:
+            self._error(
+                "EGO_BROWSER_DIGEST_INVALID",
+                "The Bridge capability digest format is invalid.",
+                422,
+            )
+        if (
+            capability_digest is not None
+            and capability_digest.removeprefix("sha256:") != expected_capability
+        ):
+            self._error(
+                "EGO_BROWSER_CAPABILITY_DIGEST_MISMATCH",
+                "The Bridge capability digest does not match its declared capabilities.",
+                409,
+            )
+
     async def _validate_device_pop(
         self,
         *,
@@ -315,7 +657,15 @@ class _EgoBrowserServiceBase:
         binding_id: UUID | None,
         payload: BaseModel,
     ) -> None:
-        """校验设备对完整操作 payload 的单次签名。"""
+        """
+        校验设备对完整操作 payload 的单次签名。
+
+        :param device (EgoBrowserDevice): 设备
+        :param operation_generation (int): 操作代次
+        :param operation (str): 操作
+        :param binding_id (UUID | None): 绑定 ID
+        :param payload (BaseModel): 载荷
+        """
 
         await self._validate_pop(
             public_key=_decode_public_key(device.public_key),
@@ -344,7 +694,20 @@ class _EgoBrowserServiceBase:
         binding_id: UUID | None,
         payload: BaseModel,
     ) -> None:
-        """校验 payload-bound PoP 并原子消费服务端 challenge。"""
+        """
+        校验 payload-bound PoP 并原子消费服务端 challenge。
+
+        :param public_key (bytes): 公钥
+        :param user_id (UUID): 用户 ID
+        :param device_id (UUID): 设备 ID
+        :param device_generation (int): 设备代次
+        :param operation_generation (int): 操作代次
+        :param release_profile (str): 发布配置
+        :param credential_profile (str): 凭据配置
+        :param operation (str): 操作
+        :param binding_id (UUID | None): 绑定 ID
+        :param payload (BaseModel): 载荷
+        """
 
         if not self._settings.ego_browser_require_device_pop:
             return
@@ -406,6 +769,16 @@ class _EgoBrowserServiceBase:
         for_update: bool,
         allow_admin: bool = False,
     ) -> tuple[EgoBrowserBinding, EgoBrowserDevice]:
+        """
+        返回owned 绑定设备。
+
+        :param user (User): 用户
+        :param binding_id (UUID): 绑定 ID
+        :param device_id (UUID | None): 设备 ID
+        :param for_update (bool): 对应更新
+        :param allow_admin (bool): allow 管理员
+        :return tuple[EgoBrowserBinding, EgoBrowserDevice]: owned 绑定设备
+        """
         binding = await self._repository.get_binding(binding_id, for_update=for_update)
         if binding is None or (
             binding.user_id != user.id and not (allow_admin and user.role == "admin")
@@ -430,6 +803,13 @@ class _EgoBrowserServiceBase:
         payload: EgoBrowserDeviceRegisterRequest,
         canonical_encryption_key: str | None = None,
     ) -> None:
+        """
+        更新设备元数据。
+
+        :param device (EgoBrowserDevice): 设备
+        :param payload (EgoBrowserDeviceRegisterRequest): 载荷
+        :param canonical_encryption_key (str | None): canonical encryption 键
+        """
         device.release_profile = payload.release_profile
         device.signer_certificate_sha256 = payload.signer_certificate_sha256
         device.credential_profile = payload.credential_profile
@@ -448,6 +828,12 @@ class _EgoBrowserServiceBase:
     def _update_device_from_connected(
         self, device: EgoBrowserDevice, payload: EgoBrowserConnectedRequest
     ) -> None:
+        """
+        更新设备来自已连接。
+
+        :param device (EgoBrowserDevice): 设备
+        :param payload (EgoBrowserConnectedRequest): 载荷
+        """
         device.bridge_protocol_version = payload.bridge_protocol_version
         device.bridge_version = payload.bridge_version
         device.local_ego_browser_runtime_version = payload.local_ego_browser_runtime_version
@@ -456,6 +842,11 @@ class _EgoBrowserServiceBase:
         device.capabilities = _canonical_capabilities(payload.capabilities)
 
     def _advance_generation(self, binding: EgoBrowserBinding) -> None:
+        """
+        推进代次。
+
+        :param binding (EgoBrowserBinding): 绑定
+        """
         if binding.generation >= MAX_ACTIVE_EGO_BROWSER_GENERATION:
             self._error(
                 "EGO_BROWSER_GENERATION_EXHAUSTED", "The binding generation is exhausted.", 409
@@ -471,7 +862,16 @@ class _EgoBrowserServiceBase:
         actor_user_id: UUID | None,
         now: datetime | None = None,
     ) -> list[tuple[UUID, int]]:
-        """用同一事务步骤使一组 binding generation 失效。"""
+        """
+        用同一事务步骤使一组 binding generation 失效。
+
+        :param bindings (Iterable[EgoBrowserBinding]): 绑定
+        :param terminal_status (Literal["stopped", "expired", "revoked"]): 终态状态
+        :param reason (str): 操作原因
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param now (datetime | None): 当前时间
+        :return list[tuple[UUID, int]]: invalidate 绑定
+        """
 
         timestamp = now or self._now()
         safe_reason = _safe_reason(reason)
@@ -518,7 +918,14 @@ class _EgoBrowserServiceBase:
         reason: str,
         actor_user_id: UUID | None,
     ) -> None:
-        """在撤销 generation 的同一事务中终结其活动请求。"""
+        """
+        在撤销 generation 的同一事务中终结其活动请求。
+
+        :param binding (EgoBrowserBinding): 绑定
+        :param generation (int): 代次
+        :param reason (str): 操作原因
+        :param actor_user_id (UUID | None): actor 用户 ID
+        """
 
         requests = await self._repository.cancel_generation_requests(
             binding_id=binding.id,
@@ -540,6 +947,13 @@ class _EgoBrowserServiceBase:
     async def _enqueue_revocation(
         self, binding: EgoBrowserBinding, generation: int, reason: str
     ) -> None:
+        """
+        将其加入队列撤销。
+
+        :param binding (EgoBrowserBinding): 绑定
+        :param generation (int): 代次
+        :param reason (str): 操作原因
+        """
         event = EgoBrowserRevocationOutbox(
             binding_id=binding.id,
             generation=generation,
@@ -555,6 +969,13 @@ class _EgoBrowserServiceBase:
     async def _expire_binding(
         self, binding: EgoBrowserBinding, *, reason: str, commit: bool
     ) -> None:
+        """
+        过期处理绑定。
+
+        :param binding (EgoBrowserBinding): 绑定
+        :param reason (str): 操作原因
+        :param commit (bool): 是否立即提交事务
+        """
         invalidated = await self._invalidate_bindings(
             [binding],
             terminal_status="expired",
@@ -566,7 +987,12 @@ class _EgoBrowserServiceBase:
             await self._publish_revocation(*invalidated[0])
 
     async def _reject_expired_renewal(self, binding: EgoBrowserBinding, now: datetime) -> None:
-        """拒绝并撤销已经越过当前租约或宽限截止时间的续租。"""
+        """
+        拒绝并撤销已经越过当前租约或宽限截止时间的续租。
+
+        :param binding (EgoBrowserBinding): 绑定
+        :param now (datetime): 当前时间
+        """
 
         reason: str | None = None
         lease_until = binding.lease_until
@@ -609,6 +1035,12 @@ class _EgoBrowserServiceBase:
         self._error("EGO_BROWSER_LEASE_EXPIRED", "The browser binding lease has expired.", 409)
 
     async def _publish_revocation(self, binding_id: UUID, generation: int) -> None:
+        """
+        发布撤销。
+
+        :param binding_id (UUID): 绑定 ID
+        :param generation (int): 代次
+        """
         publisher = self._revocation_publisher
         if publisher is None:
             return
@@ -638,6 +1070,14 @@ class _EgoBrowserServiceBase:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         self._session.add(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -653,6 +1093,12 @@ class _EgoBrowserServiceBase:
 
     @staticmethod
     def _binding_details(binding: EgoBrowserBinding) -> dict[str, object]:
+        """
+        返回绑定详情。
+
+        :param binding (EgoBrowserBinding): 绑定
+        :return dict[str, object]: 绑定详情
+        """
         return {
             "binding_id": str(binding.id),
             "device_id": str(binding.ego_browser_device_id),
@@ -668,6 +1114,11 @@ class _EgoBrowserServiceBase:
         }
 
     def _server_host(self) -> str:
+        """
+        返回服务端主机。
+
+        :return str: 服务端主机
+        """
         return urlparse(self._settings.public_base_url).hostname or "localhost"
 
     async def expire_due(self) -> int:
@@ -724,7 +1175,6 @@ class _EgoBrowserServiceBase:
         发布并标记已提交的撤销 outbox 事件。
 
         :param limit (int | None): 单次处理的最大记录数；None 表示使用配置值
-
         :return int: 本次成功投递的撤销事件数量
         """
 
@@ -750,11 +1200,26 @@ class _EgoBrowserServiceBase:
 
     @staticmethod
     def _now() -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)
 
     @staticmethod
     def _error(code: str, message: str, status_code: int) -> NoReturn:
+        """
+        构造 API 错误。
+
+        :param code (str): 代码
+        :param message (str): 消息内容
+        :param status_code (int): 状态代码
+        """
         raise ApiError(code=code, message=message, status_code=status_code)
 
     def _generation_error(self) -> NoReturn:
+        """
+        构造设备代次冲突错误。
+        """
         self._error("EGO_BROWSER_GENERATION_MISMATCH", "The binding generation is stale.", 409)

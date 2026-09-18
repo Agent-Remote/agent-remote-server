@@ -1,8 +1,5 @@
-"""添加节点控制字段
-
-Revision ID: 0003_node_control
-Revises: 0002_identity_auth
-Create Date: 2026-07-04 00:00:00.000000
+"""
+添加节点控制字段
 """
 
 from collections.abc import Sequence

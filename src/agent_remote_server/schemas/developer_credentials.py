@@ -1,3 +1,7 @@
+"""
+定义开发者凭据接口模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 

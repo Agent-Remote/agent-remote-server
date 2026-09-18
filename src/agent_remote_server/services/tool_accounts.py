@@ -1,3 +1,7 @@
+"""
+实现工具账号业务逻辑。
+"""
+
 import base64
 import binascii
 from dataclasses import dataclass
@@ -80,6 +84,12 @@ class ToolAccountService:
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
+        """
+        初始化工具账号业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        """
         self._session = session
         self._settings = settings
         self._repository = ToolAccountRepository(session)
@@ -106,8 +116,7 @@ class ToolAccountService:
         :param region_code (str): 地区代码
         :param timezone (str): 时区
         :param locale (str): 区域设置
-        :param preferred_node_tags (list): 偏好节点标签
-
+        :param preferred_node_tags (list[str]): 偏好节点标签
         :return ToolAccount: 工具账户实体
         """
 
@@ -154,8 +163,7 @@ class ToolAccountService:
         列出当前用户工具账户
 
         :param user (User): 当前用户
-
-        :return list: 工具账户列表
+        :return list[ToolAccount]: 工具账户列表
         """
 
         return list(await self._repository.list_accounts_for_user(user.id))
@@ -166,7 +174,6 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-
         :return ToolAccount: 工具账户实体
         """
 
@@ -190,13 +197,12 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-        :param display_name (str): 显示名称
-        :param status (str): 账户状态
-        :param region_code (str): 地区代码
-        :param timezone (str): 时区
-        :param locale (str): 区域设置
-        :param preferred_node_tags (list): 偏好节点标签
-
+        :param display_name (str | None): 显示名称
+        :param status (str | None): 账户状态
+        :param region_code (str | None): 地区代码
+        :param timezone (str | None): 时区
+        :param locale (str | None): 区域设置
+        :param preferred_node_tags (list[str] | None): 偏好节点标签
         :return ToolAccount: 工具账户实体
         """
 
@@ -237,7 +243,6 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-
         :return ToolAccount: 工具账户实体
         """
 
@@ -265,7 +270,6 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-
         :raises ApiError: 工具账户不存在、未禁用、已绑定运行时或仍有 session 历史
         """
 
@@ -309,9 +313,7 @@ class ToolAccountService:
         :param actor (User): 当前管理员
         :param account_id (UUID): 工具账户 ID
         :param target_backend (str): 目标运行时
-
         :return RuntimeMigrationData: 迁移任务数据
-
         :raises ApiError: 工具账户、目标运行时、活动 session 或节点能力不满足迁移条件
         """
 
@@ -431,9 +433,7 @@ class ToolAccountService:
         :param files (list[ToolAccountConfigImportFile]): 待导入的配置文件
         :param include_resume_history (bool): 是否包含恢复历史路径
         :param dry_run (bool): 是否仅生成计划而不实际导入
-
         :return ToolAccountConfigImportData: 配置导入计划
-
         :raises ApiError: 工具类型、配置文件、导入路径或可用节点不满足导入条件
         """
 
@@ -542,9 +542,7 @@ class ToolAccountService:
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
         :param task_id (str): 节点导入任务 ID
-
         :return ToolAccountConfigImportStatusData: 配置导入状态
-
         :raises ApiError: 工具账户或对应的配置导入任务不存在
         """
 
@@ -565,8 +563,7 @@ class ToolAccountService:
         列出当前用户各工具账户最近一次配置导入状态
 
         :param user (User): 当前用户
-
-        :return list: 最近配置导入状态列表
+        :return list[ToolAccountConfigImportStatusData]: 最近配置导入状态列表
         """
 
         statuses: list[ToolAccountConfigImportStatusData] = []
@@ -586,6 +583,13 @@ class ToolAccountService:
         return statuses
 
     def _is_account_config_import_task(self, task: NodeTask, account: ToolAccount) -> bool:
+        """
+        判断是否账号配置导入任务。
+
+        :param task (NodeTask): 任务
+        :param account (ToolAccount): 账号
+        :return bool: 是否满足校验条件
+        """
         if task.task_type != "import_tool_account_config":
             return False
         return task.payload.get("tool_account_id") == str(account.id)
@@ -593,6 +597,13 @@ class ToolAccountService:
     async def _config_import_status(
         self, account: ToolAccount, task: NodeTask
     ) -> ToolAccountConfigImportStatusData:
+        """
+        返回配置导入状态。
+
+        :param account (ToolAccount): 账号
+        :param task (NodeTask): 任务
+        :return ToolAccountConfigImportStatusData: 配置导入状态
+        """
         result = await self._repository.get_task_result(task.task_id)
         requested_paths = self._config_import_paths(task.payload.get("files"))
         result_data = result.result if result is not None and result.result is not None else {}
@@ -616,6 +627,12 @@ class ToolAccountService:
         )
 
     def _config_import_paths(self, value: object) -> list[str]:
+        """
+        返回配置导入路径。
+
+        :param value (object): 值
+        :return list[str]: 配置导入路径
+        """
         if not isinstance(value, list):
             return []
         paths: list[str] = []
@@ -630,6 +647,12 @@ class ToolAccountService:
         return paths
 
     def _string_list(self, value: object) -> list[str]:
+        """
+        返回字符串列表。
+
+        :param value (object): 值
+        :return list[str]: 字符串列表
+        """
         if not isinstance(value, list):
             return []
         return [item for item in value if isinstance(item, str)]
@@ -641,6 +664,14 @@ class ToolAccountService:
         exclude: set[str],
         include_resume_history: bool,
     ) -> tuple[list[str], list[str], list[str]]:
+        """
+        返回分类配置导入路径。
+
+        :param include (list[str]): 包含项
+        :param exclude (set[str]): 排除项
+        :param include_resume_history (bool): include resume 历史记录
+        :return tuple[list[str], list[str], list[str]]: 分类配置导入路径
+        """
         accepted: list[str] = []
         rejected: list[str] = []
         warnings: list[str] = []
@@ -677,6 +708,14 @@ class ToolAccountService:
         accepted_roots: list[str],
         include_resume_history: bool,
     ) -> list[dict[str, object]]:
+        """
+        校验配置导入 files。
+
+        :param files (list[ToolAccountConfigImportFile]): 待导入文件
+        :param accepted_roots (list[str]): 允许导入的根路径
+        :param include_resume_history (bool): include resume 历史记录
+        :return list[dict[str, object]]: 配置导入 files
+        """
         accepted_files: list[dict[str, object]] = []
         total_size = 0
         for file in files:
@@ -726,6 +765,13 @@ class ToolAccountService:
         return accepted_files
 
     def _config_file_allowed(self, path: str, accepted_roots: list[str]) -> bool:
+        """
+        返回配置文件允许。
+
+        :param path (str): 路径
+        :param accepted_roots (list[str]): 允许导入的根路径
+        :return bool: 是否满足校验条件
+        """
         if not self._is_safe_config_file_path(path):
             return False
         if path in DENIED_CONFIG_IMPORT_PATHS:
@@ -733,6 +779,12 @@ class ToolAccountService:
         return any(path == root or path.startswith(f"{root}/") for root in accepted_roots)
 
     def _is_safe_config_file_path(self, path: str) -> bool:
+        """
+        判断是否安全配置文件路径。
+
+        :param path (str): 路径
+        :return bool: 是否满足校验条件
+        """
         if not path.startswith("~/.claude/"):
             return False
         if "\\" in path or "\x00" in path:
@@ -749,9 +801,7 @@ class ToolAccountService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前用户认证令牌
         :param account_id (UUID): 工具账户 ID
-
         :return BindingSession: 绑定会话
-
         :raises ApiError: 工具账户、节点、设备身份或 SSH 密钥不满足绑定条件
         """
 
@@ -868,7 +918,6 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-
         :return BindingStatusData: 绑定状态数据
         """
 
@@ -889,9 +938,7 @@ class ToolAccountService:
 
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
-
         :return BindingSession: 绑定会话
-
         :raises ApiError: 工具账户不存在或其亲和节点当前不可用
         """
 
@@ -945,6 +992,12 @@ class ToolAccountService:
         return BindingSession(status=self._binding_status(account, profile, node, task), task=task)
 
     async def _choose_binding_node(self, account: ToolAccount) -> Node:
+        """
+        选择绑定节点。
+
+        :param account (ToolAccount): 账号
+        :return Node: 绑定节点
+        """
         node = await self._load_affinity_node(account)
         if node is not None and self._node_can_host(node, account):
             return node
@@ -968,6 +1021,12 @@ class ToolAccountService:
         return node
 
     async def _load_affinity_node(self, account: ToolAccount) -> Node | None:
+        """
+        加载affinity 节点。
+
+        :param account (ToolAccount): 账号
+        :return Node | None: affinity 节点
+        """
         if account.affinity_node_id is None:
             return None
         return await self._repository.get_node(account.affinity_node_id)
@@ -975,6 +1034,13 @@ class ToolAccountService:
     async def _ensure_profile(
         self, *, account: ToolAccount, template: ToolRuntimeTemplate
     ) -> ToolAccountProfile:
+        """
+        确保配置。
+
+        :param account (ToolAccount): 账号
+        :param template (ToolRuntimeTemplate): 模板
+        :return ToolAccountProfile: 配置
+        """
         profile = await self._repository.get_profile(account.id)
         if profile is not None:
             return profile
@@ -995,6 +1061,13 @@ class ToolAccountService:
         )
 
     async def _require_account(self, *, user: User, account_id: UUID) -> ToolAccount:
+        """
+        获取并校验账号。
+
+        :param user (User): 用户
+        :param account_id (UUID): 账号 ID
+        :return ToolAccount: 账号
+        """
         account = await self._repository.get_account(account_id)
         if account is None or account.user_id != user.id:
             raise ApiError(
@@ -1011,6 +1084,15 @@ class ToolAccountService:
         node: Node | None,
         task: NodeTask | None,
     ) -> BindingStatusData:
+        """
+        返回绑定状态。
+
+        :param account (ToolAccount): 账号
+        :param profile (ToolAccountProfile | None): 配置
+        :param node (Node | None): 节点
+        :param task (NodeTask | None): 任务
+        :return BindingStatusData: 绑定状态
+        """
         profile_json = profile.profile_json if profile is not None else {}
         return BindingStatusData(
             tool_account_id=account.id,
@@ -1029,6 +1111,14 @@ class ToolAccountService:
     def _connect_command(
         self, node: Node | None, profile_json: dict[str, object], account: ToolAccount
     ) -> str | None:
+        """
+        连接命令。
+
+        :param node (Node | None): 节点
+        :param profile_json (dict[str, object]): 配置 json
+        :param account (ToolAccount): 账号
+        :return str | None: 命令
+        """
         if node is None:
             return None
         tmux_session_name = self._optional_text(profile_json, "tmux_session_name")
@@ -1048,6 +1138,13 @@ class ToolAccountService:
         )
 
     def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
+        """
+        判断节点能否承载浏览器会话。
+
+        :param node (Node | None): 节点
+        :param account (ToolAccount): 账号
+        :return bool: 是否满足校验条件
+        """
         if node is None:
             return False
         if node.status not in ACTIVE_NODE_STATUSES:
@@ -1065,9 +1162,20 @@ class ToolAccountService:
         return backend == "docker_sandbox"
 
     def _require_template(self, tool_type: str) -> ToolRuntimeTemplate:
+        """
+        获取并校验模板。
+
+        :param tool_type (str): 工具类型
+        :return ToolRuntimeTemplate: 模板
+        """
         return self._registry.get(tool_type)
 
     def _validate_manual_status(self, status: str) -> None:
+        """
+        校验手动状态。
+
+        :param status (str): 状态
+        """
         if status not in {"binding_requested", "expired", "disabled"}:
             raise ApiError(
                 code="COMMON_BAD_REQUEST",
@@ -1076,6 +1184,12 @@ class ToolAccountService:
             )
 
     def _template_payload(self, template: ToolRuntimeTemplate) -> dict[str, object]:
+        """
+        返回模板载荷。
+
+        :param template (ToolRuntimeTemplate): 模板
+        :return dict[str, object]: 模板载荷
+        """
         return {
             "sandbox_agent": template.sandbox_agent,
             "command": list(template.command),
@@ -1083,21 +1197,56 @@ class ToolAccountService:
         }
 
     def _tmux_session_name(self, account: ToolAccount) -> str:
+        """
+        返回tmux 会话名称。
+
+        :param account (ToolAccount): 账号
+        :return str: tmux 会话名称
+        """
         return f"ar-bind-{str(account.id).replace('-', '')[:24]}"
 
     def _account_remote_path(self, user_id: UUID, tool_type: str, account_id: UUID) -> str:
+        """
+        返回账号远端路径。
+
+        :param user_id (UUID): 用户 ID
+        :param tool_type (str): 工具类型
+        :param account_id (UUID): 账号 ID
+        :return str: 账号远端路径
+        """
         return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/tool-accounts/{tool_type}/{account_id}"
 
     def _profile_text(self, profile_json: dict[str, object], key: str, default: str) -> str:
+        """
+        返回配置文本。
+
+        :param profile_json (dict[str, object]): 配置 json
+        :param key (str): 键
+        :param default (str): 默认值
+        :return str: 配置文本
+        """
         value = profile_json.get(key)
         if isinstance(value, str) and value:
             return value
         return default
 
     def _normalize_config_path(self, path: str) -> str:
+        """
+        规范化配置路径。
+
+        :param path (str): 路径
+        :return str: 配置路径
+        """
         return path.rstrip("/")
 
     def _optional_text(self, profile_json: dict[str, object], key: str) -> str | None:
+        """
+        返回可选文本。
+
+        :param profile_json (dict[str, object]): 配置 json
+        :param key (str): 键
+        :return str | None: 可选文本
+        """
         value = profile_json.get(key)
         if isinstance(value, str) and value:
             return value
@@ -1112,6 +1261,15 @@ class ToolAccountService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,

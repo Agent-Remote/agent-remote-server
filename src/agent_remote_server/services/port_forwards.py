@@ -1,3 +1,7 @@
+"""
+实现端口转发业务逻辑。
+"""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -47,7 +51,7 @@ class PortForwardPolicy:
         """
         返回不含敏感值的策略快照
 
-        :return dict: 策略快照
+        :return dict[str, object]: 策略快照
         """
 
         return {
@@ -96,7 +100,9 @@ class RedeemedPortForward:
 
 @dataclass(frozen=True)
 class PortForwardCleanupResult:
-    """一次生命周期对账批次的结果。"""
+    """
+    一次生命周期对账批次的结果。
+    """
 
     changed: int
     next_cursor: UUID | None
@@ -113,6 +119,13 @@ class PortForwardService:
         settings: Settings,
         token_store: PortForwardTokenStore,
     ) -> None:
+        """
+        初始化端口转发业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        :param token_store (PortForwardTokenStore): 令牌存储
+        """
         self._session = session
         self._settings = settings
         self._token_store = token_store
@@ -139,10 +152,8 @@ class PortForwardService:
         :param remote_port (int): 运行时远端端口
         :param local_port (int): 客户端请求的本地端口
         :param client_instance_id (str): CLI 实例 ID
-        :param ttl_seconds (int): 请求有效秒数
-
+        :param ttl_seconds (int | None): 请求有效秒数
         :return CreatedPortForward: 新建端口转发结果
-
         :raises ApiError: 设备身份、工具 session、节点能力、端口、配额或有效期不符合转发策略
         """
 
@@ -223,9 +234,7 @@ class PortForwardService:
 
         :param user (User): 当前用户
         :param all_users (bool): 是否列出全部用户
-
-        :return list: 端口转发列表
-
+        :return list[PortForward]: 端口转发列表
         :raises ApiError: 非管理员请求查看全部用户的端口转发
         """
 
@@ -253,7 +262,6 @@ class PortForwardService:
 
         :param user (User): 当前用户
         :param forward_id (UUID): 端口转发 ID
-
         :return PortForward: 端口转发实体
         """
 
@@ -271,9 +279,7 @@ class PortForwardService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前设备 token
         :param forward_id (UUID): 端口转发 ID
-
         :return IssuedPortForwardConnection: 一次性连接凭证
-
         :raises ApiError: 转发不存在、已终止、无运行授权或不属于当前设备
         """
 
@@ -303,7 +309,6 @@ class PortForwardService:
 
         :param user (User): 当前用户
         :param forward_id (UUID): 端口转发 ID
-
         :return PortForward: 已停止转发
         """
 
@@ -341,9 +346,7 @@ class PortForwardService:
         :param device_id (UUID): forced-command 设备 ID
         :param ssh_key_id (UUID): 强制命令 SSH 密钥 ID
         :param connect_token (str): 一次性连接 token
-
         :return RedeemedPortForward: Node 授权结果
-
         :raises ApiError: 转发、SSH 身份、连接 token、会话状态或运行授权校验失败
         """
 
@@ -426,7 +429,6 @@ class PortForwardService:
         :param bytes_up_total (int): 本代累计上行字节数
         :param bytes_down_total (int): 本代累计下行字节数
         :param connection_count_total (int): 本代累计连接数
-
         :return RedeemedPortForward: 续租结果
         """
 
@@ -469,7 +471,6 @@ class PortForwardService:
         :param bytes_down_total (int): 本代累计下行字节数
         :param connection_count_total (int): 本代累计连接数
         :param reason (str): 释放原因
-
         :return PortForward: 释放后的转发实体
         """
 
@@ -497,6 +498,14 @@ class PortForwardService:
     async def _require_node_generation(
         self, *, node: Node, forward_id: UUID, generation: int
     ) -> PortForward:
+        """
+        获取并校验节点代次。
+
+        :param node (Node): 节点
+        :param forward_id (UUID): 转发 ID
+        :param generation (int): 代次
+        :return PortForward: 节点代次
+        """
         port_forward = await self._repository.get_for_update(forward_id)
         if port_forward is None or port_forward.node_id != node.id:
             raise ApiError(
@@ -513,6 +522,12 @@ class PortForwardService:
     async def _require_runtime_authorization(
         self, port_forward: PortForward
     ) -> tuple[Session, PortForwardPolicy]:
+        """
+        获取并校验运行时授权。
+
+        :param port_forward (PortForward): 端口转发
+        :return tuple[Session, PortForwardPolicy]: 运行时授权
+        """
         await self._ensure_non_terminal(port_forward)
         user = await self._repository.get_active_user(port_forward.user_id)
         if user is None:
@@ -558,6 +573,13 @@ class PortForwardService:
         return tool_session, policy
 
     async def _require_running_session(self, user_id: UUID, session_id: UUID) -> Session:
+        """
+        获取并校验运行中会话。
+
+        :param user_id (UUID): 用户 ID
+        :param session_id (UUID): 会话 ID
+        :return Session: 运行中会话
+        """
         tool_session = await self._repository.get_session(session_id)
         if tool_session is None or tool_session.user_id != user_id:
             raise ApiError(
@@ -575,6 +597,12 @@ class PortForwardService:
         return tool_session
 
     async def _require_node(self, node_id: UUID) -> Node:
+        """
+        获取并校验节点。
+
+        :param node_id (UUID): 节点 ID
+        :return Node: 节点
+        """
         node = await self._repository.get_node(node_id)
         if node is None:
             raise ApiError(code="COMMON_NOT_FOUND", message="Node was not found.", status_code=404)
@@ -589,9 +617,7 @@ class PortForwardService:
         对账非终态端口转发并收敛生命周期
 
         :param limit (int): 单次最大处理数
-
-        :param after_id (UUID): 上一批最后处理的转发 ID
-
+        :param after_id (UUID | None): 上一批最后处理的转发 ID
         :return PortForwardCleanupResult: 状态变更数和下一批游标
         """
 
@@ -643,6 +669,12 @@ class PortForwardService:
         return PortForwardCleanupResult(changed=changed, next_cursor=next_cursor)
 
     def _require_capability(self, node: Node, tool_session: Session) -> None:
+        """
+        获取并校验能力。
+
+        :param node (Node): 节点
+        :param tool_session (Session): 工具会话
+        """
         capability = node.runtime_capabilities.get("session_port_forwarding")
         if not isinstance(capability, dict) or capability.get("supported") is not True:
             raise ApiError(
@@ -680,6 +712,14 @@ class PortForwardService:
         device_id: UUID,
         session_id: UUID,
     ) -> None:
+        """
+        校验配额。
+
+        :param policy (PortForwardPolicy): 策略
+        :param user_id (UUID): 用户 ID
+        :param device_id (UUID): 设备 ID
+        :param session_id (UUID): 会话 ID
+        """
         checks = (
             (await self._repository.count_active(user_id=user_id), policy.max_per_user, "user"),
             (
@@ -703,6 +743,12 @@ class PortForwardService:
                 )
 
     def _policy(self, node: Node) -> PortForwardPolicy:
+        """
+        返回策略。
+
+        :param node (Node): 节点
+        :return PortForwardPolicy: 策略
+        """
         values = node.runtime_policy.get("port_forwarding")
         overrides = values if isinstance(values, dict) else {}
         denied_values = overrides.get("denied_ports", [])
@@ -787,6 +833,12 @@ class PortForwardService:
         )
 
     def _validate_remote_port(self, policy: PortForwardPolicy, remote_port: int) -> None:
+        """
+        校验远端端口。
+
+        :param policy (PortForwardPolicy): 策略
+        :param remote_port (int): 远端端口
+        """
         if not policy.enabled:
             raise ApiError(
                 code="PORT_FORWARD_DISABLED",
@@ -805,6 +857,12 @@ class PortForwardService:
             )
 
     async def _issue_connection(self, port_forward: PortForward) -> IssuedPortForwardConnection:
+        """
+        签发连接。
+
+        :param port_forward (PortForward): 端口转发
+        :return IssuedPortForwardConnection: 连接
+        """
         raw_token = create_opaque_token("pfc")
         token_hash = hash_token(self._settings.secret_key, raw_token)
         ttl = self._settings.port_forward_connection_token_ttl_seconds
@@ -830,6 +888,12 @@ class PortForwardService:
         )
 
     async def _consume_connection_token(self, raw_token: str) -> PortForwardTokenClaims | None:
+        """
+        消费连接令牌。
+
+        :param raw_token (str): 原始数据令牌
+        :return PortForwardTokenClaims | None: 连接令牌
+        """
         try:
             return await self._token_store.consume(
                 token_hash=hash_token(self._settings.secret_key, raw_token)
@@ -842,6 +906,12 @@ class PortForwardService:
             ) from exc
 
     async def _require_rate_limit(self, *, scope: str, limit: int) -> None:
+        """
+        获取并校验速率限制。
+
+        :param scope (str): 权限范围
+        :param limit (int): 限制
+        """
         try:
             allowed = await self._token_store.allow(
                 scope=scope,
@@ -862,6 +932,13 @@ class PortForwardService:
             )
 
     async def _require_owned(self, *, user: User, forward_id: UUID) -> PortForward:
+        """
+        获取并校验用户拥有的端口转发。
+
+        :param user (User): 用户
+        :param forward_id (UUID): 转发 ID
+        :return PortForward: 用户拥有的端口转发
+        """
         port_forward = await self._repository.get(forward_id)
         if port_forward is None or port_forward.user_id != user.id:
             raise ApiError(
@@ -870,6 +947,13 @@ class PortForwardService:
         return port_forward
 
     async def _require_visible(self, *, user: User, forward_id: UUID) -> PortForward:
+        """
+        获取并校验可见状态。
+
+        :param user (User): 用户
+        :param forward_id (UUID): 转发 ID
+        :return PortForward: 可见状态
+        """
         port_forward = await self._repository.get(forward_id)
         if port_forward is None or (port_forward.user_id != user.id and user.role != "admin"):
             raise ApiError(
@@ -878,6 +962,11 @@ class PortForwardService:
         return port_forward
 
     async def _ensure_non_terminal(self, port_forward: PortForward) -> None:
+        """
+        确保非终态。
+
+        :param port_forward (PortForward): 端口转发
+        """
         if self._expire_if_needed(port_forward):
             await self._audit(
                 actor_user_id=None,
@@ -895,6 +984,12 @@ class PortForwardService:
             )
 
     def _expire_if_needed(self, port_forward: PortForward) -> bool:
+        """
+        按需标记过期记录。
+
+        :param port_forward (PortForward): 端口转发
+        :return bool: 是否满足校验条件
+        """
         if (
             port_forward.status in NON_TERMINAL_FORWARD_STATUSES
             and self._aware(port_forward.expires_at) <= self._now()
@@ -907,6 +1002,12 @@ class PortForwardService:
         return False
 
     async def _revoke(self, port_forward: PortForward, reason: str) -> None:
+        """
+        撤销端口转发并记录审计事件。
+
+        :param port_forward (PortForward): 端口转发
+        :param reason (str): 操作原因
+        """
         port_forward.status = "revoked"
         port_forward.stopped_at = self._now()
         port_forward.stop_reason = reason
@@ -927,6 +1028,14 @@ class PortForwardService:
         bytes_down_total: int,
         connection_count_total: int,
     ) -> None:
+        """
+        应用counters。
+
+        :param port_forward (PortForward): 端口转发
+        :param bytes_up_total (int): 字节 up total
+        :param bytes_down_total (int): 字节 down total
+        :param connection_count_total (int): 连接统计 total
+        """
         next_bytes_up = max(port_forward.generation_bytes_up, bytes_up_total)
         next_bytes_down = max(port_forward.generation_bytes_down, bytes_down_total)
         next_connection_count = max(
@@ -949,6 +1058,14 @@ class PortForwardService:
         port_forward: PortForward,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param port_forward (PortForward): 端口转发
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -960,6 +1077,12 @@ class PortForwardService:
         )
 
     def _require_device_token(self, token: AuthToken) -> UUID:
+        """
+        获取并校验设备令牌。
+
+        :param token (AuthToken): 令牌
+        :return UUID: 设备令牌
+        """
         if token.user_device_id is None:
             raise ApiError(
                 code="DEVICE_REQUIRED",
@@ -977,6 +1100,16 @@ class PortForwardService:
         minimum: int = 1,
         maximum: int | None = None,
     ) -> int:
+        """
+        返回整数策略。
+
+        :param values (dict[str, object]): 待处理值
+        :param key (str): 键
+        :param default (int): 默认值
+        :param minimum (int): 最小值
+        :param maximum (int | None): 最大值
+        :return int: 整数策略
+        """
         value = values.get(key)
         return (
             value
@@ -988,11 +1121,30 @@ class PortForwardService:
         )
 
     def _bool_policy(self, values: dict[str, object], key: str, default: bool) -> bool:
+        """
+        返回bool 策略。
+
+        :param values (dict[str, object]): 待处理值
+        :param key (str): 键
+        :param default (bool): 默认值
+        :return bool: 是否满足校验条件
+        """
         value = values.get(key)
         return value if isinstance(value, bool) else default
 
     def _now(self) -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)
 
     def _aware(self, value: datetime) -> datetime:
+        """
+        补全时间值的时区信息。
+
+        :param value (datetime): 值
+        :return datetime: 时区感知
+        """
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

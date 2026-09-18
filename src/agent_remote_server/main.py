@@ -1,3 +1,7 @@
+"""
+实现入口模块。
+"""
+
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -37,10 +41,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
     创建 FastAPI 应用
 
-    :param settings (Settings): 可选应用配置
-
+    :param settings (Settings | None): 可选应用配置
     :return FastAPI: FastAPI 应用实例
-
     :raises DeviceControlReleaseEvidenceError: 生产设备控制发布证据未通过校验
     """
 
@@ -115,6 +117,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(current_app: FastAPI) -> AsyncIterator[None]:
+        """
+        返回应用生命周期。
+
+        :param current_app (FastAPI): 当前app
+        :return AsyncIterator[None]: 应用生命周期
+        """
         cleanup_stop = asyncio.Event()
         port_forward_cleanup_task = asyncio.create_task(
             run_port_forward_cleanup(current_app, cleanup_stop)
@@ -191,6 +199,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     async def _handle_api_error(request: Request, exc: Exception) -> JSONResponse:
+        """
+        处理API 错误。
+
+        :param request (Request): HTTP 请求
+        :param exc (Exception): 异常实例
+        :return JSONResponse: API 错误
+        """
         api_error = (
             exc
             if isinstance(exc, ApiError)

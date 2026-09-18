@@ -1,3 +1,7 @@
+"""
+验证端口转发集成行为。
+"""
+
 import asyncio
 import os
 from uuid import uuid4
@@ -17,7 +21,12 @@ from agent_remote_server.port_forwarding.tokens import (
 
 
 def integration_url(name: str) -> str:
-    """读取显式启用的真实依赖集成测试地址。"""
+    """
+    读取显式启用的真实依赖集成测试地址。
+
+    :param name (str): 名称
+    :return str: 集成 URL
+    """
 
     value = os.getenv(name)
     if not value:
@@ -26,7 +35,11 @@ def integration_url(name: str) -> str:
 
 
 def test_postgres_migration_creates_port_forward_ledger(monkeypatch: pytest.MonkeyPatch) -> None:
-    """从空 PostgreSQL 数据库执行完整 migration 并核对关键账本字段。"""
+    """
+    从空 PostgreSQL 数据库执行完整 migration 并核对关键账本字段。
+
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     database_url = integration_url("AGENT_REMOTE_INTEGRATION_DATABASE_URL")
     monkeypatch.setenv("DATABASE_URL", database_url)
@@ -37,6 +50,9 @@ def test_postgres_migration_creates_port_forward_ledger(monkeypatch: pytest.Monk
         get_settings.cache_clear()
 
     async def inspect_schema() -> None:
+        """
+        检查模型。
+        """
         engine = create_async_engine(database_url)
         try:
             async with engine.connect() as connection:
@@ -62,11 +78,16 @@ def test_postgres_migration_creates_port_forward_ledger(monkeypatch: pytest.Monk
 
 
 def test_redis_connection_token_has_single_atomic_winner() -> None:
-    """真实 Redis 并发消费一次性 token 时只能有一个成功者。"""
+    """
+    真实 Redis 并发消费一次性 token 时只能有一个成功者。
+    """
 
     redis_url = integration_url("AGENT_REMOTE_INTEGRATION_REDIS_URL")
 
     async def consume_once() -> None:
+        """
+        消费一次。
+        """
         redis: Redis = Redis.from_url(redis_url, decode_responses=True)
         store = RedisPortForwardTokenStore(redis)
         token_hash = f"integration-{uuid4()}"

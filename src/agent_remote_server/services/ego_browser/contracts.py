@@ -1,4 +1,6 @@
-"""定义 ego-browser 服务共享的稳定常量与返回类型。"""
+"""
+定义 ego-browser 服务共享的稳定常量与返回类型。
+"""
 
 import re
 from dataclasses import dataclass
@@ -19,11 +21,15 @@ POLICY_CAPABILITIES: tuple[str, ...] = (
     "ego_browser_site_learning_v1",
 )
 KNOWN_CAPABILITIES = frozenset((*REQUIRED_CAPABILITIES, *POLICY_CAPABILITIES))
+# 仅为当前客户端实际支持的 owner-only 加密文件后端签发凭据。
+SUPPORTED_CREDENTIAL_PROFILES = frozenset({"community_file"})
 TERMINAL_STATUSES = {"stopped", "expired", "failed", "revoked"}
 LIVE_FOR_CLAIM = {"pending_device", "connecting", "probing_local_browser", "active", "paused"}
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 SAFE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-NODE_CAPABILITY_FIELDS = frozenset(
+# 策略与能力摘要兼容裸值和 sha256: 前缀，但两种格式都必须小写。
+EXPLICIT_DIGEST = re.compile(r"^(?:[0-9a-f]{64}|sha256:[0-9a-f]{64})$")
+LEGACY_NODE_CAPABILITY_FIELDS = frozenset(
     {
         "supported",
         "protocol_versions",
@@ -36,6 +42,17 @@ NODE_CAPABILITY_FIELDS = frozenset(
         "max_script_bytes",
         "max_execute_timeout_ms",
     }
+)
+NODE_ADMISSION_CAPABILITY_FIELDS = frozenset(
+    {
+        "configured_enabled",
+        "effective_enabled",
+        "node_execution_allowed",
+    }
+)
+# 公共合同使用合并能力集；校验器在迁移期单独兼容旧字段集。
+NODE_CAPABILITY_FIELDS = frozenset(
+    (*LEGACY_NODE_CAPABILITY_FIELDS, *NODE_ADMISSION_CAPABILITY_FIELDS)
 )
 
 REVOCATION_METRIC_REASONS = {
@@ -80,14 +97,18 @@ CONTENT_FREE_REASONS = frozenset(
 
 @dataclass(frozen=True)
 class EgoBrowserClaimResult:
-    """ego-browser 绑定认领结果。"""
+    """
+    ego-browser 绑定认领结果。
+    """
 
     binding: EgoBrowserBinding
 
 
 @dataclass(frozen=True)
 class EgoBrowserRelayTicketResult:
-    """一次性 ego-browser 中继票据结果。"""
+    """
+    一次性 ego-browser 中继票据结果。
+    """
 
     role: EgoBrowserRelayRole
     generation: int
@@ -97,7 +118,9 @@ class EgoBrowserRelayTicketResult:
 
 @dataclass(frozen=True)
 class EgoBrowserDeviceCredentialIssue:
-    """独立设备客户端凭据签发结果；原始令牌不写入数据库。"""
+    """
+    独立设备客户端凭据签发结果；原始令牌不写入数据库。
+    """
 
     credential: EgoBrowserDeviceCredential
     raw_token: str
@@ -106,7 +129,11 @@ class EgoBrowserDeviceCredentialIssue:
 
 @dataclass(frozen=True)
 class EgoBrowserProofChallengeIssue:
-    """服务端签发的一次性设备 PoP challenge。"""
+    """
+    服务端签发的一次性设备 PoP challenge。
+    """
 
     challenge: str
     expires_at: datetime
+    device_generation: int | None = None
+    operation_generation: int | None = None

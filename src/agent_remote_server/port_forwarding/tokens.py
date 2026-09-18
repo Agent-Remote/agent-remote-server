@@ -1,4 +1,6 @@
-"""管理端口转发的一次性 token 与限速状态。"""
+"""
+管理端口转发的一次性 token 与限速状态。
+"""
 
 import asyncio
 import json
@@ -42,7 +44,6 @@ class PortForwardTokenStore(Protocol):
         原子消费一次性 token 声明
 
         :param token_hash (str): 一次性 token 的哈希值
-
         :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
         """
 
@@ -53,12 +54,13 @@ class PortForwardTokenStore(Protocol):
         :param scope (str): 限速范围标识
         :param limit (int): 限速窗口内允许的最大请求数
         :param window_seconds (int): 限速窗口时长（秒）
-
         :return bool: 当前请求是否被允许
         """
 
     async def close(self) -> None:
-        """关闭令牌存储连接。"""
+        """
+        关闭令牌存储连接。
+        """
 
 
 class RedisPortForwardTokenStore:
@@ -67,6 +69,11 @@ class RedisPortForwardTokenStore:
     """
 
     def __init__(self, redis: Redis) -> None:
+        """
+        初始化Redis 端口转发令牌存储。
+
+        :param redis (Redis): Redis 客户端
+        """
         self._redis = redis
 
     async def issue(self, *, token_hash: str, claims: PortForwardTokenClaims, ttl: int) -> None:
@@ -76,7 +83,6 @@ class RedisPortForwardTokenStore:
         :param token_hash (str): 一次性 token 的哈希值
         :param claims (PortForwardTokenClaims): 待存储的 token 声明
         :param ttl (int): 声明有效期（秒）
-
         :raises RuntimeError: token 哈希已存在导致写入冲突时抛出
         """
 
@@ -95,7 +101,6 @@ class RedisPortForwardTokenStore:
         原子消费一次性 token 声明
 
         :param token_hash (str): 一次性 token 的哈希值
-
         :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
         """
 
@@ -116,7 +121,6 @@ class RedisPortForwardTokenStore:
         :param scope (str): 限速范围标识
         :param limit (int): 限速窗口内允许的最大请求数
         :param window_seconds (int): 限速窗口时长（秒）
-
         :return bool: 当前请求是否被允许
         """
 
@@ -128,11 +132,19 @@ class RedisPortForwardTokenStore:
         return int(values[0]) <= limit
 
     async def close(self) -> None:
-        """关闭 Redis 连接。"""
+        """
+        关闭 Redis 连接。
+        """
 
         await self._redis.aclose()
 
     def _key(self, token_hash: str) -> str:
+        """
+        返回键。
+
+        :param token_hash (str): 令牌 hash
+        :return str: 键
+        """
         return f"agent-remote:port-forward-token:{token_hash}"
 
 
@@ -142,6 +154,9 @@ class InMemoryPortForwardTokenStore:
     """
 
     def __init__(self) -> None:
+        """
+        初始化内存端口转发令牌存储。
+        """
         self._values: dict[str, tuple[PortForwardTokenClaims, datetime]] = {}
         self._rates: dict[str, tuple[int, datetime]] = {}
         self._lock = asyncio.Lock()
@@ -153,7 +168,6 @@ class InMemoryPortForwardTokenStore:
         :param token_hash (str): 一次性 token 的哈希值
         :param claims (PortForwardTokenClaims): 待存储的 token 声明
         :param ttl (int): 声明有效期（秒）
-
         :raises RuntimeError: token 哈希已存在导致写入冲突时抛出
         """
 
@@ -167,7 +181,6 @@ class InMemoryPortForwardTokenStore:
         原子消费一次性 token 声明
 
         :param token_hash (str): 一次性 token 的哈希值
-
         :return PortForwardTokenClaims | None: 已消费的 token 声明，不存在或已过期时返回 None
         """
 
@@ -184,7 +197,6 @@ class InMemoryPortForwardTokenStore:
         :param scope (str): 限速范围标识
         :param limit (int): 限速窗口内允许的最大请求数
         :param window_seconds (int): 限速窗口时长（秒）
-
         :return bool: 当前请求是否被允许
         """
 
@@ -199,7 +211,9 @@ class InMemoryPortForwardTokenStore:
             return count <= limit
 
     async def close(self) -> None:
-        """清理内存 token。"""
+        """
+        清理内存 token。
+        """
 
         async with self._lock:
             self._values.clear()
@@ -211,7 +225,6 @@ def create_port_forward_token_store(settings: Settings) -> RedisPortForwardToken
     创建生产 Redis 令牌存储
 
     :param settings (Settings): 应用配置
-
     :return RedisPortForwardTokenStore: Redis 令牌存储
     """
 

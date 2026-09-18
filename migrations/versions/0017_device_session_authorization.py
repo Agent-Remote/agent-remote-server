@@ -1,8 +1,5 @@
-"""添加显式设备会话授权元数据。
-
-Revision ID: 0017_device_authorization
-Revises: 0016_device_binding_rebind
-Create Date: 2026-09-03 18:00:00.000000
+"""
+添加显式设备会话授权元数据。
 """
 
 from collections.abc import Sequence
@@ -17,7 +14,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """增加显式授权字段并把全部历史记录回填为逐应用兼容模式。"""
+    """
+    增加显式授权字段并把全部历史记录回填为逐应用兼容模式。
+    """
 
     op.add_column(
         "device_sessions",
@@ -59,7 +58,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """删除授权元数据并恢复 0016 的隐式逐应用语义。"""
+    """
+    删除授权元数据并恢复 0016 的隐式逐应用语义。
+    """
 
     op.drop_constraint(
         "device_sessions_full_trust_authorized_at_ck",

@@ -1,3 +1,7 @@
+"""
+实现错误模块。
+"""
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -17,6 +21,14 @@ class ApiError(Exception):
         status_code: int,
         details: dict[str, object] | None = None,
     ) -> None:
+        """
+        初始化API 错误。
+
+        :param code (str): 代码
+        :param message (str): 消息内容
+        :param status_code (int): 状态代码
+        :param details (dict[str, object] | None): 详情
+        """
         self.code = code
         self.message = message
         self.status_code = status_code
@@ -29,7 +41,6 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
 
     :param request (Request): 当前请求
     :param exc (ApiError): 业务错误
-
     :return JSONResponse: 错误响应
     """
 

@@ -1,3 +1,7 @@
+"""
+提供节点数据访问。
+"""
+
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
@@ -24,6 +28,11 @@ class NodeRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化节点数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_node(self, node: Node) -> Node:
@@ -31,7 +40,6 @@ class NodeRepository:
         新增节点
 
         :param node (Node): 节点实体
-
         :return Node: 节点实体
         """
 
@@ -44,8 +52,7 @@ class NodeRepository:
         按 ID 读取节点
 
         :param node_id (UUID): 节点 ID
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -55,8 +62,7 @@ class NodeRepository:
         按 node token 哈希读取节点
 
         :param token_hash (str): node token 哈希
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.scalar(select(Node).where(Node.node_token_hash == token_hash))
@@ -65,7 +71,7 @@ class NodeRepository:
         """
         列出节点
 
-        :return Sequence: 节点列表
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(select(Node).order_by(Node.created_at))
@@ -105,8 +111,7 @@ class NodeRepository:
         列出节点上控制面认为仍活跃的工具会话
 
         :param node_id (UUID): 节点 ID
-
-        :return Sequence: 活跃工具会话列表
+        :return Sequence[Session]: 活跃工具会话列表
         """
 
         result = await self._session.scalars(
@@ -122,7 +127,6 @@ class NodeRepository:
         新增节点心跳
 
         :param heartbeat (NodeHeartbeat): 心跳实体
-
         :return NodeHeartbeat: 心跳实体
         """
 
@@ -135,7 +139,6 @@ class NodeRepository:
         新增节点任务
 
         :param task (NodeTask): 节点任务实体
-
         :return NodeTask: 节点任务实体
         """
 
@@ -148,8 +151,7 @@ class NodeRepository:
         按 task_id 读取任务
 
         :param task_id (str): 任务 ID
-
-        :return NodeTask: 节点任务实体
+        :return NodeTask | None: 节点任务实体
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))
@@ -165,8 +167,7 @@ class NodeRepository:
 
         :param status (str | None): 状态过滤
         :param limit (int): 最大返回数量
-
-        :return Sequence: 节点任务列表
+        :return Sequence[NodeTask]: 节点任务列表
         """
 
         statement = select(NodeTask).order_by(NodeTask.created_at.desc()).limit(limit)
@@ -188,8 +189,7 @@ class NodeRepository:
         :param node_id (UUID): 节点 ID
         :param now (datetime): 当前时间
         :param limit (int): 最大数量
-
-        :return Sequence: 节点任务列表
+        :return Sequence[NodeTask]: 节点任务列表
         """
 
         normalized_now = now if now.tzinfo else now.replace(tzinfo=UTC)
@@ -213,7 +213,6 @@ class NodeRepository:
         新增任务结果
 
         :param result (NodeTaskResult): 任务结果实体
-
         :return NodeTaskResult: 任务结果实体
         """
 
@@ -226,8 +225,7 @@ class NodeRepository:
         按 task_id 读取任务结果
 
         :param task_id (str): 任务 ID
-
-        :return NodeTaskResult: 任务结果实体
+        :return NodeTaskResult | None: 任务结果实体
         """
 
         return await self._session.scalar(

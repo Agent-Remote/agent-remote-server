@@ -1,3 +1,7 @@
+"""
+提供会话 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -38,7 +42,6 @@ def session_data(tool_session: Session, workspace: Workspace | None = None) -> S
 
     :param tool_session (Session): 工具 session 实体
     :param workspace (Workspace | None): session 对应工作区
-
     :return SessionData: 工具会话响应数据
     """
 
@@ -81,9 +84,8 @@ async def list_sessions(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-    :param tool_type (str): 工具类型过滤
-    :param statuses (list): 工具会话状态过滤
-
+    :param tool_type (str | None): 工具类型过滤
+    :param statuses (list[str] | None): 工具会话状态过滤
     :return SessionListResponse: 工具会话列表响应
     """
 
@@ -112,7 +114,6 @@ async def create_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SessionResponse: 工具会话响应
     """
 
@@ -146,7 +147,6 @@ async def delete_inactive_sessions(
     :param user (User): 当前用户
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -172,7 +172,6 @@ async def get_current_project_session(
     :param user (User): 当前用户
     :param tool_type (str): 工具类型
     :param project_key (str): 项目 key
-
     :return SessionResponse: 工具会话响应
     """
 
@@ -196,7 +195,6 @@ async def get_tool_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return SessionResponse: 工具会话响应
     """
 
@@ -226,7 +224,6 @@ async def delete_session(
     :param user (User): 当前用户
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -256,7 +253,6 @@ async def stop_session(
     :param user (User): 当前用户
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return SessionResponse: 工具会话响应
     """
 
@@ -282,7 +278,6 @@ async def attach_session(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前 token
-
     :return AttachSessionResponse: 挂接授权
     """
 

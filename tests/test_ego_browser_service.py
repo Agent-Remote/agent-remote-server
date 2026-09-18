@@ -1,3 +1,7 @@
+"""
+验证Ego Browser 业务服务行为。
+"""
+
 import asyncio
 import json
 import logging
@@ -43,6 +47,11 @@ from agent_remote_server.services.ego_browser import (
 
 
 def _node_runtime_capabilities() -> dict[str, object]:
+    """
+    返回节点运行时能力。
+
+    :return dict[str, object]: 节点运行时能力
+    """
     return {
         "ego_browser_bridge": {
             "supported": True,
@@ -62,7 +71,9 @@ def _node_runtime_capabilities() -> dict[str, object]:
 
 
 def test_policy_capabilities_match_verified_digests() -> None:
-    """策略能力必须与对应摘要同时出现且拒绝未知或重复值。"""
+    """
+    策略能力必须与对应摘要同时出现且拒绝未知或重复值。
+    """
 
     service = EgoBrowserService(
         cast(AsyncSession, None),
@@ -99,7 +110,9 @@ def test_policy_capabilities_match_verified_digests() -> None:
 
 
 def test_production_requires_policy_backed_capabilities() -> None:
-    """生产环境不得激活缺少 allowlist 或学习 bundle 的 Bridge。"""
+    """
+    生产环境不得激活缺少 allowlist 或学习 bundle 的 Bridge。
+    """
 
     settings = Settings().model_copy(
         update={"environment": "production", "ego_browser_bridge_enabled": True}
@@ -115,7 +128,9 @@ def test_production_requires_policy_backed_capabilities() -> None:
 
 
 def test_digest_requires_canonical_sha256_prefix() -> None:
-    """摘要必须使用跨组件一致的 sha256 前缀和小写十六进制。"""
+    """
+    摘要必须使用跨组件一致的 sha256 前缀和小写十六进制。
+    """
 
     service = EgoBrowserService(cast(AsyncSession, None), Settings())
     _validate_digest(f"sha256:{'a' * 64}", service._error)  # noqa: SLF001
@@ -127,7 +142,9 @@ def test_digest_requires_canonical_sha256_prefix() -> None:
 
 
 def test_node_capability_pins_wrapper_and_official_skill_artifacts() -> None:
-    """Node capability 必须完整匹配 wrapper、官方 Skill、平台和执行限额。"""
+    """
+    Node capability 必须完整匹配 wrapper、官方 Skill、平台和执行限额。
+    """
 
     service = EgoBrowserService(cast(AsyncSession, None), Settings())
     valid = {
@@ -164,7 +181,9 @@ def test_node_capability_pins_wrapper_and_official_skill_artifacts() -> None:
 
 
 def test_signer_pin_never_accepts_missing_evidence() -> None:
-    """配置 signer pin 后必须提供完全一致的证书摘要。"""
+    """
+    配置 signer pin 后必须提供完全一致的证书摘要。
+    """
 
     service = EgoBrowserService(
         cast(AsyncSession, None),
@@ -183,9 +202,14 @@ def test_signer_pin_never_accepts_missing_evidence() -> None:
 
 
 def test_profile_pin_drift_blocks_activation_renewal_ticket_and_reconnect() -> None:
-    """所有授予能力的路径都必须重新校验当前发布身份策略。"""
+    """
+    所有授予能力的路径都必须重新校验当前发布身份策略。
+    """
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         try:
             async with engine.begin() as connection:
@@ -330,9 +354,16 @@ def test_profile_pin_drift_blocks_activation_renewal_ticket_and_reconnect() -> N
 
 @pytest.mark.parametrize("renewal_role", ["device", "node"])
 def test_expired_healthy_lease_cannot_be_renewed(renewal_role: str) -> None:
-    """已经越过截止时间的健康租约不能被续租复活。"""
+    """
+    已经越过截止时间的健康租约不能被续租复活。
+
+    :param renewal_role (str): renewal 角色
+    """
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         try:
             async with engine.begin() as connection:
@@ -457,16 +488,36 @@ def test_expired_healthy_lease_cannot_be_renewed(renewal_role: str) -> None:
 def test_revocation_sources_expiry_and_renewal_failure_are_idempotent(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """所有外部停止来源都必须通过共享 outbox 使 generation 失效。"""
+    """
+    所有外部停止来源都必须通过共享 outbox 使 generation 失效。
+
+    :param caplog (pytest.LogCaptureFixture): pytest 日志捕获器
+    """
 
     class RecordingPublisher:
+        """
+        定义记录事件发布器。
+        """
+
         def __init__(self) -> None:
+            """
+            初始化记录发布器。
+            """
             self.events: list[tuple[UUID, int]] = []
 
         async def publish(self, binding_id: UUID, generation: int) -> None:
+            """
+            发布记录的事件。
+
+            :param binding_id (UUID): 绑定 ID
+            :param generation (int): 代次
+            """
             self.events.append((binding_id, generation))
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         try:
             async with engine.begin() as connection:
@@ -508,6 +559,15 @@ def test_revocation_sources_expiry_and_renewal_failure_are_idempotent(
                     lease_until: datetime | None = None,
                     absolute_ttl_until: datetime | None = None,
                 ) -> tuple[EgoBrowserDevice, EgoBrowserBinding]:
+                    """
+                    添加绑定。
+
+                    :param owner (User): 所有者
+                    :param reference_id (UUID): 引用记录 ID
+                    :param lease_until (datetime | None): 租约 until
+                    :param absolute_ttl_until (datetime | None): 绝对有效期截止时间
+                    :return tuple[EgoBrowserDevice, EgoBrowserBinding]: 绑定
+                    """
                     now = datetime.now(UTC)
                     device = EgoBrowserDevice(
                         user_id=owner.id,
@@ -725,9 +785,14 @@ def test_revocation_sources_expiry_and_renewal_failure_are_idempotent(
 
 
 def test_cancel_task_terminal_ack_converges_without_revoking_binding() -> None:
-    """Node 已观察 Server 终态时只收敛 request，不扩大为 binding 撤销。"""
+    """
+    Node 已观察 Server 终态时只收敛 request，不扩大为 binding 撤销。
+    """
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         try:
             async with engine.begin() as connection:
@@ -853,7 +918,11 @@ def test_cancel_task_terminal_ack_converges_without_revoking_binding() -> None:
 def test_revocation_metric_maps_untrusted_reason_to_other(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """用户提供的生命周期文本不得进入指标标签或消息。"""
+    """
+    用户提供的生命周期文本不得进入指标标签或消息。
+
+    :param caplog (pytest.LogCaptureFixture): pytest 日志捕获器
+    """
 
     from agent_remote_server.services.ego_browser import _record_revocation_metric, _safe_reason
 
@@ -876,9 +945,14 @@ def test_revocation_metric_maps_untrusted_reason_to_other(
 
 
 def test_user_and_admin_lifecycle_controls_only_remove_capability() -> None:
-    """普通用户和管理员可降权控制，但其他用户不能读取或修改 binding。"""
+    """
+    普通用户和管理员可降权控制，但其他用户不能读取或修改 binding。
+    """
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         try:
             async with engine.begin() as connection:

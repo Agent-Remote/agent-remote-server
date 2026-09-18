@@ -1,3 +1,7 @@
+"""
+验证连接 API行为。
+"""
+
 import asyncio
 import base64
 import json
@@ -40,6 +44,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -58,8 +67,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -70,7 +78,6 @@ def bootstrap(client: TestClient) -> str:
     初始化管理员并返回令牌
 
     :param client (TestClient): 测试客户端
-
     :return str: 管理员令牌
     """
 
@@ -88,8 +95,7 @@ def create_node(client: TestClient, admin_token: str) -> tuple[str, str]:
 
     :param client (TestClient): 测试客户端
     :param admin_token (str): 管理员令牌
-
-    :return tuple: 节点 ID 和 node token
+    :return tuple[str, str]: 节点 ID 和 node token
     """
 
     create_response = client.post(
@@ -132,8 +138,7 @@ def register_device(client: TestClient, user_token: str) -> tuple[str, str]:
 
     :param client (TestClient): 测试客户端
     :param user_token (str): 用户令牌
-
-    :return tuple: 设备 ID 和设备令牌
+    :return tuple[str, str]: 设备 ID 和设备令牌
     """
 
     response = client.post(
@@ -157,8 +162,7 @@ def register_device_without_wireguard(client: TestClient, user_token: str) -> tu
 
     :param client (TestClient): 测试客户端
     :param user_token (str): 用户令牌
-
-    :return tuple: 设备 ID 和设备令牌
+    :return tuple[str, str]: 设备 ID 和设备令牌
     """
 
     response = client.post(
@@ -177,6 +181,11 @@ def register_device_without_wireguard(client: TestClient, user_token: str) -> tu
 
 
 def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -> None:
+    """
+    验证WireGuard 对等节点登记修复现有设备。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     device_id, device_token = register_device_without_wireguard(client, admin_token)
     first_public_key = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -226,6 +235,9 @@ def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -
     assert config_response.status_code == 200
 
     async def inspect_state() -> None:
+        """
+        检查状态。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             peers = list(
@@ -249,6 +261,11 @@ def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -
 
 
 def test_wireguard_config_requires_device_token(client: TestClient) -> None:
+    """
+    验证WireGuard 配置要求设备令牌。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -273,6 +290,12 @@ def test_wireguard_config_requires_device_token(client: TestClient) -> None:
 
 @pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])
 def test_attach_authorization_and_node_verify(client: TestClient, runtime_backend: str) -> None:
+    """
+    验证连接授权并节点验证。
+
+    :param client (TestClient): 测试 API 客户端
+    :param runtime_backend (str): 运行时后端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -337,6 +360,9 @@ def test_attach_authorization_and_node_verify(client: TestClient, runtime_backen
     assert verify_response.json()["data"]["forward_ssh_agent"] is False
 
     async def bind_forwarding_profile() -> None:
+        """
+        为工具会话绑定转发凭据配置。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(session_id))
@@ -393,6 +419,11 @@ def test_attach_authorization_and_node_verify(client: TestClient, runtime_backen
 
 
 def test_sync_gateway_requires_device_node_and_active_sync(client: TestClient) -> None:
+    """
+    验证同步网关要求设备节点并活动状态同步。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, _device_token = register_device(client, admin_token)
@@ -407,6 +438,11 @@ def test_sync_gateway_requires_device_node_and_active_sync(client: TestClient) -
     assert denied.json()["error"]["code"] == "SYNC_ACCESS_DENIED"
 
     async def create_sync_session() -> str:
+        """
+        创建同步会话。
+
+        :return str: 同步会话
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             workspace = await session.scalar(
@@ -439,6 +475,9 @@ def test_sync_gateway_requires_device_node_and_active_sync(client: TestClient) -
     assert verified.json()["data"]["user_id"]
 
     async def stop_sync_session() -> None:
+        """
+        停止同步会话。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             sync = await session.get(SyncSession, UUID(sync_id))
@@ -459,11 +498,21 @@ def test_sync_gateway_requires_device_node_and_active_sync(client: TestClient) -
 def test_native_binding_attach_verifies_device_and_returns_private_session(
     client: TestClient,
 ) -> None:
+    """
+    验证原生运行时绑定连接校验设备并返回私有会话。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, _device_token = register_device(client, admin_token)
 
     async def create_binding() -> str:
+        """
+        创建绑定。
+
+        :return str: 绑定
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             device = await session.get(UserDevice, UUID(device_id))
@@ -521,11 +570,15 @@ def create_tool_session(client: TestClient, *, node_id: str, device_id: str) -> 
     :param client (TestClient): 测试客户端
     :param node_id (str): 节点 ID
     :param device_id (str): 设备 ID
-
-    :return str: session ID
+    :return str: 工具会话
     """
 
     async def create() -> str:
+        """
+        创建测试持久化记录。
+
+        :return str: 测试记录 ID
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             device = await session.get(UserDevice, UUID(device_id))

@@ -1,3 +1,7 @@
+"""
+实现会话业务逻辑。
+"""
+
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +56,14 @@ class ToolSessionService:
         relay_hub: DeviceRelayHub | None = None,
         ego_browser_revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
+        """
+        初始化工具会话业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        :param relay_hub (DeviceRelayHub | None): 中继中心
+        :param ego_browser_revocation_publisher (EgoBrowserRevocationPublisher | None): 撤销发布器
+        """
         self._session = session
         self._settings = settings
         self._repository = SessionRepository(session)
@@ -67,10 +79,9 @@ class ToolSessionService:
         列出用户工具 session
 
         :param user (User): 当前用户
-        :param tool_type (str): 工具类型
-        :param statuses (list): 工具会话状态过滤
-        :return list: 工具 session 与 workspace 列表
-
+        :param tool_type (str | None): 工具类型
+        :param statuses (list[str] | None): 工具会话状态过滤
+        :return list[tuple[Session, Workspace]]: 工具 session 与 workspace 列表
         :raises ApiError: 状态过滤值不受支持
         """
 
@@ -98,7 +109,6 @@ class ToolSessionService:
         :param tool_type (str): 工具类型
         :param project_key (str): 项目 key
         :return Session: 工具 session 实体
-
         :raises ApiError: 当前项目没有可恢复的工具 session
         """
 
@@ -141,10 +151,9 @@ class ToolSessionService:
         :param tool_account_id (UUID): 工具账户 ID
         :param workspace_id (UUID): 工作区 ID
         :param project_key (str): 项目 key
-        :param argv (list): 工具 CLI 透传参数
+        :param argv (list[str]): 工具 CLI 透传参数
         :param replaces_session_id (UUID | None): 被替代的中断会话 ID
         :return Session: 工具 session 实体
-
         :raises ApiError: 工具账户、工作区、替代会话或可用节点不满足创建条件
         """
 
@@ -368,7 +377,6 @@ class ToolSessionService:
 
         :param user (User): 当前用户
         :param session_id (UUID): 工具 session ID
-
         :raises ApiError: session 不属于当前用户或尚未进入可删除状态
         """
 
@@ -424,7 +432,6 @@ class ToolSessionService:
         删除当前用户全部已停止、已中断和失败的工具 session
 
         :param user (User): 当前用户
-
         :return int: 删除数量
         """
 
@@ -483,6 +490,13 @@ class ToolSessionService:
         return len(sessions)
 
     async def _require_user_session(self, *, user: User, session_id: UUID) -> Session:
+        """
+        获取并校验用户会话。
+
+        :param user (User): 用户
+        :param session_id (UUID): 会话 ID
+        :return Session: 用户会话
+        """
         tool_session = await self._repository.get_session(session_id)
         if tool_session is None or tool_session.user_id != user.id:
             raise ApiError(
@@ -493,6 +507,14 @@ class ToolSessionService:
     async def _require_active_account(
         self, *, user: User, tool_type: str, account_id: UUID
     ) -> ToolAccount:
+        """
+        获取并校验活动状态账号。
+
+        :param user (User): 用户
+        :param tool_type (str): 工具类型
+        :param account_id (UUID): 账号 ID
+        :return ToolAccount: 活动状态账号
+        """
         account = await self._repository.get_account(account_id)
         if account is None or account.user_id != user.id:
             raise ApiError(
@@ -513,6 +535,12 @@ class ToolSessionService:
         return account
 
     async def _choose_session_node(self, account: ToolAccount) -> Node:
+        """
+        选择会话节点。
+
+        :param account (ToolAccount): 账号
+        :return Node: 会话节点
+        """
         active_sessions = await self._repository.list_active_sessions_for_account(account.id)
         if active_sessions:
             node = await self._repository.get_node(active_sessions[0].node_id)
@@ -544,6 +572,13 @@ class ToolSessionService:
         return node
 
     def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
+        """
+        判断节点能否承载浏览器会话。
+
+        :param node (Node | None): 节点
+        :param account (ToolAccount): 账号
+        :return bool: 是否满足校验条件
+        """
         if node is None or node.status not in ACTIVE_NODE_STATUSES:
             return False
         if account.tool_type not in node.supported_tool_types:
@@ -559,6 +594,13 @@ class ToolSessionService:
         return backend == "docker_sandbox"
 
     def _runtime_payload(self, template: ToolRuntimeTemplate, argv: list[str]) -> dict[str, object]:
+        """
+        返回运行时载荷。
+
+        :param template (ToolRuntimeTemplate): 模板
+        :param argv (list[str]): 命令行参数
+        :return dict[str, object]: 运行时载荷
+        """
         command = [template.sandbox_agent, *argv]
         return {
             "sandbox_agent": template.sandbox_agent,
@@ -573,6 +615,14 @@ class ToolSessionService:
         tool_type: str,
         runtime_backend: str,
     ) -> int | None:
+        """
+        返回设备控制协议版本。
+
+        :param node (Node): 节点
+        :param tool_type (str): 工具类型
+        :param runtime_backend (str): 运行时后端
+        :return int | None: 设备控制协议版本
+        """
         if not self._settings.device_control_enabled or tool_type != "claude":
             return None
         capability = node.runtime_capabilities.get("device_control")
@@ -593,20 +643,53 @@ class ToolSessionService:
         return None
 
     def _tmux_session_name(self, tool_session: Session) -> str:
+        """
+        返回tmux 会话名称。
+
+        :param tool_session (Session): 工具会话
+        :return str: tmux 会话名称
+        """
         return f"ar-{tool_session.tool_type}-{str(tool_session.id).replace('-', '')[:24]}"
 
     def _sandbox_name(self, tool_session: Session) -> str:
+        """
+        返回沙箱名称。
+
+        :param tool_session (Session): 工具会话
+        :return str: 沙箱名称
+        """
         return f"agent-remote-{tool_session.tool_type}-{str(tool_session.id).replace('-', '')[:24]}"
 
     def _account_remote_path(self, user_id: UUID, tool_type: str, account_id: UUID) -> str:
+        """
+        返回账号远端路径。
+
+        :param user_id (UUID): 用户 ID
+        :param tool_type (str): 工具类型
+        :param account_id (UUID): 账号 ID
+        :return str: 账号远端路径
+        """
         return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/tool-accounts/{tool_type}/{account_id}"
 
     def _developer_credential_profile_path(self, user_id: UUID, profile_id: UUID) -> str:
+        """
+        返回开发者凭据配置路径。
+
+        :param user_id (UUID): 用户 ID
+        :param profile_id (UUID): 配置 ID
+        :return str: 开发者凭据配置路径
+        """
         return f"{ACCOUNT_CONFIG_ROOT}/{user_id}/developer-credential-profiles/{profile_id}"
 
     def _developer_credentials_payload(
         self, profile: DeveloperCredentialProfile | None
     ) -> dict[str, object] | None:
+        """
+        返回开发者凭据载荷。
+
+        :param profile (DeveloperCredentialProfile | None): 配置
+        :return dict[str, object] | None: 开发者凭据载荷
+        """
         if profile is None:
             return None
         return {
@@ -617,6 +700,14 @@ class ToolSessionService:
         }
 
     def _profile_text(self, profile_json: dict[str, object], key: str, default: str) -> str:
+        """
+        返回配置文本。
+
+        :param profile_json (dict[str, object]): 配置 json
+        :param key (str): 键
+        :param default (str): 默认值
+        :return str: 配置文本
+        """
         value = profile_json.get(key)
         if isinstance(value, str) and value:
             return value
@@ -631,6 +722,15 @@ class ToolSessionService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,

@@ -1,25 +1,36 @@
+"""
+验证Ego Browser 协议向量行为。
+"""
+
 import base64
 import json
 from pathlib import Path
 from uuid import UUID
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_remote_server.ego_browser.relay import parse_outer_envelope
 from agent_remote_server.services.ego_browser import _verify_pop
 
 
 class _ProofVectorPayload(BaseModel):
-    """定义共享设备 PoP 向量使用的强类型 payload。"""
+    """
+    定义共享设备 PoP 向量使用的强类型 payload。
+    """
 
-    allowlist_revision: int
-    generation: int
-    learning_bundle_digest: str | None
-    signer_certificate_sha256: str
+    allowlist_revision: int = Field(..., description="允许列表版本")
+    generation: int = Field(..., description="设备凭据代次")
+    learning_bundle_digest: str | None = Field(..., description="学习包摘要")
+    signer_certificate_sha256: str = Field(..., description="签名证书 SHA-256 摘要")
 
 
 def _vectors() -> dict[str, object]:
+    """
+    返回向量。
+
+    :return dict[str, object]: 向量
+    """
     path = (
         Path(__file__).resolve().parents[2]
         / "agent-remote-ego-browser"
@@ -33,7 +44,9 @@ def _vectors() -> dict[str, object]:
 
 
 def test_shared_ego_browser_protocol_vectors() -> None:
-    """Python relay 必须与共享 canonical JSON 和 outer envelope 向量一致。"""
+    """
+    Python relay 必须与共享 canonical JSON 和 outer envelope 向量一致。
+    """
 
     vectors = _vectors()
     assert vectors["schema_version"] == 1
@@ -109,7 +122,9 @@ def test_shared_ego_browser_protocol_vectors() -> None:
 
 
 def test_authoritative_ego_browser_schemas_forbid_unknown_fields() -> None:
-    """协议发布的每个 JSON Schema 都必须要求完整字段集并拒绝未知字段。"""
+    """
+    协议发布的每个 JSON Schema 都必须要求完整字段集并拒绝未知字段。
+    """
 
     root = Path(__file__).resolve().parents[2] / "agent-remote-ego-browser" / "protocol" / "schemas"
     if not root.is_dir():

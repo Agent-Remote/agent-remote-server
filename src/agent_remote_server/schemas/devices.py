@@ -1,3 +1,7 @@
+"""
+定义设备接口模型。
+"""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID

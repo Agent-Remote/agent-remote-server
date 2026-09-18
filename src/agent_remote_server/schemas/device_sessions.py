@@ -1,3 +1,7 @@
+"""
+定义设备会话接口模型。
+"""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -156,9 +160,7 @@ class DeviceApprovalItem(BaseModel):
         校验应用标识摘要为小写十六进制 SHA-256
 
         :param value (str): 待校验的应用标识摘要
-
         :return str: 已校验的应用标识摘要
-
         :raises ValueError: 应用标识摘要不是小写十六进制
         """
 

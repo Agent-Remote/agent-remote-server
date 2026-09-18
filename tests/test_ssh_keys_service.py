@@ -1,3 +1,7 @@
+"""
+验证SSH 密钥业务服务行为。
+"""
+
 from uuid import uuid4
 
 from agent_remote_server.models import SshKey
@@ -5,6 +9,9 @@ from agent_remote_server.services.ssh_keys import ssh_key_sync_task_id
 
 
 def test_ssh_key_sync_task_revision_tracks_key_set() -> None:
+    """
+    验证SSH 键同步任务版本跟踪键设置。
+    """
     node_id = uuid4()
     device_id = uuid4()
     first = SshKey(

@@ -1,4 +1,6 @@
-"""公开 ego-browser 应用服务及其稳定合同。"""
+"""
+公开 ego-browser 应用服务及其稳定合同。
+"""
 
 from agent_remote_server.services.ego_browser.contracts import (
     POLICY_CAPABILITIES,

@@ -1,3 +1,7 @@
+"""
+验证设备会话 API行为。
+"""
+
 import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -77,7 +81,11 @@ _DIGEST = "a" * 64
 def test_device_session_v2_capabilities_fail_closed_when_incomplete_or_malformed(
     advertised: object,
 ) -> None:
-    """部分或畸形 capability 不能启用任何 v2 语义。"""
+    """
+    部分或畸形 capability 不能启用任何 v2 语义。
+
+    :param advertised (object): 设备上报值
+    """
 
     service = DeviceSessionService.__new__(DeviceSessionService)
     service._settings = Settings(secret_key="test-secret")
@@ -87,7 +95,9 @@ def test_device_session_v2_capabilities_fail_closed_when_incomplete_or_malformed
 
 
 def test_device_session_v2_capabilities_are_canonicalized() -> None:
-    """完整无序集合只输出控制面定义的规范顺序。"""
+    """
+    完整无序集合只输出控制面定义的规范顺序。
+    """
 
     service = DeviceSessionService.__new__(DeviceSessionService)
     service._settings = Settings(secret_key="test-secret")
@@ -114,7 +124,9 @@ def test_device_session_v2_capabilities_are_canonicalized() -> None:
 
 
 def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() -> None:
-    """完整能力默认协商 v2，紧急开关关闭后原子回退 v1。"""
+    """
+    完整能力默认协商 v2，紧急开关关闭后原子回退 v1。
+    """
 
     runtime_capabilities: dict[str, object] = {
         "device_control": {
@@ -146,7 +158,11 @@ def test_device_session_v2_is_default_and_emergency_switch_falls_back_to_v1() ->
 def test_device_session_full_trust_requires_the_complete_capability_set(
     runtime_backend: str,
 ) -> None:
-    """全信任模式缺少 launch 或全局剪贴板能力时必须拒绝。"""
+    """
+    全信任模式缺少 launch 或全局剪贴板能力时必须拒绝。
+
+    :param runtime_backend (str): 运行时后端
+    """
 
     complete = [
         "adaptive_settle_v2",
@@ -182,7 +198,11 @@ def test_device_session_full_trust_requires_the_complete_capability_set(
 
 
 async def create_schema(app: FastAPI) -> None:
-    """创建测试数据库 schema。"""
+    """
+    创建测试数据库 schema。
+
+    :param app (FastAPI): ASGI 应用
+    """
 
     async with app.state.database_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -190,7 +210,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """创建使用独立内存数据库的测试客户端。"""
+    """
+    创建使用独立内存数据库的测试客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
 
     settings = Settings(
         secret_key="test-secret",
@@ -213,7 +237,14 @@ def create_running_tool_session(
     *,
     project_key: str,
 ) -> str:
-    """创建测试所需的远端运行 session。"""
+    """
+    创建测试所需的远端运行 session。
+
+    :param client (TestClient): 测试 API 客户端
+    :param token (str): 令牌
+    :param project_key (str): 项目键
+    :return str: 运行中工具会话
+    """
 
     create_node(client, token, name=f"node-{project_key[-6:]}", weight=10)
     device_id, device_token = register_device(client, token)
@@ -234,6 +265,9 @@ def create_running_tool_session(
     tool_session_id = str(response.json()["data"]["id"])
 
     async def mark_running() -> None:
+        """
+        标记运行中。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -257,7 +291,11 @@ def create_running_tool_session(
 
 
 def expired_release_evidence() -> DeviceControlReleaseEvidence:
-    """构造仅用于运行期过期门禁测试的发布证据。"""
+    """
+    构造仅用于运行期过期门禁测试的发布证据。
+
+    :return DeviceControlReleaseEvidence: 过期状态发布证据
+    """
 
     now = datetime.now(UTC)
     return DeviceControlReleaseEvidence(
@@ -284,7 +322,11 @@ def expired_release_evidence() -> DeviceControlReleaseEvidence:
 
 
 def current_release_evidence_without_v2() -> DeviceControlReleaseEvidence:
-    """构造当前有效但未批准 Computer Use v2 的 Apple 发布证据。"""
+    """
+    构造当前有效但未批准 Computer Use v2 的 Apple 发布证据。
+
+    :return DeviceControlReleaseEvidence: 当前发布证据 without v2
+    """
 
     now = datetime.now(UTC)
     return DeviceControlReleaseEvidence(
@@ -313,7 +355,11 @@ def current_release_evidence_without_v2() -> DeviceControlReleaseEvidence:
 def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
     client: TestClient,
 ) -> None:
-    """运行期证据过期应拒绝推进会话但不能阻断安全停止。"""
+    """
+    运行期证据过期应拒绝推进会话但不能阻断安全停止。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -352,7 +398,11 @@ def test_expired_runtime_release_evidence_blocks_progress_but_allows_stop(
 
 
 def test_runtime_full_trust_rejects_pre_schema_9_evidence(client: TestClient) -> None:
-    """策略运行期漂移到全信任时，HTTP 推进操作必须立即 fail closed。"""
+    """
+    策略运行期漂移到全信任时，HTTP 推进操作必须立即 fail closed。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -385,7 +435,11 @@ def test_runtime_full_trust_rejects_pre_schema_9_evidence(client: TestClient) ->
 def test_relay_runtime_full_trust_rejects_pre_schema_9_evidence(
     client: TestClient,
 ) -> None:
-    """旧 schema 证据不得在生产全信任策略下建立 relay WebSocket。"""
+    """
+    旧 schema 证据不得在生产全信任策略下建立 relay WebSocket。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     app = cast(FastAPI, client.app)
     device_session_id = uuid4()
@@ -423,7 +477,11 @@ def test_relay_runtime_full_trust_rejects_pre_schema_9_evidence(
 
 
 def test_runtime_v2_does_not_require_specialized_release_evidence(client: TestClient) -> None:
-    """当前通用生产证据允许完整能力集合自动协商 v2。"""
+    """
+    当前通用生产证据允许完整能力集合自动协商 v2。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -454,6 +512,11 @@ def test_runtime_v2_does_not_require_specialized_release_evidence(client: TestCl
 
 
 def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestClient) -> None:
+    """
+    验证设备会话生命周期为设备已绑定并失败时关闭已关闭。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:device-control"
@@ -474,6 +537,11 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
     assert "endpoint" not in body
 
     async def load_activation_task() -> NodeTask:
+        """
+        加载激活任务。
+
+        :return NodeTask: 激活任务
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             task = await session.scalar(
@@ -582,6 +650,9 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
     assert stopped_data["stop_reason"] == "session_end"
 
     async def verify_persistence() -> None:
+        """
+        验证持久化。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             approval = await session.scalar(
@@ -644,7 +715,11 @@ def test_device_session_lifecycle_is_device_bound_and_fail_closed(client: TestCl
 
 
 def test_full_trust_claim_connects_directly_without_approval_rows(client: TestClient) -> None:
-    """全信任 claim 应直接激活并只持久化授权元数据。"""
+    """
+    全信任 claim 应直接激活并只持久化授权元数据。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -662,6 +737,9 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
     ]
 
     async def enable_full_trust() -> None:
+        """
+        启用完全信任。
+        """
         app = cast(FastAPI, client.app)
         app.state.settings.device_session_authorization_mode = "session_full_trust"
         async with app.state.session_factory() as session:
@@ -709,6 +787,9 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
     device_session_id = claimed_data["id"]
 
     async def switch_policy_and_remove_full_trust_capability() -> None:
+        """
+        切换策略并删除完全信任能力。
+        """
         app = cast(FastAPI, client.app)
         app.state.settings.device_session_authorization_mode = "per_application_approval"
         async with app.state.session_factory() as session:
@@ -739,6 +820,9 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
     assert incompatible_connected.json()["error"]["code"] == "DEVICE_CONTROL_NODE_UNAVAILABLE"
 
     async def restore_full_trust_capabilities() -> None:
+        """
+        恢复完全信任能力。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -835,6 +919,9 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
     assert connected.json()["data"]["status"] == "active"
 
     async def expire_full_trust_binding() -> None:
+        """
+        过期处理完全信任绑定。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(device_session_id))
@@ -859,6 +946,9 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
     assert fetched.json()["data"]["authorized_at"] == authorized_at
 
     async def verify_full_trust_persistence() -> None:
+        """
+        验证完全信任持久化。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             approval = await session.scalar(
@@ -907,7 +997,11 @@ def test_full_trust_claim_connects_directly_without_approval_rows(client: TestCl
 def test_full_trust_claim_rejects_an_incomplete_node_capability_set(
     client: TestClient,
 ) -> None:
-    """全信任模式不能用缺少全局剪贴板能力的 Node 创建绑定。"""
+    """
+    全信任模式不能用缺少全局剪贴板能力的 Node 创建绑定。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -916,6 +1010,9 @@ def test_full_trust_claim_rejects_an_incomplete_node_capability_set(
     _, device_token = register_device(client, token)
 
     async def configure_incomplete_capabilities() -> None:
+        """
+        配置未完成能力。
+        """
         app = cast(FastAPI, client.app)
         app.state.settings.device_session_authorization_mode = "session_full_trust"
         async with app.state.session_factory() as session:
@@ -957,7 +1054,11 @@ def test_full_trust_claim_rejects_an_incomplete_node_capability_set(
 def test_device_can_list_candidates_and_rebind_a_running_claude_session(
     client: TestClient,
 ) -> None:
-    """验证 Device APP 主动选择、幂等 claim 和跨设备 rebind。"""
+    """
+    验证 Device APP 主动选择、幂等 claim 和跨设备 rebind。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1008,6 +1109,9 @@ def test_device_can_list_candidates_and_rebind_a_running_claude_session(
     assert second_device_session_id != first_device_session_id
 
     async def verify_rebind() -> None:
+        """
+        验证重新绑定。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             old = await session.get(DeviceSession, UUID(first_device_session_id))
@@ -1041,7 +1145,11 @@ def test_device_can_list_candidates_and_rebind_a_running_claude_session(
 def test_device_claiming_another_claude_rebounds_its_current_binding(
     client: TestClient,
 ) -> None:
-    """一台设备切换 Claude session 时必须终止旧绑定且不停止任一 Claude。"""
+    """
+    一台设备切换 Claude session 时必须终止旧绑定且不停止任一 Claude。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     first_tool_session_id = create_running_tool_session(
@@ -1069,6 +1177,9 @@ def test_device_claiming_another_claude_rebounds_its_current_binding(
     assert second.status_code == 200
 
     async def verify_switch() -> None:
+        """
+        验证切换。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             old = await session.get(DeviceSession, UUID(first.json()["data"]["id"]))
@@ -1100,7 +1211,11 @@ def test_device_claiming_another_claude_rebounds_its_current_binding(
 
 
 def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> None:
-    """claim 的幂等快速路径不得返回已经过期的 live 记录。"""
+    """
+    claim 的幂等快速路径不得返回已经过期的 live 记录。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1116,6 +1231,9 @@ def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> Non
     first_id = first.json()["data"]["id"]
 
     async def expire_first_binding() -> None:
+        """
+        将首次创建的绑定设为过期。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(first_id))
@@ -1134,6 +1252,11 @@ def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> Non
     assert replacement.json()["data"]["status"] == "pending_device"
 
     async def load_old_binding() -> tuple[str, str | None]:
+        """
+        加载旧绑定。
+
+        :return tuple[str, str | None]: 旧绑定
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(first_id))
@@ -1144,7 +1267,11 @@ def test_claim_replaces_an_expired_idempotent_binding(client: TestClient) -> Non
 
 
 def test_candidates_do_not_advertise_expired_current_device(client: TestClient) -> None:
-    """binding TTL 到期后必须立即清除候选项的占用信息。"""
+    """
+    binding TTL 到期后必须立即清除候选项的占用信息。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1160,6 +1287,9 @@ def test_candidates_do_not_advertise_expired_current_device(client: TestClient) 
     binding_id = claimed.json()["data"]["id"]
 
     async def expire_binding() -> None:
+        """
+        过期处理绑定。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(binding_id))
@@ -1185,7 +1315,11 @@ def test_candidates_do_not_advertise_expired_current_device(client: TestClient) 
 def test_device_session_generation_exhaustion_has_no_partial_mutation(
     client: TestClient,
 ) -> None:
-    """验证代次耗尽在写任务和审计前失败，并保留最终停止代次。"""
+    """
+    验证代次耗尽在写任务和审计前失败，并保留最终停止代次。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1201,6 +1335,12 @@ def test_device_session_generation_exhaustion_has_no_partial_mutation(
     device_session_id = created.json()["data"]["id"]
 
     async def set_generation(*, status: str) -> tuple[set[str], set[UUID]]:
+        """
+        设置代次。
+
+        :param status (str): 状态
+        :return tuple[set[str], set[UUID]]: 代次
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(device_session_id))
@@ -1216,6 +1356,11 @@ def test_device_session_generation_exhaustion_has_no_partial_mutation(
             return task_ids, audit_ids
 
     async def load_state() -> tuple[int, str, set[str], set[UUID]]:
+        """
+        加载状态。
+
+        :return tuple[int, str, set[str], set[UUID]]: 状态
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(device_session_id))
@@ -1267,7 +1412,11 @@ def test_device_session_generation_exhaustion_has_no_partial_mutation(
 def test_tool_session_delete_preserves_terminal_device_binding_history(
     client: TestClient,
 ) -> None:
-    """删除远端会话不能绕过 DeviceSession 的独立 retention。"""
+    """
+    删除远端会话不能绕过 DeviceSession 的独立 retention。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1291,6 +1440,9 @@ def test_tool_session_delete_preserves_terminal_device_binding_history(
     assert stopped.status_code == 200
 
     async def mark_tool_session_stopped() -> None:
+        """
+        标记工具会话已停止。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -1306,6 +1458,11 @@ def test_tool_session_delete_preserves_terminal_device_binding_history(
     assert deleted.status_code == 200
 
     async def load_binding() -> DeviceSession | None:
+        """
+        加载绑定。
+
+        :return DeviceSession | None: 绑定
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             return await session.get(DeviceSession, UUID(device_session_id))
@@ -1317,7 +1474,11 @@ def test_tool_session_delete_preserves_terminal_device_binding_history(
 
 
 def test_device_delete_is_blocked_by_retained_binding_history(client: TestClient) -> None:
-    """设备撤销后仍不能通过父表级联删除受 retention 管理的绑定历史。"""
+    """
+    设备撤销后仍不能通过父表级联删除受 retention 管理的绑定历史。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1349,6 +1510,11 @@ def test_device_delete_is_blocked_by_retained_binding_history(client: TestClient
 def test_device_session_rejects_inactive_tool_session_and_device_token_create(
     client: TestClient,
 ) -> None:
+    """
+    验证非活动工具会话和设备令牌均不能创建设备会话。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     create_node(client, token, name="inactive-node", weight=10)
     workspace_device_id, workspace_device_token = register_device(client, token)
@@ -1395,6 +1561,11 @@ def test_device_session_rejects_inactive_tool_session_and_device_token_create(
 def test_device_session_inbox_is_strictly_scoped_to_authenticated_device(
     client: TestClient,
 ) -> None:
+    """
+    验证设备会话收件箱为严格限定范围到已认证设备。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     first_tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:device-inbox-first"
@@ -1443,6 +1614,11 @@ def test_device_session_inbox_is_strictly_scoped_to_authenticated_device(
 
 
 def test_all_denied_approval_never_creates_lease(client: TestClient) -> None:
+    """
+    验证全部拒绝批准从不创建租约。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:denied-control"
@@ -1482,6 +1658,11 @@ def test_all_denied_approval_never_creates_lease(client: TestClient) -> None:
 
 
 def test_device_session_list_renew_reconnect_and_duplicate_guards(client: TestClient) -> None:
+    """
+    验证设备会话的列表、续期、重连和重复请求保护。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:reconnect-control"
@@ -1609,7 +1790,11 @@ def test_device_session_list_renew_reconnect_and_duplicate_guards(client: TestCl
 def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     client: TestClient,
 ) -> None:
-    """验证管理员只能管理零内容会话元数据且普通用户不能读取全量列表。"""
+    """
+    验证管理员只能管理零内容会话元数据且普通用户不能读取全量列表。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1704,6 +1889,9 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     app.state.settings.device_session_authorization_mode = "per_application_approval"
 
     async def transfer_session() -> None:
+        """
+        转移会话。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(device_session_id))
@@ -1734,6 +1922,11 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     assert stopped.json()["data"]["lock_acquired_at"] is None
 
     async def read_tool_session_status() -> str:
+        """
+        读取工具会话状态。
+
+        :return str: 工具会话状态
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -1743,6 +1936,11 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
     assert asyncio.run(read_tool_session_status()) == "running"
 
     async def read_admin_audit() -> AuditLog:
+        """
+        读取管理员审计。
+
+        :return AuditLog: 管理员审计
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             result = await session.scalar(
@@ -1756,7 +1954,11 @@ def test_admin_can_list_and_force_stop_other_users_zero_content_sessions(
 
 
 def test_device_session_creation_is_disabled_by_default_policy(client: TestClient) -> None:
-    """验证部署未显式启用设备控制时拒绝创建会话。"""
+    """
+    验证部署未显式启用设备控制时拒绝创建会话。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1776,6 +1978,11 @@ def test_device_session_creation_is_disabled_by_default_policy(client: TestClien
 
 
 def test_expired_device_session_is_persisted_and_rejects_connection(client: TestClient) -> None:
+    """
+    验证过期设备会话会持久化并拒绝连接。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:expired-control"
@@ -1789,6 +1996,9 @@ def test_expired_device_session_is_persisted_and_rejects_connection(client: Test
     device_session_id = created.json()["data"]["id"]
 
     async def expire_record() -> None:
+        """
+        过期处理记录。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             record = await session.get(DeviceSession, UUID(device_session_id))
@@ -1810,6 +2020,11 @@ def test_expired_device_session_is_persisted_and_rejects_connection(client: Test
 
 
 def test_invalid_application_digest_is_rejected_before_service(client: TestClient) -> None:
+    """
+    验证服务调用前拒绝无效应用摘要。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
         client, token, project_key="sha256:invalid-digest"
@@ -1849,7 +2064,11 @@ def test_invalid_application_digest_is_rejected_before_service(client: TestClien
 def test_device_relay_material_and_ciphertext_are_role_bound_and_one_time(
     client: TestClient,
 ) -> None:
-    """验证临时连接材料、一次性票据和密文帧中继均严格绑定。"""
+    """
+    验证临时连接材料、一次性票据和密文帧中继均严格绑定。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -1868,6 +2087,9 @@ def test_device_relay_material_and_ciphertext_are_role_bound_and_one_time(
     node_token = "node_relay_test_token"
 
     async def authorize_node_token() -> None:
+        """
+        授权节点令牌。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -1970,7 +2192,11 @@ def test_device_relay_material_and_ciphertext_are_role_bound_and_one_time(
 def test_device_relay_rejects_wrong_generation_key_change_and_wrong_node(
     client: TestClient,
 ) -> None:
-    """验证错误代次、本代换钥和非绑定 Node 均不能获取中继材料。"""
+    """
+    验证错误代次、本代换钥和非绑定 Node 均不能获取中继材料。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     token = bootstrap(client)
     tool_session_id = create_running_tool_session(
@@ -2019,6 +2245,11 @@ def test_device_relay_rejects_wrong_generation_key_change_and_wrong_node(
     bound_node_token = "bound_node_relay_token"
 
     async def authorize_bound_node_and_later_revoke_device(*, revoke: bool) -> None:
+        """
+        授权已绑定节点并随后撤销设备。
+
+        :param revoke (bool): 撤销
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -2068,7 +2299,9 @@ def test_device_relay_rejects_wrong_generation_key_change_and_wrong_node(
 
 
 async def test_device_session_service_complete_state_machine() -> None:
-    """直接验证异步服务成功链路和跨代 fail-closed 行为。"""
+    """
+    直接验证异步服务成功链路和跨代 fail-closed 行为。
+    """
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
@@ -2230,7 +2463,9 @@ async def test_device_session_service_complete_state_machine() -> None:
 
 
 async def test_device_session_service_rejects_wrong_binding_and_expired_lease() -> None:
-    """直接验证错误设备、状态、代次和过期租约均默认拒绝。"""
+    """
+    直接验证错误设备、状态、代次和过期租约均默认拒绝。
+    """
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:

@@ -1,3 +1,7 @@
+"""
+实现设备中继业务逻辑。
+"""
+
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -75,9 +79,7 @@ class DeviceRelayService:
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
         :param spki_sha256 (str): 本端临时证书 SPKI 摘要
-
         :return IssuedDeviceRelayMaterial: 本代设备角色连接材料
-
         :raises ApiError: 当前设备凭据与目标设备控制会话不匹配
         """
 
@@ -111,9 +113,7 @@ class DeviceRelayService:
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
         :param spki_sha256 (str): proxy 临时证书 SPKI 摘要
-
         :return IssuedDeviceRelayMaterial: 本代 proxy 角色连接材料
-
         :raises ApiError: 当前 Node 与目标设备控制会话不匹配
         """
 
@@ -141,6 +141,16 @@ class DeviceRelayService:
         generation: int,
         spki_sha256: str,
     ) -> IssuedDeviceRelayMaterial:
+        """
+        注册当前端点。
+
+        :param device_session (DeviceSession): 设备会话
+        :param role (DeviceRelayRole): 角色
+        :param credential_id (UUID | None): 凭据 ID
+        :param generation (int): 代次
+        :param spki_sha256 (str): SPKI SHA-256 摘要
+        :return IssuedDeviceRelayMaterial: 注册
+        """
         now = datetime.now(UTC)
         expires_at = self._aware(device_session.expires_at)
         if expires_at <= now:
@@ -222,6 +232,12 @@ class DeviceRelayService:
         )
 
     async def _require_session(self, device_session_id: UUID) -> DeviceSession:
+        """
+        获取并校验会话。
+
+        :param device_session_id (UUID): 设备会话 ID
+        :return DeviceSession: 会话
+        """
         device_session = await self._repository.get(device_session_id)
         if device_session is None:
             raise ApiError(
@@ -232,6 +248,12 @@ class DeviceRelayService:
         return device_session
 
     def _binding(self, device_session: DeviceSession) -> DeviceRelayBinding:
+        """
+        创建测试绑定。
+
+        :param device_session (DeviceSession): 设备会话
+        :return DeviceRelayBinding: 绑定
+        """
         return DeviceRelayBinding(
             user_id=device_session.user_id,
             device_id=device_session.device_id,
@@ -242,4 +264,10 @@ class DeviceRelayService:
         )
 
     def _aware(self, value: datetime) -> datetime:
+        """
+        补全时间值的时区信息。
+
+        :param value (datetime): 值
+        :return datetime: 时区感知
+        """
         return value if value.tzinfo else value.replace(tzinfo=UTC)

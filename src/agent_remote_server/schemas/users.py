@@ -1,3 +1,7 @@
+"""
+定义用户接口模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 

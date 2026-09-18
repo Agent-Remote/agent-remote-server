@@ -1,3 +1,7 @@
+"""
+实现设备控制保留策略业务逻辑。
+"""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -55,7 +59,6 @@ class DeviceControlRetentionService:
         按部署方配置清理保留期外的设备控制元数据
 
         :param now (datetime | None): 可选清理基准时间
-
         :return DeviceControlRetentionResult: 本次清理结果
         """
 

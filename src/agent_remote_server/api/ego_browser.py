@@ -1,10 +1,16 @@
+"""
+提供Ego Browser API。
+"""
+
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, WebSocket
+from fastapi import APIRouter, Depends, Header, Request, Response, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.api.deps import (
@@ -70,6 +76,9 @@ from agent_remote_server.schemas.ego_browser import (
     EgoBrowserDeviceStatus,
     EgoBrowserLeaseHealth,
     EgoBrowserLifecycleRequest,
+    EgoBrowserLifecycleStatusData,
+    EgoBrowserLifecycleStatusResponse,
+    EgoBrowserMachineStateData,
     EgoBrowserNodeBindingData,
     EgoBrowserNodeBindingListData,
     EgoBrowserNodeBindingListResponse,
@@ -104,9 +113,22 @@ node_router = APIRouter(prefix="/node-api/ego-browser", tags=["node-api"])
 def _device_data(
     device: EgoBrowserDevice,
     credential: EgoBrowserDeviceCredentialIssue | None = None,
+    *,
+    server_origin: str | None = None,
 ) -> EgoBrowserDeviceData:
-    """把独立 ego-browser 设备实体转换为零内容响应。"""
+    """
+    把独立 ego-browser 设备实体转换为零内容响应。
 
+    :param device (EgoBrowserDevice): 设备
+    :param credential (EgoBrowserDeviceCredentialIssue | None): 凭据
+    :param server_origin (str | None): 服务端来源
+    :return EgoBrowserDeviceData: 设备数据
+    """
+
+    resolved_server_origin = getattr(device, "server_origin", None) or server_origin
+    if not resolved_server_origin:
+        # 仅手工构造的旧记录可能缺少来源；正常登记始终已持久化来源。
+        resolved_server_origin = ""
     credential_data = None
     if credential is not None:
         credential_data = EgoBrowserDeviceCredentialIssueData(
@@ -116,17 +138,33 @@ def _device_data(
                 EgoBrowserCredentialProfile, credential.credential.credential_profile
             ),
             generation=credential.credential.generation,
+            device_generation=credential.credential.generation,
             revision=credential.credential.revision,
+            credential_revision=credential.credential.revision,
             expires_at=_required_aware(credential.credential.expires_at),
+            credential_expires_at=_required_aware(credential.credential.expires_at),
+            credential_scope="device",
             access_token=credential.raw_token,
             expires_in=credential.expires_in,
         )
+    policy_payload = {
+        "allowlist_revision": device.allowlist_revision,
+        "allowlist_roots_digest": device.allowlist_roots_digest,
+        "learning_bundle_digest": device.learning_bundle_digest,
+    }
+    policy_digest = hashlib.sha256(
+        json.dumps(policy_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    capability_digest = hashlib.sha256("\n".join(sorted(device.capabilities)).encode()).hexdigest()
     return EgoBrowserDeviceData(
         id=device.id,
+        device_id=device.id,
         user_id=device.user_id,
         public_key=device.public_key,
+        signing_public_key=device.public_key,
         encryption_public_key=device.encryption_public_key,
         generation=device.generation,
+        device_generation=device.generation,
         status=cast(EgoBrowserDeviceStatus, device.status),
         platform="macos",
         release_profile=cast(EgoBrowserReleaseProfile, device.release_profile),
@@ -141,6 +179,9 @@ def _device_data(
         allowlist_revision=device.allowlist_revision,
         allowlist_roots_digest=device.allowlist_roots_digest,
         learning_bundle_digest=device.learning_bundle_digest,
+        policy_digest=policy_digest,
+        capability_digest=capability_digest,
+        server_origin=resolved_server_origin.rstrip("/"),
         last_seen_at=_aware(device.last_seen_at),
         created_at=_required_aware(device.created_at),
         updated_at=_required_aware(device.updated_at),
@@ -151,18 +192,31 @@ def _device_data(
 def _proof_challenge_data(
     issue: EgoBrowserProofChallengeIssue,
 ) -> EgoBrowserProofChallengeData:
-    """把短期 PoP challenge 转换为无秘密响应。"""
+    """
+    把短期 PoP challenge 转换为无秘密响应。
+
+    :param issue (EgoBrowserProofChallengeIssue): 签发
+    :return EgoBrowserProofChallengeData: 证明挑战数据
+    """
 
     return EgoBrowserProofChallengeData(
         challenge=issue.challenge,
         expires_at=_required_aware(issue.expires_at),
+        device_generation=issue.device_generation,
+        operation_generation=issue.operation_generation,
     )
 
 
 def _binding_data(
     binding: EgoBrowserBinding, *, encryption_public_key: str | None = None
 ) -> EgoBrowserBindingData:
-    """把独立 binding 实体转换为零内容响应。"""
+    """
+    把独立 binding 实体转换为零内容响应。
+
+    :param binding (EgoBrowserBinding): 绑定
+    :param encryption_public_key (str | None): encryption 公钥
+    :return EgoBrowserBindingData: 绑定数据
+    """
 
     return EgoBrowserBindingData(
         id=binding.id,
@@ -203,6 +257,7 @@ def _binding_data(
         lease_renew_failure_grace_seconds=binding.lease_renew_failure_grace_seconds,
         absolute_ttl_until=_required_aware(binding.absolute_ttl_until),
         generation=binding.generation,
+        binding_generation=binding.generation,
         connected_at=_aware(binding.connected_at),
         stopped_at=_aware(binding.stopped_at),
         stop_reason=binding.stop_reason,
@@ -213,12 +268,18 @@ def _binding_data(
 
 
 def _request_data(request: EgoBrowserRequestLedger) -> EgoBrowserActiveRequestData:
-    """把 request ledger 转换为不含浏览器内容的控制元数据。"""
+    """
+    把 request ledger 转换为不含浏览器内容的控制元数据。
+
+    :param request (EgoBrowserRequestLedger): HTTP 请求
+    :return EgoBrowserActiveRequestData: 请求数据
+    """
 
     return EgoBrowserActiveRequestData(
         id=request.id,
         binding_id=request.binding_id,
         generation=request.generation,
+        binding_generation=request.generation,
         request_id=request.request_id,
         sequence=request.sequence,
         message_type="execute",
@@ -229,7 +290,12 @@ def _request_data(request: EgoBrowserRequestLedger) -> EgoBrowserActiveRequestDa
 
 
 def _aware(value: datetime | None) -> datetime | None:
-    """为 SQLite 返回的 naive datetime 补充 UTC 时区。"""
+    """
+    为 SQLite 返回的 naive datetime 补充 UTC 时区。
+
+    :param value (datetime | None): 值
+    :return datetime | None: 时区感知
+    """
 
     if value is None or value.tzinfo is not None:
         return value
@@ -237,13 +303,24 @@ def _aware(value: datetime | None) -> datetime | None:
 
 
 def _required_aware(value: datetime) -> datetime:
-    """为必填时间字段补充 UTC 时区。"""
+    """
+    为必填时间字段补充 UTC 时区。
+
+    :param value (datetime): 值
+    :return datetime: required 时区感知
+    """
 
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 async def _device_key(session: AsyncSession, binding: EgoBrowserBinding) -> str | None:
-    """读取 binding 对应的非敏感加密公钥。"""
+    """
+    读取 binding 对应的非敏感加密公钥。
+
+    :param session (AsyncSession): 会话
+    :param binding (EgoBrowserBinding): 绑定
+    :return str | None: 设备键
+    """
 
     device = await EgoBrowserRepository(session).get_device(binding.ego_browser_device_id)
     return device.encryption_public_key if device is not None else None
@@ -253,11 +330,18 @@ def _ticket_data(
     result: EgoBrowserRelayTicketResult,
     binding_id: UUID,
 ) -> EgoBrowserRelayTicketData:
-    """把一次性 relay 票据转换为响应数据。"""
+    """
+    把一次性 relay 票据转换为响应数据。
+
+    :param result (EgoBrowserRelayTicketResult): 结果
+    :param binding_id (UUID): 绑定 ID
+    :return EgoBrowserRelayTicketData: 票据数据
+    """
 
     return EgoBrowserRelayTicketData(
         role=result.role,
         generation=result.generation,
+        binding_generation=result.generation,
         relay_binding_kind="ego_browser",
         relay_path=f"/api/v1/ego-browser/bindings/{binding_id}/relay",
         relay_ticket=result.relay_ticket,
@@ -268,7 +352,13 @@ def _ticket_data(
 def _node_binding_data(
     binding: EgoBrowserBinding, *, encryption_public_key: str | None = None
 ) -> EgoBrowserNodeBindingData:
-    """把 binding 转换为 Node 可见的非秘密元数据。"""
+    """
+    把 binding 转换为 Node 可见的非秘密元数据。
+
+    :param binding (EgoBrowserBinding): 绑定
+    :param encryption_public_key (str | None): encryption 公钥
+    :return EgoBrowserNodeBindingData: 节点绑定数据
+    """
 
     return EgoBrowserNodeBindingData(
         binding_id=binding.id,
@@ -284,6 +374,7 @@ def _node_binding_data(
         authorization_mode="ego_browser_script_full_trust",
         authorization_policy_version=binding.authorization_policy_version,
         generation=binding.generation,
+        binding_generation=binding.generation,
         release_profile=cast(EgoBrowserReleaseProfile, binding.release_profile),
         signer_certificate_sha256=binding.signer_certificate_sha256,
         credential_profile=cast(EgoBrowserCredentialProfile, binding.credential_profile),
@@ -309,6 +400,66 @@ def _node_binding_data(
     )
 
 
+@router.get("/status", response_model=EgoBrowserLifecycleStatusResponse)
+async def get_ego_browser_status(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_ego_browser_user_or_device_auth)],
+    revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher,
+        Depends(get_ego_browser_revocation_bus),
+    ],
+    all_users: bool = False,
+) -> EgoBrowserLifecycleStatusResponse:
+    """
+    返回 Server 能证明的五状态；本机专属条件保持 unknown。
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前已认证用户或 Device
+    :param revocation_bus (EgoBrowserRevocationPublisher): 撤销事件发布器
+    :param all_users (bool): 是否包含全部用户的数据
+    :return EgoBrowserLifecycleStatusResponse: Server 可证明的生命周期状态
+    """
+
+    service = EgoBrowserService(
+        session,
+        settings,
+        revocation_publisher=revocation_bus,
+    )
+    devices = await service.list_devices(user=user, all_users=all_users)
+    bindings = await service.list_bindings(user=user, all_users=all_users)
+    registered = any(device.status == "active" for device in devices)
+    live_binding = any(
+        binding.status == "active" and binding.lease_health == "healthy" for binding in bindings
+    )
+
+    # 本接口无法观测本机发布、健康和准入状态，正向前置条件必须保持 unknown。
+    available: bool | None = None
+    if not registered or not settings.ego_browser_bridge_enabled:
+        available = False
+    connected: bool | None = None
+    if not live_binding or not settings.ego_browser_bridge_enabled:
+        connected = False
+
+    return EgoBrowserLifecycleStatusResponse(
+        data=EgoBrowserLifecycleStatusData(
+            state=EgoBrowserMachineStateData(
+                installed=None,
+                enabled=None,
+                registered=registered,
+                available=available,
+                connected=connected,
+            ),
+            scope="all_users" if all_users else "current_user",
+            local_observation="unknown",
+            stale=False,
+            checked_at=datetime.now(UTC),
+        ),
+        request_id=get_request_id(),
+    )
+
+
 @router.get("/policy", response_model=EgoBrowserPolicyResponse)
 async def get_policy(
     settings: Annotated[Settings, Depends(get_settings)],
@@ -319,13 +470,14 @@ async def get_policy(
 
     :param settings (Settings): 应用配置
     :param _user (User): 已认证主体；仅用于执行访问控制
-
     :return EgoBrowserPolicyResponse: ego-browser Bridge 策略响应
     """
 
     return EgoBrowserPolicyResponse(
         data=EgoBrowserPolicyData(
             enabled=settings.ego_browser_bridge_enabled,
+            enrollment_enabled=settings.ego_browser_enrollment_enabled,
+            execution_admission=settings.ego_browser_bridge_enabled,
             protocol=cast(EgoBrowserProtocol, EGO_BROWSER_PROTOCOL),
             authorization_mode="ego_browser_script_full_trust",
             authorization_policy_version=1,
@@ -358,7 +510,6 @@ async def list_ego_browser_devices(
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
     :param all_users (bool): 是否包含其他用户拥有的记录
-
     :return EgoBrowserDeviceListResponse: 独立设备列表响应
     """
 
@@ -366,13 +517,78 @@ async def list_ego_browser_devices(
         user=user, all_users=all_users
     )
     return EgoBrowserDeviceListResponse(
-        data=EgoBrowserDeviceListData(items=[_device_data(device) for device in devices]),
+        data=EgoBrowserDeviceListData(
+            items=[_device_data(device, server_origin=settings.public_origin) for device in devices]
+        ),
         request_id=get_request_id(),
     )
 
 
+@router.post("/devices/ensure", response_model=EgoBrowserDeviceResponse)
 @router.post("/devices/register", response_model=EgoBrowserDeviceResponse)
 async def register_ego_browser_device(
+    payload: EgoBrowserDeviceRegisterRequest,
+    request: Request,
+    response: Response,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+    relay_store: Annotated[EgoBrowserRelayStore, Depends(get_ego_browser_relay_store)],
+    revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher,
+        Depends(get_ego_browser_revocation_bus),
+    ],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> EgoBrowserDeviceResponse:
+    """
+    注册或轮换当前用户的独立 ego-browser 设备密钥。
+
+    :param payload (EgoBrowserDeviceRegisterRequest): 独立设备注册或密钥轮换请求
+    :param request (Request): 当前 HTTP 请求
+    :param response (Response): 用于设置安全响应头的 HTTP 响应
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :param user (User): 当前操作用户
+    :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
+    :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
+    :param idempotency_key (str | None): ensure 请求的幂等键
+    :return EgoBrowserDeviceResponse: 独立设备响应
+    """
+
+    is_canonical_ensure = request.url.path.rstrip("/").endswith("/devices/ensure")
+    if is_canonical_ensure and (not idempotency_key or idempotency_key.startswith("legacy-")):
+        raise ApiError(
+            code="EGO_BROWSER_IDEMPOTENCY_INVALID",
+            message="A non-legacy Idempotency-Key is required for canonical ensure.",
+            status_code=422,
+        )
+
+    # 初次登记可创建设备；重试不得修改现有身份，ensure 模式则要求记录已存在。
+    strict_identity = is_canonical_ensure or payload.enrollment_mode == "ensure"
+    service = EgoBrowserService(
+        session,
+        settings,
+        relay_store=relay_store,
+        revocation_publisher=revocation_bus,
+    )
+    device, credential = await service.ensure_device(
+        user=user,
+        payload=payload,
+        idempotency_key=idempotency_key,
+        strict_identity=strict_identity,
+        commit=False,
+    )
+    await session.commit()
+    await service.publish_pending_revocations()
+    response.headers["Cache-Control"] = "no-store"
+    return EgoBrowserDeviceResponse(
+        data=_device_data(device, credential, server_origin=settings.public_origin),
+        request_id=get_request_id(),
+    )
+
+
+@router.post("/devices/rotate", response_model=EgoBrowserDeviceResponse)
+async def rotate_ego_browser_device(
     payload: EgoBrowserDeviceRegisterRequest,
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -383,42 +599,46 @@ async def register_ego_browser_device(
         EgoBrowserRevocationPublisher,
         Depends(get_ego_browser_revocation_bus),
     ],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> EgoBrowserDeviceResponse:
     """
-    注册或轮换当前用户的独立 ego-browser 设备密钥。
+    在独立的 device.rotate 幂等命名空间中轮换设备身份。
 
-    :param payload (EgoBrowserDeviceRegisterRequest): 独立设备注册或密钥轮换请求
+    :param payload (EgoBrowserDeviceRegisterRequest): 新设备身份与发布元数据
     :param response (Response): 用于设置安全响应头的 HTTP 响应
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
-    :param user (User): 当前操作用户
+    :param user (User): 当前认证用户
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
-    :return EgoBrowserDeviceResponse: 独立设备响应
+    :param idempotency_key (str | None): 轮换请求的幂等键
+    :return EgoBrowserDeviceResponse: 轮换后的独立设备响应
     """
 
+    if idempotency_key is None:
+        raise ApiError(
+            code="EGO_BROWSER_IDEMPOTENCY_INVALID",
+            message="A rotation idempotency key is required.",
+            status_code=422,
+        )
     service = EgoBrowserService(
         session,
         settings,
         relay_store=relay_store,
         revocation_publisher=revocation_bus,
     )
-    device = await service.register_device(
+    device, credential = await service.rotate_device(
         user=user,
         payload=payload,
-        commit=False,
-    )
-    credential = await service.issue_device_credential(
-        user=user,
-        device_id=device.id,
+        idempotency_key=idempotency_key,
         commit=False,
     )
     await session.commit()
     await service.publish_pending_revocations()
     response.headers["Cache-Control"] = "no-store"
     return EgoBrowserDeviceResponse(
-        data=_device_data(device, credential), request_id=get_request_id()
+        data=_device_data(device, credential, server_origin=settings.public_origin),
+        request_id=get_request_id(),
     )
 
 
@@ -445,7 +665,6 @@ async def revoke_ego_browser_device(
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserDeviceResponse: 独立设备响应
     """
 
@@ -462,7 +681,10 @@ async def revoke_ego_browser_device(
             principal.device_auth.device.id if principal.device_auth is not None else None
         ),
     )
-    return EgoBrowserDeviceResponse(data=_device_data(device), request_id=get_request_id())
+    return EgoBrowserDeviceResponse(
+        data=_device_data(device, server_origin=settings.public_origin),
+        request_id=get_request_id(),
+    )
 
 
 @router.delete("/devices/{device_id}", response_model=EmptyResponse)
@@ -479,7 +701,6 @@ async def delete_ego_browser_device(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前用户或管理员
-
     :return EmptyResponse: 空响应
     """
 
@@ -505,7 +726,6 @@ async def issue_ego_browser_proof_challenge(
     :param session (AsyncSession): 异步数据库会话
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
-
     :return EgoBrowserProofChallengeResponse: 不含秘密材料的 PoP challenge 响应
     """
 
@@ -542,7 +762,6 @@ async def list_ego_browser_bindings(
     :param user (User): 当前操作用户
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
     :param all_users (bool): 是否包含其他用户拥有的记录
-
     :return EgoBrowserBindingListResponse: ego-browser binding 列表响应
     """
 
@@ -572,7 +791,6 @@ async def list_ego_browser_candidates(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
-
     :return EgoBrowserBindingCandidateListResponse: 可认领的远端 session 候选列表响应
     """
 
@@ -600,9 +818,7 @@ async def claim_ego_browser_binding(
     :param session (AsyncSession): 异步数据库会话
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
-
     :raises ApiError: 独立设备凭据与请求选择的设备不一致
     """
 
@@ -639,7 +855,6 @@ async def get_ego_browser_binding(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -675,7 +890,6 @@ async def list_active_ego_browser_requests(
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserActiveRequestListResponse: 当前可取消请求列表响应
     """
 
@@ -714,7 +928,6 @@ async def cancel_ego_browser_request(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
-
     :return EgoBrowserCancelResponse: 浏览器请求取消状态响应
     """
 
@@ -753,7 +966,6 @@ async def mark_ego_browser_connected(
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -797,7 +1009,6 @@ async def renew_ego_browser_binding(
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -841,7 +1052,6 @@ async def pause_ego_browser_binding(
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -893,7 +1103,6 @@ async def resume_ego_browser_binding(
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -937,7 +1146,6 @@ async def stop_ego_browser_binding(
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -990,7 +1198,6 @@ async def revoke_ego_browser_binding(
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -1036,7 +1243,6 @@ async def delete_ego_browser_binding(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前用户或管理员
-
     :return EmptyResponse: 空响应
     """
 
@@ -1058,7 +1264,6 @@ async def get_ego_browser_allowlist(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param user (User): 当前操作用户
-
     :return EgoBrowserAllowlistResponse: binding 文件 allowlist 元数据响应
     """
 
@@ -1098,7 +1303,6 @@ async def confirm_ego_browser_allowlist(
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserBindingResponse: ego-browser binding 响应
     """
 
@@ -1146,7 +1350,6 @@ async def issue_bridge_relay_ticket(
     :param session (AsyncSession): 异步数据库会话
     :param device_auth (EgoBrowserDeviceAuth): 当前独立设备的认证上下文
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
-
     :return EgoBrowserRelayTicketResponse: 仅返回一次的 relay 票据响应
     """
 
@@ -1192,7 +1395,6 @@ async def issue_wrapper_relay_ticket(
     :param session (AsyncSession): 异步数据库会话
     :param node (Node): 当前操作对应的节点
     :param relay_store (EgoBrowserRelayStore): ego-browser 一次性票据与 PoP challenge 存储
-
     :return EgoBrowserRelayTicketResponse: 仅返回一次的 relay 票据响应
     """
 
@@ -1227,7 +1429,6 @@ async def list_node_ego_browser_bindings(
     :param session (AsyncSession): 异步数据库会话
     :param node (Node): 当前操作对应的节点
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserNodeBindingListResponse: 当前 Node 的 live binding 列表响应
     """
 
@@ -1271,7 +1472,6 @@ async def renew_node_ego_browser_binding(
     :param session (AsyncSession): 异步数据库会话
     :param node (Node): 当前操作对应的节点
     :param revocation_bus (EgoBrowserRevocationPublisher): ego-browser generation 撤销发布器
-
     :return EgoBrowserNodeRenewResponse: Node 续租结果响应
     """
 
@@ -1288,6 +1488,7 @@ async def renew_node_ego_browser_binding(
         data=EgoBrowserNodeRenewData(
             binding_id=binding.id,
             generation=binding.generation,
+            binding_generation=binding.generation,
             lease_until=_aware(binding.lease_until),
             lease_health=cast(EgoBrowserLeaseHealth, binding.lease_health),
             lease_grace_until=_aware(binding.lease_grace_until),
@@ -1351,7 +1552,13 @@ async def ego_browser_relay(binding_id: UUID, websocket: WebSocket) -> None:
 
 
 def _hash_ticket(settings: Settings, ticket: str) -> str:
-    """计算一次性 relay ticket 的 keyed hash。"""
+    """
+    计算一次性 relay ticket 的 keyed hash。
+
+    :param settings (Settings): 配置
+    :param ticket (str): 票据
+    :return str: 票据
+    """
 
     from agent_remote_server.security import hash_token
 

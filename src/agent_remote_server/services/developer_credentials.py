@@ -1,3 +1,7 @@
+"""
+实现开发者凭据业务逻辑。
+"""
+
 from uuid import UUID
 
 from sqlalchemy import select
@@ -20,6 +24,12 @@ class DeveloperCredentialService:
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
+        """
+        初始化开发者凭据业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        """
         self._session = session
         self._settings = settings
         _ = settings
@@ -29,7 +39,6 @@ class DeveloperCredentialService:
         列出用户开发凭据 profile
 
         :param user (User): 当前用户
-
         :return list[DeveloperCredentialProfile]: 用户的开发凭据 profile 列表
         """
 
@@ -57,7 +66,6 @@ class DeveloperCredentialService:
         :param git_identity (dict[str, object]): git 身份信息（user_name/user_email）
         :param github_cli_mode (str): GitHub CLI 凭据模式
         :param ssh_mode (str): SSH 凭据模式
-
         :return DeveloperCredentialProfile: 新创建的开发凭据 profile
         """
 
@@ -89,7 +97,6 @@ class DeveloperCredentialService:
 
         :param user (User): 当前用户
         :param profile_id (UUID): 开发凭据 profile ID
-
         :return DeveloperCredentialProfile: 开发凭据 profile 实体
         """
 
@@ -117,9 +124,7 @@ class DeveloperCredentialService:
         :param git_identity (dict[str, object] | None): 新的 git 身份信息，None 表示不修改
         :param github_cli_mode (str | None): 新的 GitHub CLI 模式，None 表示不修改
         :param ssh_mode (str | None): 新的 SSH 模式，None 表示不修改
-
         :return DeveloperCredentialProfile: 更新后的开发凭据 profile
-
         :raises ApiError: 请求中的凭据状态或模式不受支持
         """
 
@@ -158,7 +163,6 @@ class DeveloperCredentialService:
 
         :param user (User): 当前用户
         :param profile_id (UUID): 开发凭据 profile ID
-
         :return DeveloperCredentialProfile: 已禁用的开发凭据 profile
         """
 
@@ -187,9 +191,7 @@ class DeveloperCredentialService:
         :param user (User): 当前用户
         :param account_id (UUID): 工具账户 ID
         :param profile_id (UUID): 开发凭据 profile ID
-
         :return DeveloperCredentialProfile: 已绑定到工具账户的 profile
-
         :raises ApiError: 待绑定的凭据 profile 未处于启用状态
         """
 
@@ -251,6 +253,13 @@ class DeveloperCredentialService:
         await self._session.commit()
 
     async def _require_profile(self, *, user: User, profile_id: UUID) -> DeveloperCredentialProfile:
+        """
+        获取并校验配置。
+
+        :param user (User): 用户
+        :param profile_id (UUID): 配置 ID
+        :return DeveloperCredentialProfile: 配置
+        """
         profile = await self._session.get(DeveloperCredentialProfile, profile_id)
         if profile is None or profile.user_id != user.id:
             raise ApiError(
@@ -261,6 +270,13 @@ class DeveloperCredentialService:
         return profile
 
     async def _require_account(self, *, user: User, account_id: UUID) -> ToolAccount:
+        """
+        获取并校验账号。
+
+        :param user (User): 用户
+        :param account_id (UUID): 账号 ID
+        :return ToolAccount: 账号
+        """
         account = await self._session.get(ToolAccount, account_id)
         if account is None or account.user_id != user.id:
             raise ApiError(
@@ -271,6 +287,12 @@ class DeveloperCredentialService:
         return account
 
     def _clean_git_identity(self, git_identity: dict[str, object]) -> dict[str, object]:
+        """
+        返回清理 Git 身份。
+
+        :param git_identity (dict[str, object]): Git 身份
+        :return dict[str, object]: 清理 Git 身份
+        """
         allowed: dict[str, object] = {}
         for key in ("user_name", "user_email"):
             value = git_identity.get(key)
@@ -279,6 +301,12 @@ class DeveloperCredentialService:
         return allowed
 
     def _validate_modes(self, *, github_cli_mode: str, ssh_mode: str) -> None:
+        """
+        校验模式。
+
+        :param github_cli_mode (str): github CLI 模式
+        :param ssh_mode (str): SSH 模式
+        """
         if github_cli_mode not in {"remote_login", "import_token", "disabled"}:
             raise ApiError(
                 code="COMMON_VALIDATION_ERROR",
@@ -301,6 +329,15 @@ class DeveloperCredentialService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         self._session.add(
             AuditLog(
                 actor_user_id=actor_user_id,

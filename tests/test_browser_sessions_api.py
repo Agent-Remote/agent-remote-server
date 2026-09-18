@@ -1,3 +1,7 @@
+"""
+验证浏览器会话 API行为。
+"""
+
 import asyncio
 from collections.abc import Iterator
 from typing import Any, cast
@@ -28,6 +32,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -46,13 +55,19 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
 
 
 def bootstrap(client: TestClient) -> str:
+    """
+    登录管理员测试账号。
+
+    :param client (TestClient): 测试 API 客户端
+    :return str: 管理员访问令牌
+    """
     response = client.post(
         "/api/v1/auth/bootstrap",
         json={"username": "admin", "password": "admin-secret"},
@@ -62,6 +77,13 @@ def bootstrap(client: TestClient) -> str:
 
 
 def create_node(client: TestClient, token: str) -> tuple[str, str]:
+    """
+    创建节点。
+
+    :param client (TestClient): 测试 API 客户端
+    :param token (str): 令牌
+    :return tuple[str, str]: 节点
+    """
     response = client.post(
         "/api/v1/nodes",
         headers=auth_header(token),
@@ -93,6 +115,13 @@ def create_node(client: TestClient, token: str) -> tuple[str, str]:
 
 
 def create_account(client: TestClient, token: str) -> str:
+    """
+    创建账号。
+
+    :param client (TestClient): 测试 API 客户端
+    :param token (str): 令牌
+    :return str: 账号
+    """
     response = client.post(
         "/api/v1/tool-accounts",
         headers=auth_header(token),
@@ -109,6 +138,9 @@ def create_account(client: TestClient, token: str) -> str:
     account_id = str(response.json()["data"]["id"])
 
     async def activate() -> None:
+        """
+        激活目标记录。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             account = await session.get(ToolAccount, UUID(account_id))
@@ -121,6 +153,11 @@ def create_account(client: TestClient, token: str) -> str:
 
 
 def test_browser_session_lifecycle(client: TestClient) -> None:
+    """
+    验证浏览器会话生命周期。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     token = bootstrap(client)
     node_id, node_token = create_node(client, token)
     account_id = create_account(client, token)
@@ -213,38 +250,96 @@ def test_browser_session_lifecycle(client: TestClient) -> None:
 def test_browser_stream_disables_upstream_ping(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """
+    验证浏览器数据流禁用上游 Ping。
+
+    :param client (TestClient): 测试 API 客户端
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
     connect_options: dict[str, Any] = {}
 
     async def fake_stream_endpoint(
         service: BrowserSessionService, *, browser_session_id: UUID, token: str
     ) -> str:
+        """
+        返回测试替身数据流端点。
+
+        :param service (BrowserSessionService): 业务服务
+        :param browser_session_id (UUID): 浏览器会话 ID
+        :param token (str): 令牌
+        :return str: 测试替身数据流端点
+        """
         del service, browser_session_id, token
         return "https://kasm_user:secret@browser:6901/"
 
     class FakeUpstreamSocket:
+        """
+        定义测试替身上游套接字。
+        """
+
         subprotocol = None
 
         def __aiter__(self) -> Any:
+            """
+            异步迭代当前集合。
+
+            :return Any: 异步迭代
+            """
+
             async def messages() -> Any:
+                """
+                返回消息。
+
+                :return Any: 消息
+                """
                 if False:
                     yield b""
 
             return messages()
 
         async def close(self) -> None:
+            """
+            关闭当前连接。
+            """
             return None
 
         async def send(self, message: bytes | str) -> None:
+            """
+            接收测试 WebSocket 发出的消息。
+
+            :param message (bytes | str): 消息内容
+            """
             del message
 
     class FakeConnection:
+        """
+        定义测试替身连接。
+        """
+
         async def __aenter__(self) -> FakeUpstreamSocket:
+            """
+            进入异步上下文。
+
+            :return FakeUpstreamSocket: 进入异步上下文
+            """
             return FakeUpstreamSocket()
 
         async def __aexit__(self, *args: object) -> None:
+            """
+            退出异步上下文。
+
+            :param args (object): 命令行位置参数
+            """
             del args
 
     def fake_connect(url: str, **kwargs: Any) -> FakeConnection:
+        """
+        返回测试替身连接。
+
+        :param url (str): 目标 URL
+        :param kwargs (Any): 命令行关键字参数
+        :return FakeConnection: 测试替身连接
+        """
         connect_options.update(kwargs)
         assert url == "wss://browser:6901/websockify"
         return FakeConnection()

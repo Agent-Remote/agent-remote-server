@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""为跨仓库 relay E2E 创建一次性控制面 fixture。"""
+"""
+为跨仓库 relay E2E 创建一次性控制面 fixture。
+"""
 
 import asyncio
 import json
@@ -19,8 +21,6 @@ from agent_remote_server.models import (
     Workspace,
 )
 from agent_remote_server.security import create_opaque_token, hash_token
-
-SKILL_TREE_SHA256 = "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c"
 
 
 async def seed() -> dict[str, str]:
@@ -61,11 +61,11 @@ async def seed() -> dict[str, str]:
                 runtime_capabilities={
                     "ego_browser_bridge": {
                         "supported": True,
-                        "protocol_versions": ["ego-browser-bridge-v1"],
+                        "protocol_versions": [settings.ego_browser_expected_protocol_version],
                         "backends": ["native"],
-                        "wrapper_version": "0.1.11",
-                        "skill_version": "1.2.3",
-                        "skill_tree_sha256": SKILL_TREE_SHA256,
+                        "wrapper_version": settings.ego_browser_expected_wrapper_version,
+                        "skill_version": settings.ego_browser_expected_skill_version,
+                        "skill_tree_sha256": settings.ego_browser_expected_skill_tree_sha256,
                         "remote_platform": "linux",
                         "local_platform": "macos",
                         "max_script_bytes": 1_048_576,

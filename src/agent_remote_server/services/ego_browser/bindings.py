@@ -1,4 +1,6 @@
-"""处理 ego-browser 绑定查询、候选与认领。"""
+"""
+处理 ego-browser 绑定查询、候选与认领。
+"""
 
 from __future__ import annotations
 
@@ -28,7 +30,9 @@ from agent_remote_server.services.ego_browser.helpers import (
 
 
 class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
-    """实现绑定发现和显式认领操作。"""
+    """
+    实现绑定发现和显式认领操作。
+    """
 
     async def list_bindings(
         self, *, user: User, all_users: bool = False
@@ -38,10 +42,10 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
 
         :param user (User): 当前操作用户
         :param all_users (bool): 是否包含其他用户拥有的记录
-
         :return list[EgoBrowserBinding]: 符合权限与状态条件的绑定列表
         """
 
+        self._require_enrollment()
         await self.expire_due()
         if all_users:
             if user.role != "admin":
@@ -54,14 +58,26 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
         列出当前 Node 承载的 live binding 元数据。
 
         :param node (Node): 当前操作对应的节点
-
         :return list[EgoBrowserBinding]: 符合权限与状态条件的 binding 列表
         """
 
-        self._require_enabled()
+        self._require_execution()
         # 清理在本次读取前已经过期的 generation，避免 broker 获得可执行的陈旧租约。
         await self.expire_due()
-        return list(await self._repository.list_live_for_node(node.id))
+        bindings = list(await self._repository.list_live_for_node(node.id, for_update=True))
+        # 跨来源绑定不得执行，但保留历史以供管理员撤销或清理。
+        current: list[EgoBrowserBinding] = []
+        bound_legacy_origin = False
+        for binding in bindings:
+            device = await self._repository.get_device(
+                binding.ego_browser_device_id, for_update=True
+            )
+            if device is not None and self._binding_profile_is_current(binding, device):
+                current.append(binding)
+                bound_legacy_origin = self._bind_legacy_device_origin(device) or bound_legacy_origin
+        if bound_legacy_origin:
+            await self._session.commit()
+        return current
 
     async def get_binding(self, *, user: User, binding_id: UUID) -> EgoBrowserBinding:
         """
@@ -69,10 +85,10 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
 
         :param user (User): 当前操作用户
         :param binding_id (UUID): ego-browser binding 标识
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
 
+        self._require_enrollment()
         binding = await self._repository.get_binding(binding_id)
         if binding is None or (binding.user_id != user.id and user.role != "admin"):
             self._error(
@@ -87,9 +103,9 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
         列出可供明确选择的远端 Claude session。
 
         :param user (User): 当前操作用户
-
         :return list[dict[str, object]]: 可供用户明确选择的远端 session 候选列表
         """
+        self._require_enrollment()
         rows = await self._repository.list_candidates(user.id)
         candidates: list[dict[str, object]] = []
         for tool_session, node, binding, workspace in rows:
@@ -132,10 +148,9 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
         :param user (User): 当前操作用户
         :param payload (EgoBrowserBindingClaimRequest): binding 显式认领请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserClaimResult: 新 binding 及被替换 generation 的认领结果
         """
-        self._require_enabled()
+        self._require_execution()
         _validate_digest(payload.learning_bundle_digest, self._error)
         if (
             payload.authorization_mode != "ego_browser_script_full_trust"
@@ -151,6 +166,8 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
             self._error(
                 "EGO_BROWSER_DEVICE_NOT_FOUND", "The ego-browser device was not found.", 404
             )
+        # 认领是执行准入边界，设备身份只能用于其登记来源。
+        self._validate_device_origin(device, bind_legacy=False)
         self._validate_profile(
             release_profile=device.release_profile,
             credential_profile=device.credential_profile,
@@ -298,6 +315,7 @@ class _EgoBrowserBindingOperations(_EgoBrowserDeviceOperations):
             generation=1,
         )
         try:
+            self._bind_legacy_device_origin(device)
             await self._repository.add_binding(binding)
             await self._audit(
                 user.id,

@@ -1,3 +1,7 @@
+"""
+提供工具账号数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -20,6 +24,11 @@ class ToolAccountRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化工具账号数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_account(self, account: ToolAccount) -> ToolAccount:
@@ -27,7 +36,6 @@ class ToolAccountRepository:
         新增工具账户
 
         :param account (ToolAccount): 工具账户实体
-
         :return ToolAccount: 工具账户实体
         """
 
@@ -40,8 +48,7 @@ class ToolAccountRepository:
         按 ID 读取工具账户
 
         :param account_id (UUID): 工具账户 ID
-
-        :return ToolAccount: 工具账户实体
+        :return ToolAccount | None: 工具账户实体
         """
 
         return await self._session.get(ToolAccount, account_id)
@@ -51,8 +58,7 @@ class ToolAccountRepository:
         列出用户工具账户
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence: 工具账户列表
+        :return Sequence[ToolAccount]: 工具账户列表
         """
 
         result = await self._session.scalars(
@@ -91,7 +97,6 @@ class ToolAccountRepository:
         新增工具账户 profile
 
         :param profile (ToolAccountProfile): 配置档案实体
-
         :return ToolAccountProfile: 配置档案实体
         """
 
@@ -104,8 +109,7 @@ class ToolAccountRepository:
         读取工具账户 profile
 
         :param account_id (UUID): 工具账户 ID
-
-        :return ToolAccountProfile: 配置档案实体
+        :return ToolAccountProfile | None: 配置档案实体
         """
 
         return await self._session.scalar(
@@ -117,8 +121,7 @@ class ToolAccountRepository:
         按 ID 读取节点
 
         :param node_id (UUID): 节点 ID
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -128,8 +131,7 @@ class ToolAccountRepository:
         列出工具账户仍活跃的会话
 
         :param account_id (UUID): 工具账户 ID
-
-        :return Sequence: 活跃会话列表
+        :return Sequence[Session]: 活跃会话列表
         """
 
         result = await self._session.scalars(
@@ -151,9 +153,8 @@ class ToolAccountRepository:
 
         :param tool_type (str): 工具类型
         :param region_code (str): 地区代码
-        :param preferred_tags (list): 偏好标签
-
-        :return Sequence: 节点列表
+        :param preferred_tags (list[str]): 偏好标签
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(
@@ -177,7 +178,6 @@ class ToolAccountRepository:
         新增节点任务
 
         :param task (NodeTask): 节点任务实体
-
         :return NodeTask: 节点任务实体
         """
 
@@ -190,8 +190,7 @@ class ToolAccountRepository:
         按 task_id 读取节点任务
 
         :param task_id (str): 任务 ID
-
-        :return NodeTask: 节点任务实体
+        :return NodeTask | None: 节点任务实体
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))
@@ -201,8 +200,7 @@ class ToolAccountRepository:
         按 task_id 读取节点任务结果
 
         :param task_id (str): 节点任务 ID
-
-        :return NodeTaskResult: 节点任务结果
+        :return NodeTaskResult | None: 节点任务结果
         """
 
         return await self._session.scalar(

@@ -1,8 +1,5 @@
-"""新增本地设备控制会话
-
-Revision ID: 0014_device_sessions
-Revises: 0013_session_port_forwards
-Create Date: 2026-07-30 18:00:00.000000
+"""
+新增本地设备控制会话
 """
 
 from collections.abc import Sequence

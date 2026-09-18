@@ -1,4 +1,6 @@
-"""存储设备控制 relay 的短期票据与密钥交换状态。"""
+"""
+存储设备控制 relay 的短期票据与密钥交换状态。
+"""
 
 import asyncio
 import json
@@ -88,7 +90,6 @@ class DeviceRelayStore(Protocol):
         :param spki_sha256 (str): 本端临时证书 SPKI 摘要
         :param exporter_context (str): 首次配对时使用的候选 exporter 上下文
         :param ttl (int): 短期状态有效秒数
-
         :return DeviceRelayExchangeResult: 公钥交换结果
         """
 
@@ -112,7 +113,6 @@ class DeviceRelayStore(Protocol):
         原子消费一次性中继票据
 
         :param token_hash (str): 中继票据哈希
-
         :return DeviceRelayTicketClaims | None: 中继票据声明
         """
 
@@ -180,11 +180,8 @@ class RedisDeviceRelayStore:
         :param spki_sha256 (str): 本端临时证书 SPKI 摘要
         :param exporter_context (str): 首次配对时使用的候选 exporter 上下文
         :param ttl (int): 短期状态有效秒数
-
         :return DeviceRelayExchangeResult: 公钥交换结果
-
         :raises RuntimeError: 中继交换结果为空
-
         :raises ValueError: 同一代次内设备中继 SPKI 发生变化
         """
 
@@ -230,7 +227,6 @@ class RedisDeviceRelayStore:
         :param token_hash (str): 中继票据哈希
         :param claims (DeviceRelayTicketClaims): 中继票据声明
         :param ttl (int): 票据有效秒数
-
         :raises RuntimeError: 中继票据冲突
         """
 
@@ -250,7 +246,6 @@ class RedisDeviceRelayStore:
         原子消费一次性中继票据
 
         :param token_hash (str): 中继票据哈希
-
         :return DeviceRelayTicketClaims | None: 中继票据声明
         """
 
@@ -280,11 +275,23 @@ class RedisDeviceRelayStore:
         await self._redis.aclose()
 
     def _exchange_key(self, binding: DeviceRelayBinding) -> str:
+        """
+        返回交换键。
+
+        :param binding (DeviceRelayBinding): 绑定
+        :return str: 交换键
+        """
         return (
             f"agent-remote:device-relay-exchange:{binding.device_session_id}:{binding.generation}"
         )
 
     def _ticket_key(self, token_hash: str) -> str:
+        """
+        返回票据键。
+
+        :param token_hash (str): 令牌 hash
+        :return str: 票据键
+        """
         return f"agent-remote:device-relay-ticket:{token_hash}"
 
 
@@ -322,9 +329,7 @@ class InMemoryDeviceRelayStore:
         :param spki_sha256 (str): 本端临时证书 SPKI 摘要
         :param exporter_context (str): 首次配对时使用的候选 exporter 上下文
         :param ttl (int): 短期状态有效秒数
-
         :return DeviceRelayExchangeResult: 公钥交换结果
-
         :raises ValueError: 同一代次内设备中继 SPKI 发生变化
         """
 
@@ -367,7 +372,6 @@ class InMemoryDeviceRelayStore:
         :param token_hash (str): 中继票据哈希
         :param claims (DeviceRelayTicketClaims): 中继票据声明
         :param ttl (int): 票据有效秒数
-
         :raises RuntimeError: 中继票据冲突
         """
 
@@ -384,7 +388,6 @@ class InMemoryDeviceRelayStore:
         原子消费一次性中继票据
 
         :param token_hash (str): 中继票据哈希
-
         :return DeviceRelayTicketClaims | None: 中继票据声明
         """
 
@@ -409,7 +412,6 @@ def create_device_relay_store(settings: Settings) -> RedisDeviceRelayStore:
     创建生产设备中继短期状态存储
 
     :param settings (Settings): 应用配置
-
     :return RedisDeviceRelayStore: Redis 设备中继短期状态存储
     """
 

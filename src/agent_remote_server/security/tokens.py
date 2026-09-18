@@ -1,3 +1,7 @@
+"""
+实现令牌模块。
+"""
+
 import hmac
 import secrets
 from hashlib import sha256
@@ -8,7 +12,6 @@ def create_opaque_token(prefix: str) -> str:
     创建不透明令牌
 
     :param prefix (str): 令牌前缀
-
     :return str: 原始令牌
     """
 
@@ -21,7 +24,6 @@ def hash_token(secret_key: str, token: str) -> str:
 
     :param secret_key (str): 服务端密钥
     :param token (str): 原始令牌
-
     :return str: 令牌哈希
     """
 

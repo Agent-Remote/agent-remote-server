@@ -1,3 +1,7 @@
+"""
+提供节点 API API。
+"""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -31,7 +35,12 @@ from agent_remote_server.schemas.connections import (
 from agent_remote_server.schemas.nodes import (
     CompleteNodeTaskRequest,
     FailNodeTaskRequest,
+    NodeHeartbeatAdmissionData,
     NodeHeartbeatRequest,
+    NodeHeartbeatResponse,
+    NodeJoinCodeExchangeData,
+    NodeJoinCodeExchangeRequest,
+    NodeJoinCodeExchangeResponse,
     NodeRegisterData,
     NodeRegisterRequest,
     NodeRegisterResponse,
@@ -50,6 +59,53 @@ from agent_remote_server.services.nodes import NodeService
 router = APIRouter(prefix="/node-api", tags=["node-api"])
 
 
+@router.post("/join-code/exchange", response_model=NodeJoinCodeExchangeResponse)
+async def exchange_join_code(
+    payload: NodeJoinCodeExchangeRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> NodeJoinCodeExchangeResponse:
+    """
+    使用一次性加入码交换 Node 长期凭据。
+
+    :param payload (NodeJoinCodeExchangeRequest): Node 加入码交换请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 异步数据库会话
+    :return NodeJoinCodeExchangeResponse: Node 长期凭据交换响应
+    """
+
+    result = await NodeService(session, settings).exchange_join_code(
+        node_id=payload.node_id,
+        version=payload.version,
+        join_code=payload.join_code,
+        exchange_id=payload.exchange_id,
+        release_profile=payload.release_profile,
+        wrapper_version=payload.wrapper_version,
+        skill_version=payload.skill_version,
+        runtime_version=payload.runtime_version,
+        artifact_digest=payload.artifact_digest,
+        profile_digest=payload.profile_digest,
+        ego_browser_enabled=payload.ego_browser_enabled,
+    )
+    return NodeJoinCodeExchangeResponse(
+        data=NodeJoinCodeExchangeData(
+            node_id=result.node.id,
+            node_token=result.raw_node_token,
+            ego_browser_enabled=result.node.ego_browser_enabled,
+            exchange_id=result.exchange_id,
+            server_origin=result.server_origin,
+            release_profile=result.release_profile,
+            wrapper_version=result.wrapper_version,
+            skill_version=result.skill_version,
+            runtime_version=result.runtime_version,
+            artifact_digest=result.artifact_digest,
+            profile_digest=result.profile_digest,
+            ego_browser_enabled_intent=result.ego_browser_enabled_intent,
+        ),
+        request_id=get_request_id(),
+    )
+
+
 @router.post("/register", response_model=NodeRegisterResponse)
 async def register_node(
     payload: NodeRegisterRequest,
@@ -62,7 +118,6 @@ async def register_node(
     :param payload (NodeRegisterRequest): 节点注册请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-
     :return NodeRegisterResponse: 节点注册响应
     """
 
@@ -77,13 +132,13 @@ async def register_node(
     )
 
 
-@router.post("/heartbeat", response_model=EmptyResponse)
+@router.post("/heartbeat", response_model=NodeHeartbeatResponse)
 async def heartbeat(
     payload: NodeHeartbeatRequest,
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     node: Annotated[Node, Depends(get_current_node)],
-) -> EmptyResponse:
+) -> NodeHeartbeatResponse:
     """
     提交节点心跳
 
@@ -91,8 +146,7 @@ async def heartbeat(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
-    :return EmptyResponse: 空响应
+    :return NodeHeartbeatResponse: 空响应
     """
 
     await NodeService(session, settings).submit_heartbeat(
@@ -106,7 +160,13 @@ async def heartbeat(
         resources=payload.resources.model_dump(),
         runtime=payload.runtime.model_dump(),
     )
-    return EmptyResponse(request_id=get_request_id())
+    return NodeHeartbeatResponse(
+        data=NodeHeartbeatAdmissionData(
+            enrollment_enabled=settings.ego_browser_enrollment_enabled,
+            execution_admission=settings.ego_browser_bridge_enabled,
+        ),
+        request_id=get_request_id(),
+    )
 
 
 @router.get("/wireguard/peers", response_model=NodeWireGuardPeerListResponse)
@@ -119,7 +179,6 @@ async def list_wireguard_peers(
 
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return NodeWireGuardPeerListResponse: WireGuard 对等端列表
     """
 
@@ -151,7 +210,6 @@ async def poll_tasks(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return NodeTaskPollResponse: 任务轮询响应
     """
 
@@ -191,7 +249,6 @@ async def start_task(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return EmptyResponse: 空响应
     """
 
@@ -219,7 +276,6 @@ async def complete_task(
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -249,7 +305,6 @@ async def fail_task(
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -279,7 +334,6 @@ async def reconcile(
     :param node (Node): 当前节点
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -306,7 +360,6 @@ async def verify_attach(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return VerifyAttachResponse: 挂接校验响应
     """
 
@@ -344,7 +397,6 @@ async def verify_sync(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return VerifySyncResponse: 同步运行用户
     """
 
@@ -370,7 +422,6 @@ async def verify_binding_attach(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前节点
-
     :return VerifyBindingAttachResponse: 绑定 attach 校验结果
     """
 

@@ -1,4 +1,6 @@
-"""处理 ego-browser 文件 allowlist 元数据。"""
+"""
+处理 ego-browser 文件 allowlist 元数据。
+"""
 
 from __future__ import annotations
 
@@ -21,7 +23,9 @@ from agent_remote_server.services.ego_browser.helpers import (
 
 
 class _EgoBrowserAllowlistOperations(_EgoBrowserAdmissionOperations):
-    """实现 allowlist 查询和版本化确认。"""
+    """
+    实现 allowlist 查询和版本化确认。
+    """
 
     async def get_allowlist(self, *, user: User, binding_id: UUID) -> dict[str, object]:
         """
@@ -29,9 +33,9 @@ class _EgoBrowserAllowlistOperations(_EgoBrowserAdmissionOperations):
 
         :param user (User): 当前操作用户
         :param binding_id (UUID): ego-browser binding 标识
-
         :return dict[str, object]: allowlist revision、根摘要与文件限制
         """
+        self._require_enrollment()
         binding = await self._repository.get_binding(binding_id)
         if binding is None or binding.user_id != user.id:
             self._error("EGO_BROWSER_BINDING_NOT_FOUND", "The browser binding was not found.", 404)
@@ -60,12 +64,13 @@ class _EgoBrowserAllowlistOperations(_EgoBrowserAdmissionOperations):
         :param binding_id (UUID): ego-browser binding 标识
         :param payload (EgoBrowserAllowlistConfirmRequest): allowlist 版本确认请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
+        self._require_enrollment()
         binding, device = await self._owned_binding_device(
             user, binding_id, device_id, for_update=True
         )
+        self._validate_binding_profile(binding, device)
         if payload.generation != binding.generation:
             self._generation_error()
         if binding.status not in LIVE_FOR_CLAIM:
@@ -121,6 +126,7 @@ class _EgoBrowserAllowlistOperations(_EgoBrowserAdmissionOperations):
             str(binding.id),
             {"allowlist_revision": device.allowlist_revision, "roots_digest": payload.roots_digest},
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         await self._publish_revocation(binding.id, old_generation)
         return binding

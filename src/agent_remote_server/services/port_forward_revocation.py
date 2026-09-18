@@ -1,3 +1,7 @@
+"""
+实现端口转发撤销业务逻辑。
+"""
+
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -30,7 +34,6 @@ async def revoke_port_forwards(
     :param session_id (UUID | None): 端口转发所属会话 ID
     :param node_id (UUID | None): 端口转发所属 Node ID
     :param tool_account_id (UUID | None): 工具账户 ID
-
     :return int: 已终止的端口转发数量
     """
 

@@ -1,3 +1,7 @@
+"""
+提供设备会话数据访问。
+"""
+
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
@@ -15,6 +19,8 @@ from agent_remote_server.models import (
     UserDevice,
     Workspace,
 )
+
+DeviceSessionCandidateRow = tuple[Session, Node, DeviceSession | None, UserDevice | None, Workspace]
 
 
 class DeviceSessionRepository:
@@ -36,7 +42,6 @@ class DeviceSessionRepository:
         新增本地设备控制会话
 
         :param device_session (DeviceSession): 设备控制会话实体
-
         :return DeviceSession: 已持久化的设备控制会话实体
         """
 
@@ -52,7 +57,6 @@ class DeviceSessionRepository:
 
         :param device_session_id (UUID): 设备控制会话 ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return DeviceSession | None: 设备控制会话实体
         """
 
@@ -69,7 +73,6 @@ class DeviceSessionRepository:
 
         :param tool_session_id (UUID): 远端工具 session ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return Session | None: 远端工具 session 实体
         """
 
@@ -84,7 +87,6 @@ class DeviceSessionRepository:
 
         :param device_id (UUID): 被控制设备 ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return UserDevice | None: 用户设备实体
         """
 
@@ -98,7 +100,6 @@ class DeviceSessionRepository:
         读取远端工具 session 所在节点
 
         :param node_id (UUID): 远端节点 ID
-
         :return Node | None: 远端节点实体
         """
 
@@ -109,7 +110,6 @@ class DeviceSessionRepository:
         列出用户的设备控制会话
 
         :param user_id (UUID): 所属用户 ID
-
         :return Sequence[DeviceSession]: 设备控制会话列表
         """
 
@@ -125,7 +125,6 @@ class DeviceSessionRepository:
         列出绑定设备当前可处理的控制会话
 
         :param device_id (UUID): 当前认证设备 ID
-
         :return Sequence[DeviceSession]: 按创建时间正序排列的非终态设备控制会话
         """
 
@@ -146,7 +145,6 @@ class DeviceSessionRepository:
         :param tool_session_id (UUID): 候选远端工具 session ID
         :param device_id (UUID): 当前认证设备 ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return Sequence[DeviceSession]: 需要在 claim 事务中处理的 live 绑定
         """
 
@@ -174,7 +172,6 @@ class DeviceSessionRepository:
 
         :param device_id (UUID): 设备 ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return Sequence[DeviceSession]: live 设备控制绑定
         """
 
@@ -194,7 +191,6 @@ class DeviceSessionRepository:
         判断设备是否仍有受 retention 管理的控制绑定历史
 
         :param device_id (UUID): 设备 ID
-
         :return bool: 是否仍有受 retention 管理的控制绑定历史
         """
 
@@ -225,7 +221,6 @@ class DeviceSessionRepository:
 
         :param tool_session_id (UUID): 远端工具 session ID
         :param for_update (bool): 是否获取数据库行锁
-
         :return Sequence[DeviceSession]: live 设备控制绑定
         """
 
@@ -245,7 +240,6 @@ class DeviceSessionRepository:
         查询已经超过最大 TTL 的 live 设备控制绑定并锁定
 
         :param now (datetime): 当前 UTC 时间
-
         :return Sequence[DeviceSession]: 待过期绑定
         """
 
@@ -263,7 +257,6 @@ class DeviceSessionRepository:
         按稳定顺序锁定 claim 涉及的所有 live binding
 
         :param device_session_ids (Sequence[UUID]): 待锁定的设备控制会话 ID
-
         :return Sequence[DeviceSession]: 已锁定的设备控制会话
         """
 
@@ -277,15 +270,12 @@ class DeviceSessionRepository:
         )
         return result.all()
 
-    async def list_candidate_rows(
-        self, user_id: UUID
-    ) -> Sequence[tuple[Session, Node, DeviceSession | None, UserDevice | None, Workspace]]:
+    async def list_candidate_rows(self, user_id: UUID) -> Sequence[DeviceSessionCandidateRow]:
         """
         查询用户可见的 Claude 控制候选及其当前 live 绑定
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence[tuple]: Claude session、Node、live binding、设备和工作区
+        :return Sequence[DeviceSessionCandidateRow]: Claude session、Node、绑定、设备和工作区
         """
 
         binding = aliased(DeviceSession)
@@ -330,7 +320,6 @@ class DeviceSessionRepository:
 
         :param device_id (UUID): 被控制设备 ID
         :param excluding_session_id (UUID): 当前设备控制会话 ID
-
         :return DeviceSession | None: 持有机器锁的其他设备控制会话
         """
 
@@ -371,7 +360,6 @@ class DeviceSessionRepository:
         新增设备控制节点任务
 
         :param task (NodeTask): 设备控制节点任务实体
-
         :return NodeTask: 已持久化的设备控制节点任务实体
         """
 
@@ -385,7 +373,6 @@ class DeviceSessionRepository:
 
         :param cutoff (datetime): 停止时间截止点
         :param limit (int): 单次最大删除数量
-
         :return int: 已删除会话数量
         """
 

@@ -1,4 +1,6 @@
-"""校验并解析设备控制发布证据。"""
+"""
+校验并解析设备控制发布证据。
+"""
 
 import base64
 import binascii
@@ -15,6 +17,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent_remote_server import __version__
+from agent_remote_server.ego_browser.release_policy import (
+    EGO_BROWSER_LOCAL_RUNTIME_VERSION as EGO_BROWSER_RUNTIME_VERSION,
+)
+from agent_remote_server.ego_browser.release_policy import (
+    EGO_BROWSER_PROTOCOL_VERSION,
+    EGO_BROWSER_SKILL_COMMIT,
+    EGO_BROWSER_SKILL_VERSION,
+)
 
 _SHA256_HEX_LENGTH = 64
 _MAXIMUM_MANIFEST_BYTES = 65_536
@@ -37,9 +47,6 @@ _LEGACY_SUPPORTED_COMPONENTS = {
 _EGO_BROWSER_COMPONENT = "agent-remote-ego-browser"
 _SUPPORTED_COMPONENTS = _LEGACY_SUPPORTED_COMPONENTS | {_EGO_BROWSER_COMPONENT}
 _SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-.+][0-9A-Za-z.-]+)?$")
-EGO_BROWSER_PROTOCOL_VERSION = "ego-browser-bridge-v1"
-EGO_BROWSER_SKILL_COMMIT = "36053d07001a910cb806a15d42d00fdea1cdea3d"
-EGO_BROWSER_RUNTIME_VERSION = "0.4.7.4"
 EGO_BROWSER_ARTIFACT_DIGEST_FIELDS = (
     "ego_browser_release_manifest_sha256",
     "ego_browser_release_archive_sha256",
@@ -48,10 +55,16 @@ EGO_BROWSER_ARTIFACT_DIGEST_FIELDS = (
     "ego_browser_sigstore_sha256",
     "ego_browser_provenance_sha256",
 )
+DeviceControlAuthorizationMode = Literal["per_application_approval", "session_full_trust"]
 
 
 def _valid_sha256_pin(value: object) -> bool:
-    """Return whether a deployment pin is lowercase hexadecimal SHA-256."""
+    """
+    判断是否为有效的 SHA-256 固定摘要。
+
+    :param value (object): 值
+    :return bool: 是否满足校验条件
+    """
 
     return (
         isinstance(value, str)
@@ -65,9 +78,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
     构造 JSON 对象并拒绝重复字段
 
     :param pairs (list[tuple[str, object]]): 按输入顺序解析的字段和值
-
     :return dict[str, object]: 不含重复字段的 JSON 对象
-
     :raises ValueError: JSON 对象包含重复字段
     """
 
@@ -84,9 +95,7 @@ def _read_manifest(path: Path) -> bytes:
     通过单一文件描述符读取受限大小的普通清单文件
 
     :param path (Path): 发布证据清单路径
-
     :return bytes: 发布证据清单原始内容
-
     :raises OSError: 文件无法安全打开或读取
     :raises ValueError: 文件类型或大小不符合要求
     """
@@ -134,9 +143,7 @@ class ReleaseComponentIdentity(BaseModel):
         校验组件身份文本不为空且没有首尾空白
 
         :param value (str): 待校验的身份文本
-
         :return str: 已通过校验的身份文本
-
         :raises ValueError: 身份文本为空或包含首尾空白
         """
 
@@ -181,7 +188,7 @@ class EgoBrowserReleaseComponentIdentity(ReleaseComponentIdentity):
     protocol_version: str = Field(..., description="Bridge 协议版本")
 
 
-# Keep the shorter name available to callers that use the protocol terminology.
+# 保留协议术语使用的短名称以兼容现有调用方。
 EgoBrowserComponentIdentity = EgoBrowserReleaseComponentIdentity
 
 
@@ -289,9 +296,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         校验发布证据清单格式版本
 
         :param value (int): 待校验的格式版本
-
         :return int: 已通过校验的格式版本
-
         :raises ValueError: 格式版本不受支持
         """
 
@@ -304,8 +309,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         """
         校验发布配置与 Apple 信任状态不存在矛盾
 
-        :return DeviceControlReleaseEvidence: 已通过配置一致性校验的发布证据
-
+        :return "DeviceControlReleaseEvidence": 已通过配置一致性校验的发布证据
         :raises ValueError: 配置版本或信任声明不符合固定契约
         """
 
@@ -437,7 +441,6 @@ class DeviceControlReleaseEvidence(BaseModel):
         校验 schema 9 Bridge 身份中的生产 readiness 和摘要字段
 
         :param component (EgoBrowserReleaseComponentIdentity): 待校验的 Bridge 身份
-
         :raises ValueError: Bridge 身份没有完整的生产证据
         """
 
@@ -461,7 +464,7 @@ class DeviceControlReleaseEvidence(BaseModel):
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",
                 component.learning_bundle_signing_key_id,
             )
-            or component.skill_version != "1.2.3"
+            or component.skill_version != EGO_BROWSER_SKILL_VERSION
             or component.skill_commit != EGO_BROWSER_SKILL_COMMIT
             or component.local_ego_browser_runtime_version != EGO_BROWSER_RUNTIME_VERSION
             or component.protocol_version != EGO_BROWSER_PROTOCOL_VERSION
@@ -476,10 +479,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         """
         校验生产组合完整覆盖规范组件且身份与仓库一致
 
-        :param value (dict[str, ReleaseComponentIdentity]): 组件身份映射
-
-        :return dict[str, ReleaseComponentIdentity]: 已通过校验的组件身份映射
-
+        :param value (dict[str, ReleaseComponentIdentity] | None): 组件身份映射
+        :return dict[str, ReleaseComponentIdentity] | None: 已通过校验的组件身份映射
         :raises ValueError: 组件集合、仓库、版本或 commit 不符合固定契约
         """
 
@@ -512,10 +513,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         """
         校验多架构发布制品摘要覆盖全部受支持 Node target
 
-        :param value (dict[str, str]): target 到制品摘要的映射
-
-        :return dict[str, str]: 已通过校验的制品摘要映射
-
+        :param value (dict[str, str] | None): target 到制品摘要的映射
+        :return dict[str, str] | None: 已通过校验的制品摘要映射
         :raises ValueError: target 集合或摘要格式不符合固定契约
         """
 
@@ -562,10 +561,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         """
         校验证据摘要使用小写 SHA-256 十六进制格式
 
-        :param value (str): 待校验的证据摘要
-
-        :return str: 已通过校验的证据摘要
-
+        :param value (str | None): 待校验的证据摘要
+        :return str | None: 已通过校验的证据摘要
         :raises ValueError: 摘要格式不符合要求
         """
 
@@ -584,9 +581,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         校验发布证据文本字段不为空且没有首尾空白
 
         :param value (str): 待校验的文本
-
         :return str: 已通过校验的文本
-
         :raises ValueError: 文本为空或包含首尾空白
         """
 
@@ -602,10 +597,8 @@ class DeviceControlReleaseEvidence(BaseModel):
         """
         校验可选部署组合版本使用语义化版本格式
 
-        :param value (str): 可选部署组合版本
-
-        :return str: 已通过校验的部署组合版本
-
+        :param value (str | None): 可选部署组合版本
+        :return str | None: 已通过校验的部署组合版本
         :raises ValueError: 部署组合版本格式无效
         """
 
@@ -620,9 +613,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         校验持续集成证据使用 HTTPS 地址
 
         :param value (str): 待校验的持续集成运行地址
-
         :return str: 已通过校验的持续集成运行地址
-
         :raises ValueError: 地址未使用 HTTPS
         """
 
@@ -637,9 +628,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         校验发布证据时间包含时区
 
         :param value (datetime): 待校验的时间
-
         :return datetime: 已通过校验的时间
-
         :raises ValueError: 时间不包含时区
         """
 
@@ -653,9 +642,7 @@ class DeviceControlReleaseEvidence(BaseModel):
         从受限大小的 JSON 文件加载发布证据清单
 
         :param path (Path): 发布证据清单路径
-
         :return Self: 已完成结构校验的发布证据清单
-
         :raises DeviceControlReleaseEvidenceError: 文件不可读、过大或内容无效
         """
 
@@ -693,6 +680,12 @@ class DeviceControlReleaseEvidence(BaseModel):
         return self._canonical_json(exclude_signature=False)
 
     def _canonical_json(self, *, exclude_signature: bool) -> bytes:
+        """
+        返回规范 JSON。
+
+        :param exclude_signature (bool): exclude 签名
+        :return bytes: 规范 JSON
+        """
         excluded = {"signature"} if exclude_signature else set()
         if self.distribution_version is None:
             excluded.update({"distribution_version", "release_manifest_sha256", "components"})
@@ -722,10 +715,8 @@ def verify_device_control_release_evidence(
 
     :param evidence_path (str): 发布证据清单路径
     :param public_key_base64 (str): Base64 编码的 Ed25519 原始公钥
-    :param now (datetime): 可选的当前时间，供确定性验证使用
-
+    :param now (datetime | None): 可选的当前时间，供确定性验证使用
     :return DeviceControlReleaseEvidence: 已通过全部校验的发布证据
-
     :raises DeviceControlReleaseEvidenceError: 配置缺失、签名无效、版本不符或清单时间无效
     """
 
@@ -771,7 +762,7 @@ def ensure_device_control_release_evidence_current(
     *,
     environment: str,
     enabled: bool,
-    authorization_mode: Literal["per_application_approval", "session_full_trust"],
+    authorization_mode: DeviceControlAuthorizationMode,
     evidence: DeviceControlReleaseEvidence | None,
     now: datetime | None = None,
 ) -> None:
@@ -780,10 +771,9 @@ def ensure_device_control_release_evidence_current(
 
     :param environment (str): 当前部署环境
     :param enabled (bool): 是否配置启用设备控制
-    :param authorization_mode (str): 当前部署授权模式
-    :param evidence (DeviceControlReleaseEvidence): 启动时已验证的发布证据
-    :param now (datetime): 可选的当前时间，供确定性验证使用
-
+    :param authorization_mode (DeviceControlAuthorizationMode): 当前部署授权模式
+    :param evidence (DeviceControlReleaseEvidence | None): 启动时已验证的发布证据
+    :param now (datetime | None): 可选的当前时间，供确定性验证使用
     :raises DeviceControlReleaseEvidenceError: 生产证据缺失或尚未生效
     """
 
@@ -836,7 +826,7 @@ def ensure_ego_browser_release_evidence_current(
 
     :param environment (str): 当前部署环境
     :param enabled (bool): 是否配置启用 ego-browser Bridge
-    :param evidence (DeviceControlReleaseEvidence): 启动时已验签的发布证据
+    :param evidence (DeviceControlReleaseEvidence | None): 启动时已验签的发布证据
     :param expected_release_profile (str): Server 接受的 Bridge 发布 profile
     :param expected_signer_certificate_sha256 (str): Server 固定的叶证书摘要
     :param expected_wrapper_version (str): Server 接受的 wrapper 版本
@@ -845,13 +835,12 @@ def ensure_ego_browser_release_evidence_current(
     :param expected_skill_commit (str): Server 接受的 Skill commit
     :param expected_local_runtime_version (str): Server 接受的本地 runtime 版本
     :param expected_protocol_version (str): Server 接受的 Bridge 协议版本
-    :param expected_learning_bundle_signing_key_id (str): 可选的学习密钥 ID pin
-    :param expected_learning_bundle_digest (str): 可选的学习 bundle 摘要 pin
-    :param expected_distribution_version (str): 可选的根发行组合版本 pin
-    :param expected_release_manifest_sha256 (str): 可选的根 release manifest 摘要 pin
-    :param expected_bridge_artifact_digests (dict[str, str]): 可选的六个 Bridge 制品摘要 pin
-    :param now (datetime): 可选的当前时间，供确定性验证使用
-
+    :param expected_learning_bundle_signing_key_id (str | None): 可选的学习密钥 ID pin
+    :param expected_learning_bundle_digest (str | None): 可选的学习 bundle 摘要 pin
+    :param expected_distribution_version (str | None): 可选的根发行组合版本 pin
+    :param expected_release_manifest_sha256 (str | None): 可选的根 release manifest 摘要 pin
+    :param expected_bridge_artifact_digests (dict[str, str] | None): 可选的六个 Bridge 制品摘要 pin
+    :param now (datetime | None): 可选的当前时间，供确定性验证使用
     :raises DeviceControlReleaseEvidenceError: 证据缺失、版本不符或身份 pin 漂移
     """
 

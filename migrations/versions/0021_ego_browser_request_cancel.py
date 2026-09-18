@@ -1,7 +1,5 @@
-"""添加 request 级 ego-browser 取消账本状态。
-
-Revision ID: 0021_ego_browser_cancel
-Revises: 0020_ego_browser_encryption_key
+"""
+添加 request 级 ego-browser 取消账本状态。
 """
 
 from collections.abc import Sequence
@@ -15,7 +13,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """允许持久化 request 取消状态转换。"""
+    """
+    允许持久化 request 取消状态转换。
+    """
 
     op.drop_constraint(
         "ego_browser_request_ledger_type_ck",
@@ -40,7 +40,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """恢复引入取消状态前的 request 账本约束。"""
+    """
+    恢复引入取消状态前的 request 账本约束。
+    """
 
     op.execute(
         "UPDATE ego_browser_request_ledger SET status = 'rejected' "

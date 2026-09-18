@@ -1,8 +1,5 @@
-"""添加身份认证数据表
-
-Revision ID: 0002_identity_auth
-Revises: 0001_core_schema
-Create Date: 2026-07-04 00:00:00.000000
+"""
+添加身份认证数据表
 """
 
 from collections.abc import Sequence
@@ -24,7 +21,7 @@ def created_at_column() -> sa.Column:
     """
     创建 created_at 字段
 
-    :return Column: created_at 字段
+    :return sa.Column: created_at 字段
     """
 
     return sa.Column("created_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()"))
@@ -34,7 +31,7 @@ def updated_at_column() -> sa.Column:
     """
     创建 updated_at 字段
 
-    :return Column: updated_at 字段
+    :return sa.Column: updated_at 字段
     """
 
     return sa.Column("updated_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()"))

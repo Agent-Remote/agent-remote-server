@@ -1,3 +1,7 @@
+"""
+提供工具账号 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -54,7 +58,6 @@ async def list_latest_tool_account_config_imports(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountConfigImportStatusListResponse: 最近配置导入状态列表
     """
 
@@ -81,7 +84,6 @@ async def migrate_tool_account_runtime(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param admin (User): 当前管理员
-
     :return RuntimeMigrationResponse: 迁移任务数据
     """
 
@@ -98,7 +100,6 @@ def tool_account_data(account: ToolAccount) -> ToolAccountData:
     转换工具账户响应数据
 
     :param account (ToolAccount): 工具账户实体
-
     :return ToolAccountData: 工具账户响应数据
     """
 
@@ -131,7 +132,6 @@ async def list_tool_accounts(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountListResponse: 工具账户列表响应
     """
 
@@ -156,7 +156,6 @@ async def create_tool_account(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountResponse: 工具账户响应
     """
 
@@ -186,7 +185,6 @@ async def get_tool_account(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountResponse: 工具账户响应
     """
 
@@ -213,7 +211,6 @@ async def update_tool_account(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountResponse: 工具账户响应
     """
 
@@ -246,7 +243,6 @@ async def start_tool_account_binding(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前用户认证令牌
-
     :return BindingStatusResponse: 绑定状态响应
     """
 
@@ -272,7 +268,6 @@ async def get_tool_account_binding_status(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return BindingStatusResponse: 绑定状态响应
     """
 
@@ -297,7 +292,6 @@ async def verify_tool_account_binding(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return BindingStatusResponse: 绑定状态响应
     """
 
@@ -322,7 +316,6 @@ async def disable_tool_account(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountResponse: 工具账户响应
     """
 
@@ -372,7 +365,6 @@ async def create_tool_account_config_import(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountConfigImportResponse: 配置导入计划响应
     """
 
@@ -408,7 +400,6 @@ async def get_tool_account_config_import_status(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return ToolAccountConfigImportStatusResponse: 配置导入任务状态
     """
 
@@ -439,7 +430,6 @@ async def bind_developer_credential_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 开发凭据 profile 响应
     """
 

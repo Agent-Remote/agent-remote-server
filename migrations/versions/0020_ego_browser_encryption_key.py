@@ -1,8 +1,5 @@
-"""添加 ego-browser Bridge 使用的独立 X25519 公钥。
-
-The column is intentionally nullable for rows created by migrations 0018/0019.
-Service-layer activation and relay admission reject those legacy rows until the
-device is explicitly re-registered with a key.
+"""
+添加可空的独立 X25519 公钥；旧设备重新登记密钥前不得激活或进入中继。
 """
 
 from collections.abc import Sequence
@@ -17,7 +14,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """保存 Bridge 的独立 X25519 公钥。"""
+    """
+    保存 Bridge 的独立 X25519 公钥。
+    """
 
     op.add_column(
         "ego_browser_devices",
@@ -26,6 +25,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """移除 Bridge 加密公钥列。"""
+    """
+    移除 Bridge 加密公钥列。
+    """
 
     op.drop_column("ego_browser_devices", "encryption_public_key")

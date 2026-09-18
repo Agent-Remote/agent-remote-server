@@ -1,21 +1,26 @@
-"""定义 ego-browser relay 的共享身份和接口。"""
+"""
+定义 ego-browser relay 的共享身份和接口。
+"""
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from uuid import UUID
 
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_PROTOCOL_VERSION
 from agent_remote_server.relay.binding import RelayBinding
 
 EgoBrowserRelayRole = Literal["bridge", "wrapper"]
 EGO_BROWSER_RELAY_CHANNEL = "ego_browser_bridge"
 EGO_BROWSER_RELAY_KIND = "ego_browser"
-EGO_BROWSER_PROTOCOL = "ego-browser-bridge-v1"
+EGO_BROWSER_PROTOCOL = EGO_BROWSER_PROTOCOL_VERSION
 
 
 @dataclass(frozen=True)
 class EgoBrowserRelayBinding:
-    """ego-browser 中继的完整绑定身份。"""
+    """
+    ego-browser 中继的完整绑定身份。
+    """
 
     user_id: UUID
     ego_browser_device_id: UUID
@@ -41,7 +46,9 @@ class EgoBrowserRelayBinding:
 
 @dataclass(frozen=True)
 class EgoBrowserRelayTicketClaims:
-    """一次性 ego-browser 中继票据声明。"""
+    """
+    一次性 ego-browser 中继票据声明。
+    """
 
     binding: EgoBrowserRelayBinding
     role: EgoBrowserRelayRole
@@ -49,7 +56,9 @@ class EgoBrowserRelayTicketClaims:
 
 @dataclass(frozen=True)
 class EgoBrowserProofChallengeClaims:
-    """一次性设备 PoP challenge 的认证上下文。"""
+    """
+    一次性设备 PoP challenge 的认证上下文。
+    """
 
     user_id: UUID
     ego_browser_device_id: UUID
@@ -66,7 +75,9 @@ RevocationHandler = Callable[[UUID, int], Awaitable[None]]
 
 
 class EgoBrowserRevocationPublisher(Protocol):
-    """ego-browser 中继撤销发布接口。"""
+    """
+    ego-browser 中继撤销发布接口。
+    """
 
     async def publish(self, binding_id: UUID, generation: int) -> None:
         """

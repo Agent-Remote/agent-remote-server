@@ -1,3 +1,7 @@
+"""
+提供路由 API。
+"""
+
 from fastapi import APIRouter
 
 from agent_remote_server import __version__
@@ -47,7 +51,7 @@ async def version_info() -> dict[str, object]:
     """
     返回服务版本信息
 
-    :return dict: 版本信息响应
+    :return dict[str, object]: 版本信息响应
     """
 
     return {

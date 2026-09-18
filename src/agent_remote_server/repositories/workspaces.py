@@ -1,3 +1,7 @@
+"""
+提供工作区数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -13,6 +17,11 @@ class WorkspaceRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化工作区数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_workspace(self, workspace: Workspace) -> Workspace:
@@ -20,7 +29,6 @@ class WorkspaceRepository:
         新增工作区
 
         :param workspace (Workspace): 工作区实体
-
         :return Workspace: 工作区实体
         """
 
@@ -33,8 +41,7 @@ class WorkspaceRepository:
         按 ID 读取工作区
 
         :param workspace_id (UUID): 工作区 ID
-
-        :return Workspace: 工作区实体
+        :return Workspace | None: 工作区实体
         """
 
         return await self._session.get(Workspace, workspace_id)
@@ -76,8 +83,7 @@ class WorkspaceRepository:
 
         :param user_id (UUID): 用户 ID
         :param project_key (str): 项目键
-
-        :return Workspace: 工作区实体
+        :return Workspace | None: 工作区实体
         """
 
         return await self._session.scalar(
@@ -92,8 +98,7 @@ class WorkspaceRepository:
         列出用户工作区
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence: 工作区列表
+        :return Sequence[Workspace]: 工作区列表
         """
 
         result = await self._session.scalars(
@@ -107,8 +112,7 @@ class WorkspaceRepository:
 
         :param user_id (UUID): 用户 ID
         :param device_id (UUID): 设备 ID
-
-        :return UserDevice: 设备实体
+        :return UserDevice | None: 设备实体
         """
 
         return await self._session.scalar(
@@ -123,7 +127,6 @@ class WorkspaceRepository:
         新增同步 session
 
         :param sync_session (SyncSession): 同步 session 实体
-
         :return SyncSession: 同步 session 实体
         """
 
@@ -136,8 +139,7 @@ class WorkspaceRepository:
         按 ID 读取同步 session
 
         :param sync_session_id (UUID): 同步 session ID
-
-        :return SyncSession: 同步 session 实体
+        :return SyncSession | None: 同步 session 实体
         """
 
         return await self._session.get(SyncSession, sync_session_id)
@@ -158,8 +160,7 @@ class WorkspaceRepository:
         读取工作区当前同步会话
 
         :param workspace_id (UUID): 工作区 ID
-
-        :return SyncSession: 同步 session 实体
+        :return SyncSession | None: 同步 session 实体
         """
 
         return await self._session.scalar(
@@ -174,8 +175,7 @@ class WorkspaceRepository:
         列出用户同步 session
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence: 同步 session 列表
+        :return Sequence[SyncSession]: 同步 session 列表
         """
 
         result = await self._session.scalars(
@@ -189,7 +189,7 @@ class WorkspaceRepository:
         """
         列出可承载同步的节点
 
-        :return Sequence: 节点列表
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(
@@ -205,8 +205,7 @@ class WorkspaceRepository:
         按 ID 读取节点
 
         :param node_id (UUID): 节点 ID
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -216,7 +215,6 @@ class WorkspaceRepository:
         新增节点任务
 
         :param task (NodeTask): 节点任务实体
-
         :return NodeTask: 节点任务实体
         """
 
@@ -229,8 +227,7 @@ class WorkspaceRepository:
         按 task_id 读取任务
 
         :param task_id (str): 任务 ID
-
-        :return NodeTask: 节点任务实体
+        :return NodeTask | None: 节点任务实体
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))

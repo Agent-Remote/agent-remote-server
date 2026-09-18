@@ -1,4 +1,6 @@
-"""签发并校验 ego-browser 中继票据。"""
+"""
+签发并校验 ego-browser 中继票据。
+"""
 
 from __future__ import annotations
 
@@ -10,10 +12,8 @@ from agent_remote_server.ego_browser.relay import (
     EgoBrowserRelayRole,
     EgoBrowserRelayTicketClaims,
 )
-from agent_remote_server.models import (
-    Node,
-    User,
-)
+from agent_remote_server.errors import ApiError
+from agent_remote_server.models import Node, User
 from agent_remote_server.schemas.ego_browser import (
     EgoBrowserRelayTicketRequest,
 )
@@ -29,25 +29,34 @@ from agent_remote_server.services.ego_browser.lifecycle import _EgoBrowserLifecy
 
 
 class _EgoBrowserRelayOperations(_EgoBrowserLifecycleOperations):
-    """实现中继票据的签发与时效校验。"""
+    """
+    实现中继票据的签发与时效校验。
+    """
 
     async def relay_claims_are_current(self, claims: EgoBrowserRelayTicketClaims) -> bool:
         """
         重新校验已消费票据的身份、租约和发布策略。
 
         :param claims (EgoBrowserRelayTicketClaims): 一次性中继票据声明
-
         :return bool: 票据声明是否仍对应可用的当前代次
         """
 
+        # 票据可能晚于停用决策；已配对中继在刷新声明时仍须重验执行门禁。
+        if not self._settings.ego_browser_bridge_enabled:
+            return False
         binding = await self._repository.get_binding(claims.binding.binding_id)
         if binding is None or binding.lease_until is None:
             return False
-        device = await self._repository.get_device(binding.ego_browser_device_id)
+        device = await self._repository.get_device(binding.ego_browser_device_id, for_update=True)
         if device is None:
             return False
+        try:
+            self._validate_device_origin(device, bind_legacy=False)
+        except ApiError:
+            # 其他 Server 来源的票据视为过期，不能向 WebSocket 循环泄漏异常。
+            return False
         expected = claims.binding
-        return (
+        current = (
             binding.user_id == expected.user_id
             and binding.ego_browser_device_id == expected.ego_browser_device_id
             and binding.binding_tool_session_id == expected.tool_session_id
@@ -58,6 +67,12 @@ class _EgoBrowserRelayOperations(_EgoBrowserLifecycleOperations):
             and _as_utc(binding.lease_until) > self._now()
             and self._binding_profile_is_current(binding, device)
         )
+        if not current:
+            return False
+        # 旧记录仅在完整时效校验后绑定并提交来源，避免其他 worker 持续视其为无来源。
+        if self._bind_legacy_device_origin(device):
+            await self._session.commit()
+        return True
 
     async def issue_relay_ticket(
         self,
@@ -78,10 +93,9 @@ class _EgoBrowserRelayOperations(_EgoBrowserLifecycleOperations):
         :param user (User | None): 当前操作用户
         :param node (Node | None): 当前操作对应的节点
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserRelayTicketResult: 一次性票据及其代次和过期时间
         """
-        self._require_enabled()
+        self._require_execution()
         binding = await self._repository.get_binding(binding_id, for_update=True)
         if binding is None:
             self._error("EGO_BROWSER_BINDING_NOT_FOUND", "The browser binding was not found.", 404)
@@ -98,7 +112,7 @@ class _EgoBrowserRelayOperations(_EgoBrowserLifecycleOperations):
                 "The browser binding lease has expired.",
                 409,
             )
-        device = await self._repository.get_device(binding.ego_browser_device_id)
+        device = await self._repository.get_device(binding.ego_browser_device_id, for_update=True)
         if device is None:
             self._error(
                 "EGO_BROWSER_DEVICE_NOT_FOUND", "The ego-browser device was not found.", 404
@@ -164,6 +178,8 @@ class _EgoBrowserRelayOperations(_EgoBrowserLifecycleOperations):
             claims=claims,
             ttl=ttl,
         )
+        if self._bind_legacy_device_origin(device):
+            await self._session.commit()
         return EgoBrowserRelayTicketResult(
             role=role, generation=binding.generation, relay_ticket=token, expires_at=expires_at
         )

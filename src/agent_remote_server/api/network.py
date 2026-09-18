@@ -1,3 +1,7 @@
+"""
+提供网络 API。
+"""
+
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends
@@ -26,6 +30,12 @@ router = APIRouter(prefix="/network", tags=["network"])
 
 
 def _wireguard_node_peer(node: Node) -> WireGuardNodePeerData:
+    """
+    返回WireGuard 节点对等节点。
+
+    :param node (Node): 节点
+    :return WireGuardNodePeerData: WireGuard 节点对等节点
+    """
     return WireGuardNodePeerData(
         node_id=node.id,
         name=node.name,
@@ -53,7 +63,6 @@ async def enroll_wireguard_peer(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前设备令牌
-
     :return EnrollWireGuardPeerResponse: 对端登记结果
     """
 
@@ -84,7 +93,6 @@ async def get_wireguard_config(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前 token
-
     :return WireGuardConfigResponse: WireGuard 配置
     """
 

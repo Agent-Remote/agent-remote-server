@@ -1,8 +1,5 @@
-"""记录工具会话启动时注入的设备控制协议
-
-Revision ID: 0015_session_device_control
-Revises: 0014_device_sessions
-Create Date: 2026-07-30 20:40:00.000000
+"""
+记录工具会话启动时注入的设备控制协议
 """
 
 from collections.abc import Sequence

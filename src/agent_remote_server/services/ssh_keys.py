@@ -1,3 +1,7 @@
+"""
+实现SSH 密钥业务逻辑。
+"""
+
 import hashlib
 from collections.abc import Sequence
 from uuid import UUID
@@ -12,7 +16,6 @@ def ssh_key_sync_task_id(*, node_id: UUID, device_id: UUID, ssh_keys: Sequence[S
     :param node_id (UUID): 节点 ID
     :param device_id (UUID): 设备 ID
     :param ssh_keys (Sequence[SshKey]): 设备活跃 SSH key
-
     :return str: SSH key 同步任务 ID
     """
 
@@ -35,8 +38,7 @@ def ssh_key_sync_payload(
     :param device_id (UUID): 设备 ID
     :param ssh_user (str): SSH 网关用户
     :param ssh_keys (Sequence[SshKey]): 设备活跃 SSH key
-
-    :return dict: SSH key 同步任务载荷
+    :return dict[str, object]: SSH key 同步任务载荷
     """
 
     return {

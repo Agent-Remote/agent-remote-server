@@ -1,8 +1,5 @@
-"""创建核心 schema
-
-Revision ID: 0001_core_schema
-Revises:
-Create Date: 2026-07-04 00:00:00.000000
+"""
+创建核心 schema
 """
 
 from collections.abc import Sequence
@@ -25,7 +22,7 @@ def created_at_column() -> sa.Column:
     """
     创建 created_at 字段
 
-    :return Column: created_at 字段
+    :return sa.Column: created_at 字段
     """
 
     return sa.Column("created_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()"))
@@ -35,7 +32,7 @@ def updated_at_column() -> sa.Column:
     """
     创建 updated_at 字段
 
-    :return Column: updated_at 字段
+    :return sa.Column: updated_at 字段
     """
 
     return sa.Column("updated_at", TIMESTAMPTZ, nullable=False, server_default=sa.text("now()"))

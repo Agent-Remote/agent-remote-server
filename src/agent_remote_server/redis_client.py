@@ -1,3 +1,7 @@
+"""
+实现Redis 客户端模块。
+"""
+
 import asyncio
 import time
 
@@ -12,7 +16,6 @@ async def check_redis(settings: Settings) -> HealthComponent:
     检查 Redis 可用性
 
     :param settings (Settings): 应用配置
-
     :return HealthComponent: Redis 健康状态
     """
 

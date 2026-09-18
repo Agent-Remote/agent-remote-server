@@ -1,4 +1,6 @@
-"""公开 ego-browser relay 基础设施的稳定导入接口。"""
+"""
+公开 ego-browser relay 基础设施的稳定导入接口。
+"""
 
 from agent_remote_server.ego_browser.relay.contracts import (
     EGO_BROWSER_PROTOCOL,

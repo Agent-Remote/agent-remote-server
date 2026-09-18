@@ -1,3 +1,7 @@
+"""
+提供开发者凭据 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -27,7 +31,6 @@ def profile_data(profile: DeveloperCredentialProfile) -> DeveloperCredentialProf
     转换开发凭据 profile 响应数据
 
     :param profile (DeveloperCredentialProfile): 开发凭据 profile 模型
-
     :return DeveloperCredentialProfileData: 配置档案响应数据
     """
 
@@ -56,7 +59,6 @@ async def list_profiles(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileListResponse: 开发凭据 profile 列表响应
     """
 
@@ -83,7 +85,6 @@ async def create_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 创建后的开发凭据 profile 响应
     """
 
@@ -113,7 +114,6 @@ async def get_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 开发凭据 profile 响应
     """
 
@@ -142,7 +142,6 @@ async def update_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 更新后的开发凭据 profile 响应
     """
 
@@ -176,7 +175,6 @@ async def disable_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 禁用后的开发凭据 profile 响应
     """
 
@@ -207,7 +205,6 @@ async def bind_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeveloperCredentialProfileResponse: 绑定后的开发凭据 profile 响应
     """
 
@@ -235,7 +232,6 @@ async def unbind_profile(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return Response: 空响应
     """
 

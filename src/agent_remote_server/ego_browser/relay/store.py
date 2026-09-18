@@ -1,4 +1,6 @@
-"""存储 ego-browser relay ticket 和设备 PoP challenge。"""
+"""
+存储 ego-browser relay ticket 和设备 PoP challenge。
+"""
 
 from __future__ import annotations
 
@@ -21,7 +23,9 @@ from agent_remote_server.ego_browser.relay.contracts import (
 
 @dataclass(frozen=True)
 class EgoBrowserRelayTicket:
-    """带过期时间的内存票据记录。"""
+    """
+    带过期时间的内存票据记录。
+    """
 
     claims: EgoBrowserRelayTicketClaims
     expires_at: datetime
@@ -29,14 +33,18 @@ class EgoBrowserRelayTicket:
 
 @dataclass(frozen=True)
 class EgoBrowserProofChallenge:
-    """带过期时间的内存 PoP challenge 记录。"""
+    """
+    带过期时间的内存 PoP challenge 记录。
+    """
 
     claims: EgoBrowserProofChallengeClaims
     expires_at: datetime
 
 
 class EgoBrowserRelayStore(Protocol):
-    """ego-browser relay 短期票据存储协议。"""
+    """
+    ego-browser relay 短期票据存储协议。
+    """
 
     async def issue_ticket(
         self, *, token_hash: str, claims: EgoBrowserRelayTicketClaims, ttl: int
@@ -47,7 +55,6 @@ class EgoBrowserRelayStore(Protocol):
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 relay 票据已经存在
         """
 
@@ -56,7 +63,6 @@ class EgoBrowserRelayStore(Protocol):
         原子消费一次性 relay ticket。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserRelayTicketClaims | None: 已消费的 relay 票据声明；不存在或过期时为 None
         """
 
@@ -69,7 +75,6 @@ class EgoBrowserRelayStore(Protocol):
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserProofChallengeClaims): 设备 PoP challenge 声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 PoP challenge 已经存在
         """
 
@@ -80,18 +85,26 @@ class EgoBrowserRelayStore(Protocol):
         原子消费一次性设备 PoP challenge。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserProofChallengeClaims | None: 已消费的声明；不存在或过期时为 None
         """
 
     async def close(self) -> None:
-        """关闭票据存储并释放连接。"""
+        """
+        关闭票据存储并释放连接。
+        """
 
 
 class RedisEgoBrowserRelayStore:
-    """使用独立 key namespace 的 Redis 一次性票据存储。"""
+    """
+    使用独立 key namespace 的 Redis 一次性票据存储。
+    """
 
     def __init__(self, redis: Redis) -> None:
+        """
+        初始化Redis Ego Browser 中继存储。
+
+        :param redis (Redis): Redis 客户端
+        """
         self._redis = redis
 
     async def issue_ticket(
@@ -103,7 +116,6 @@ class RedisEgoBrowserRelayStore:
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 relay 票据已经存在
         """
         payload = json.dumps(
@@ -122,7 +134,6 @@ class RedisEgoBrowserRelayStore:
         从 Redis 原子取出并删除 ticket。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserRelayTicketClaims | None: 已消费的 relay 票据声明；不存在或过期时为 None
         """
         payload = await self._redis.getdel(self._key(token_hash))
@@ -157,7 +168,6 @@ class RedisEgoBrowserRelayStore:
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserProofChallengeClaims): 设备 PoP challenge 声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 PoP challenge 已经存在
         """
 
@@ -182,7 +192,6 @@ class RedisEgoBrowserRelayStore:
         从 Redis 原子取出并删除 PoP challenge。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserProofChallengeClaims | None: 已消费的声明；不存在或过期时为 None
         """
 
@@ -205,22 +214,41 @@ class RedisEgoBrowserRelayStore:
             return None
 
     async def close(self) -> None:
-        """关闭 Redis 票据连接。"""
+        """
+        关闭 Redis 票据连接。
+        """
         await self._redis.aclose()
 
     @staticmethod
     def _key(token_hash: str) -> str:
+        """
+        返回键。
+
+        :param token_hash (str): 令牌 hash
+        :return str: 键
+        """
         return f"agent-remote:ego-browser:relay-ticket:{token_hash}"
 
     @staticmethod
     def _proof_key(token_hash: str) -> str:
+        """
+        返回证明键。
+
+        :param token_hash (str): 令牌 hash
+        :return str: 证明键
+        """
         return f"agent-remote:ego-browser:pop-challenge:{token_hash}"
 
 
 class InMemoryEgoBrowserRelayStore:
-    """SQLite 测试和单进程运行使用的确定性内存票据存储。"""
+    """
+    SQLite 测试和单进程运行使用的确定性内存票据存储。
+    """
 
     def __init__(self) -> None:
+        """
+        初始化内存 Ego Browser 中继存储。
+        """
         self._tickets: dict[str, EgoBrowserRelayTicket] = {}
         self._proof_challenges: dict[str, EgoBrowserProofChallenge] = {}
         self._lock = asyncio.Lock()
@@ -234,7 +262,6 @@ class InMemoryEgoBrowserRelayStore:
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 relay 票据已经存在
         """
         async with self._lock:
@@ -251,7 +278,6 @@ class InMemoryEgoBrowserRelayStore:
         在进程内原子消费一次性 ticket。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserRelayTicketClaims | None: 已消费的 relay 票据声明；不存在或过期时为 None
         """
         async with self._lock:
@@ -269,7 +295,6 @@ class InMemoryEgoBrowserRelayStore:
         :param token_hash (str): 一次性凭据的 keyed hash
         :param claims (EgoBrowserProofChallengeClaims): 设备 PoP challenge 声明
         :param ttl (int): 短期状态的有效秒数
-
         :raises RuntimeError: token hash 对应的未过期 PoP challenge 已经存在
         """
 
@@ -289,7 +314,6 @@ class InMemoryEgoBrowserRelayStore:
         在进程内原子消费一次性 PoP challenge。
 
         :param token_hash (str): 一次性凭据的 keyed hash
-
         :return EgoBrowserProofChallengeClaims | None: 已消费的声明；不存在或过期时为 None
         """
 
@@ -300,7 +324,9 @@ class InMemoryEgoBrowserRelayStore:
         return challenge.claims
 
     async def close(self) -> None:
-        """清空进程内 ticket。"""
+        """
+        清空进程内 ticket。
+        """
         async with self._lock:
             self._tickets.clear()
             self._proof_challenges.clear()
@@ -311,7 +337,6 @@ def create_ego_browser_relay_store(settings: Settings) -> EgoBrowserRelayStore:
     按照数据库部署类型创建 ego-browser relay 票据存储。
 
     :param settings (Settings): 应用配置
-
     :return EgoBrowserRelayStore: 按当前部署模式创建的短期状态存储
     """
 

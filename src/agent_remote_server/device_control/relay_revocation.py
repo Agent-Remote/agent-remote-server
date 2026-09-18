@@ -1,4 +1,6 @@
-"""广播设备控制 relay 的跨 worker 撤销通知。"""
+"""
+广播设备控制 relay 的跨 worker 撤销通知。
+"""
 
 import asyncio
 import json
@@ -16,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class DeviceRelayRevocationPublisher(Protocol):
-    """relay hub 所需的最小跨 worker 发布接口。"""
+    """
+    relay hub 所需的最小跨 worker 发布接口。
+    """
 
     async def publish(self, device_session_id: UUID, generation: int) -> None:
         """
@@ -28,9 +32,18 @@ class DeviceRelayRevocationPublisher(Protocol):
 
 
 class DeviceRelayRevocationBus:
-    """通过 Redis 发布订阅广播已提交的设备会话代次撤销。"""
+    """
+    通过 Redis 发布订阅广播已提交的设备会话代次撤销。
+    """
 
     def __init__(self, redis: Redis, subscriber: Redis, *, channel: str) -> None:
+        """
+        初始化设备中继撤销总线。
+
+        :param redis (Redis): Redis 客户端
+        :param subscriber (Redis): Redis 订阅客户端
+        :param channel (str): 通道
+        """
         self._redis = redis
         self._subscriber = subscriber
         self._channel = channel
@@ -71,7 +84,9 @@ class DeviceRelayRevocationBus:
         )
 
     async def close(self) -> None:
-        """停止订阅并关闭 Redis 连接。"""
+        """
+        停止订阅并关闭 Redis 连接。
+        """
 
         self._stop.set()
         if self._task is not None:
@@ -82,6 +97,11 @@ class DeviceRelayRevocationBus:
         await self._redis.aclose()
 
     async def _run(self, handler: RevocationHandler) -> None:
+        """
+        执行服务流程。
+
+        :param handler (RevocationHandler): 撤销事件处理器
+        """
         while not self._stop.is_set():
             pubsub = self._subscriber.pubsub(ignore_subscribe_messages=True)
             try:
@@ -118,7 +138,9 @@ class DeviceRelayRevocationBus:
 
 
 class NoopDeviceRelayRevocationBus:
-    """SQLite 测试和单进程测试使用的无外部依赖通知实现。"""
+    """
+    SQLite 测试和单进程测试使用的无外部依赖通知实现。
+    """
 
     async def start(self, handler: RevocationHandler) -> None:
         """
@@ -136,7 +158,9 @@ class NoopDeviceRelayRevocationBus:
         """
 
     async def close(self) -> None:
-        """兼容生产 bus 的关闭接口。"""
+        """
+        兼容生产 bus 的关闭接口。
+        """
 
 
 def create_device_relay_revocation_bus(
@@ -146,7 +170,6 @@ def create_device_relay_revocation_bus(
     按照部署数据库类型创建 relay 撤销通知总线
 
     :param settings (Settings): 应用配置
-
     :return DeviceRelayRevocationBus | NoopDeviceRelayRevocationBus: 按部署数据库类型创建的撤销总线
     """
 

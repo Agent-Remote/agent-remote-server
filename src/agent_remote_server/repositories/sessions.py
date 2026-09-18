@@ -1,3 +1,7 @@
+"""
+提供会话数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -22,6 +26,11 @@ class SessionRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化会话数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_session(self, tool_session: Session) -> Session:
@@ -29,7 +38,6 @@ class SessionRepository:
         新增工具 session
 
         :param tool_session (Session): 工具 session 实体
-
         :return Session: 工具 session 实体
         """
 
@@ -42,8 +50,7 @@ class SessionRepository:
         按 ID 读取工具 session
 
         :param session_id (UUID): 工具 session ID
-
-        :return Session: 工具 session 实体
+        :return Session | None: 工具 session 实体
         """
 
         return await self._session.get(Session, session_id)
@@ -55,10 +62,9 @@ class SessionRepository:
         列出用户工具 session
 
         :param user_id (UUID): 用户 ID
-        :param tool_type (str): 工具类型
-        :param statuses (list): 工具会话状态过滤
-
-        :return Sequence: 工具 session 与 workspace 列表
+        :param tool_type (str | None): 工具类型
+        :param statuses (list[str] | None): 工具会话状态过滤
+        :return Sequence[tuple[Session, Workspace]]: 工具 session 与 workspace 列表
         """
 
         statement = (
@@ -80,9 +86,8 @@ class SessionRepository:
         按状态列出用户工具 session
 
         :param user_id (UUID): 用户 ID
-        :param statuses (set): 工具会话状态集合
-
-        :return Sequence: 工具 session 列表
+        :param statuses (set[str]): 工具会话状态集合
+        :return Sequence[Session]: 工具 session 列表
         """
 
         result = await self._session.scalars(
@@ -111,8 +116,7 @@ class SessionRepository:
         :param user_id (UUID): 用户 ID
         :param tool_type (str): 工具类型
         :param project_key (str): 项目 key
-
-        :return Session: 工具 session 实体
+        :return Session | None: 工具 session 实体
         """
 
         return await self._session.scalar(
@@ -129,7 +133,7 @@ class SessionRepository:
         列出同工具账户活跃 session
 
         :param account_id (UUID): 工具账户 ID
-        :return Sequence: 工具 session 列表
+        :return Sequence[Session]: 工具 session 列表
         """
 
         result = await self._session.scalars(
@@ -145,7 +149,7 @@ class SessionRepository:
         读取工具账户
 
         :param account_id (UUID): 工具账户 ID
-        :return ToolAccount: 工具账户实体
+        :return ToolAccount | None: 工具账户实体
         """
 
         return await self._session.get(ToolAccount, account_id)
@@ -155,7 +159,7 @@ class SessionRepository:
         读取工具账户 profile
 
         :param account_id (UUID): 工具账户 ID
-        :return ToolAccountProfile: 配置档案实体
+        :return ToolAccountProfile | None: 配置档案实体
         """
 
         return await self._session.scalar(
@@ -169,8 +173,7 @@ class SessionRepository:
         读取工具账户绑定的开发凭据 profile
 
         :param account_id (UUID): 工具账户 ID
-
-        :return DeveloperCredentialProfile: 开发凭据 profile 实体
+        :return DeveloperCredentialProfile | None: 开发凭据 profile 实体
         """
 
         return await self._session.scalar(
@@ -188,7 +191,7 @@ class SessionRepository:
         读取工作区
 
         :param workspace_id (UUID): 工作区 ID
-        :return Workspace: 工作区实体
+        :return Workspace | None: 工作区实体
         """
 
         return await self._session.get(Workspace, workspace_id)
@@ -198,7 +201,7 @@ class SessionRepository:
         读取节点
 
         :param node_id (UUID): 节点 ID
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -211,8 +214,8 @@ class SessionRepository:
 
         :param tool_type (str): 工具类型
         :param region_code (str): 地区代码
-        :param preferred_tags (list): 偏好标签
-        :return Sequence: 节点列表
+        :param preferred_tags (list[str]): 偏好标签
+        :return Sequence[Node]: 节点列表
         """
 
         result = await self._session.scalars(
@@ -248,7 +251,7 @@ class SessionRepository:
         按 task_id 读取任务
 
         :param task_id (str): 任务 ID
-        :return NodeTask: 节点任务实体
+        :return NodeTask | None: 节点任务实体
         """
 
         return await self._session.scalar(select(NodeTask).where(NodeTask.task_id == task_id))

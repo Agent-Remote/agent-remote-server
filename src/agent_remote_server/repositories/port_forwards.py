@@ -1,3 +1,7 @@
+"""
+提供端口转发数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -23,6 +27,11 @@ class PortForwardRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化端口转发数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add(self, port_forward: PortForward) -> PortForward:
@@ -30,7 +39,6 @@ class PortForwardRepository:
         新增端口转发
 
         :param port_forward (PortForward): 端口转发实体
-
         :return PortForward: 已新增实体
         """
 
@@ -43,8 +51,7 @@ class PortForwardRepository:
         按 ID 读取端口转发
 
         :param forward_id (UUID): 端口转发 ID
-
-        :return PortForward: 端口转发实体
+        :return PortForward | None: 端口转发实体
         """
 
         return await self._session.get(PortForward, forward_id)
@@ -54,8 +61,7 @@ class PortForwardRepository:
         加锁读取端口转发
 
         :param forward_id (UUID): 端口转发 ID
-
-        :return PortForward: 端口转发实体
+        :return PortForward | None: 端口转发实体
         """
 
         return await self._session.scalar(
@@ -67,8 +73,7 @@ class PortForwardRepository:
         列出用户端口转发
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence: 端口转发列表
+        :return Sequence[PortForward]: 端口转发列表
         """
 
         result = await self._session.scalars(
@@ -82,7 +87,7 @@ class PortForwardRepository:
         """
         列出全部端口转发
 
-        :return Sequence: 端口转发列表
+        :return Sequence[PortForward]: 端口转发列表
         """
 
         result = await self._session.scalars(
@@ -98,8 +103,7 @@ class PortForwardRepository:
 
         :param limit (int): 最大批量数
         :param after_id (UUID | None): 上一页最后一个记录 ID
-
-        :return Sequence: 转发 ID
+        :return Sequence[UUID]: 转发 ID
         """
 
         statement = select(PortForward.id).where(
@@ -120,10 +124,9 @@ class PortForwardRepository:
         """
         统计指定范围的非终态转发数
 
-        :param user_id (UUID): 用户 ID
-        :param device_id (UUID): 设备 ID
-        :param session_id (UUID): 工具会话 ID
-
+        :param user_id (UUID | None): 用户 ID
+        :param device_id (UUID | None): 设备 ID
+        :param session_id (UUID | None): 工具会话 ID
         :return int: 转发数量
         """
 
@@ -143,8 +146,7 @@ class PortForwardRepository:
         读取工具 session
 
         :param session_id (UUID): 工具会话 ID
-
-        :return Session: 工具会话实体
+        :return Session | None: 工具会话实体
         """
 
         return await self._session.get(Session, session_id)
@@ -154,8 +156,7 @@ class PortForwardRepository:
         读取节点
 
         :param node_id (UUID): 节点 ID
-
-        :return Node: 节点实体
+        :return Node | None: 节点实体
         """
 
         return await self._session.get(Node, node_id)
@@ -165,8 +166,7 @@ class PortForwardRepository:
         读取活跃用户
 
         :param user_id (UUID): 用户 ID
-
-        :return User: 活跃用户
+        :return User | None: 活跃用户
         """
 
         return await self._session.scalar(
@@ -178,8 +178,7 @@ class PortForwardRepository:
         读取活跃工具账户
 
         :param tool_account_id (UUID): 工具账户 ID
-
-        :return ToolAccount: 活跃工具账户
+        :return ToolAccount | None: 活跃工具账户
         """
 
         return await self._session.scalar(
@@ -194,8 +193,7 @@ class PortForwardRepository:
 
         :param user_id (UUID): 用户 ID
         :param device_id (UUID): 设备 ID
-
-        :return UserDevice: 活跃设备
+        :return UserDevice | None: 活跃设备
         """
 
         return await self._session.scalar(
@@ -210,8 +208,7 @@ class PortForwardRepository:
         加锁读取用户以串行化配额检查
 
         :param user_id (UUID): 用户 ID
-
-        :return User: 用户实体
+        :return User | None: 用户实体
         """
 
         return await self._session.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -222,8 +219,7 @@ class PortForwardRepository:
 
         :param device_id (UUID): 设备 ID
         :param ssh_key_id (UUID): SSH 密钥 ID
-
-        :return SshKey: 活跃 SSH key
+        :return SshKey | None: 活跃 SSH key
         """
 
         return await self._session.scalar(
@@ -238,8 +234,7 @@ class PortForwardRepository:
         读取设备首个活跃 SSH key
 
         :param device_id (UUID): 设备 ID
-
-        :return SshKey: 活跃 SSH key
+        :return SshKey | None: 活跃 SSH key
         """
 
         return await self._session.scalar(

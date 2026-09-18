@@ -1,8 +1,12 @@
+"""
+定义节点持久化模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import JSON as JsonType
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -45,6 +49,8 @@ class Node(IdMixin, TimestampMixin, Base):
     runtime_capabilities: Mapped[dict[str, object]] = mapped_column(
         JsonType, nullable=False, default=dict
     )
+    # 管理员意图与节点本地计算出的 effective capability 分开保存。
+    ego_browser_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
     registration_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     node_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(
@@ -70,6 +76,44 @@ class NodeHeartbeat(IdMixin, Base):
     runtime: Mapped[dict[str, object]] = mapped_column(JsonType, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+
+
+class NodeJoinCode(IdMixin, TimestampMixin, Base):
+    """
+    一次性 Node 加入码及其受保护的交换结果。
+    """
+
+    __tablename__ = "node_join_codes"
+    __table_args__ = (
+        Index("node_join_codes_hash_uidx", "code_hash", unique=True),
+        Index("node_join_codes_node_status_idx", "node_id", "consumed_at", "revoked_at"),
+        # 已消费交换仅凭此 ID 恢复；全局唯一性禁止不同短期码生成冲突结果。
+        Index("node_join_codes_exchange_uidx", "exchange_id", unique=True),
+    )
+
+    node_id: Mapped[UUID] = mapped_column(
+        ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    issuer_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    server_origin: Mapped[str] = mapped_column(String(255), nullable=False)
+    release_profile: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    wrapper_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    skill_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    runtime_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    artifact_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    profile_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    ego_browser_enabled: Mapped[bool | None] = mapped_column(nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exchange_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    encrypted_node_token: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    exchange_result_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

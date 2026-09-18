@@ -1,3 +1,7 @@
+"""
+验证Ego Browser 中继行为。
+"""
+
 import asyncio
 import base64
 import json
@@ -24,6 +28,12 @@ from agent_remote_server.logging import JsonFormatter
 
 
 def _encoded(value: bytes) -> str:
+    """
+    返回编码数据。
+
+    :param value (bytes): 值
+    :return str: 编码数据
+    """
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
 
@@ -34,7 +44,15 @@ def _outer(
     key_wrap: str | None = None,
     binding_id: str = "binding-1",
 ) -> dict[str, object]:
-    """创建测试用的严格 outer envelope。"""
+    """
+    创建测试用的严格 outer envelope。
+
+    :param direction (str): 转发方向
+    :param message_type (str | None): message 类型
+    :param key_wrap (str | None): 键 wrap
+    :param binding_id (str): 绑定 ID
+    :return dict[str, object]: 外层信封
+    """
 
     return {
         "protocol": "ego-browser-bridge-v1",
@@ -59,13 +77,24 @@ def _outer(
 
 
 def _raw(value: dict[str, object]) -> bytes:
+    """
+    返回原始数据。
+
+    :param value (dict[str, object]): 值
+    :return bytes: 原始数据
+    """
     return json.dumps(value, separators=(",", ":")).encode()
 
 
 def test_proof_challenge_is_consumed_once_under_concurrency() -> None:
-    """并发 worker 只能有一个成功消费同一 PoP challenge。"""
+    """
+    并发 worker 只能有一个成功消费同一 PoP challenge。
+    """
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         store = InMemoryEgoBrowserRelayStore()
         claims = EgoBrowserProofChallengeClaims(
             user_id=uuid4(),
@@ -86,14 +115,18 @@ def test_proof_challenge_is_consumed_once_under_concurrency() -> None:
 
 
 def test_parse_outer_envelope_accepts_canonical_request() -> None:
-    """验证合法请求 outer envelope 可以通过严格校验。"""
+    """
+    验证合法请求 outer envelope 可以通过严格校验。
+    """
 
     value = _outer()
     assert parse_outer_envelope(_raw(value), maximum_bytes=16_384) == value
 
 
 def test_parse_outer_envelope_accepts_request_cancellation_without_key_wrap() -> None:
-    """request cancellation 复用原身份和密钥，不携带新的 key wrap。"""
+    """
+    request cancellation 复用原身份和密钥，不携带新的 key wrap。
+    """
 
     value = _outer(message_type="cancel", key_wrap="")
     assert parse_outer_envelope(_raw(value), maximum_bytes=16_384) == value
@@ -114,7 +147,12 @@ def test_parse_outer_envelope_accepts_request_cancellation_without_key_wrap() ->
 def test_parse_outer_envelope_rejects_invalid_request_key_wrap(
     mutator: object, expected: str
 ) -> None:
-    """验证请求缺少或篡改 key wrap 时被拒绝。"""
+    """
+    验证请求缺少或篡改 key wrap 时被拒绝。
+
+    :param mutator (object): 消息变换器
+    :param expected (str): 预期值
+    """
 
     value = _outer()
     mutator(value)  # type: ignore[operator]
@@ -123,7 +161,9 @@ def test_parse_outer_envelope_rejects_invalid_request_key_wrap(
 
 
 def test_parse_outer_envelope_rejects_response_key_wrap() -> None:
-    """验证 response outer envelope 不得携带 key wrap。"""
+    """
+    验证 response outer envelope 不得携带 key wrap。
+    """
 
     value = _outer(direction="response", key_wrap=_encoded(b"k" * 92))
     with pytest.raises(ValueError, match="key_wrap"):
@@ -131,7 +171,9 @@ def test_parse_outer_envelope_rejects_response_key_wrap() -> None:
 
 
 def test_parse_outer_envelope_rejects_duplicate_json_keys() -> None:
-    """验证重复 JSON 字段不会被解析器静默覆盖。"""
+    """
+    验证重复 JSON 字段不会被解析器静默覆盖。
+    """
 
     raw = b'{"protocol":"ego-browser-bridge-v1","protocol":"ego-browser-bridge-v1"}'
     with pytest.raises(ValueError, match="invalid_outer_json"):
@@ -139,7 +181,9 @@ def test_parse_outer_envelope_rejects_duplicate_json_keys() -> None:
 
 
 def test_parse_outer_envelope_rejects_empty_ciphertext() -> None:
-    """验证空密文不能伪装成零字节执行请求。"""
+    """
+    验证空密文不能伪装成零字节执行请求。
+    """
 
     value = _outer()
     value["payload_bytes"] = 0
@@ -149,27 +193,57 @@ def test_parse_outer_envelope_rejects_empty_ciphertext() -> None:
 
 
 class _FakeWebSocket:
+    """
+    定义测试替身 Web 套接字。
+    """
+
     def __init__(self) -> None:
+        """
+        初始化测试替身 Web 套接字。
+        """
         self.messages: asyncio.Queue[dict[str, object]] = asyncio.Queue()
         self.sent: list[bytes] = []
         self.close_codes: list[int] = []
         self.accepted = False
 
     async def accept(self) -> None:
+        """
+        接受测试 WebSocket 连接。
+        """
         self.accepted = True
 
     async def receive(self) -> dict[str, object]:
+        """
+        返回接收。
+
+        :return dict[str, object]: 接收
+        """
         return await self.messages.get()
 
     async def send_bytes(self, data: bytes) -> None:
+        """
+        发送字节。
+
+        :param data (bytes): 数据
+        """
         self.sent.append(data)
 
     async def close(self, code: int = 1000) -> None:
+        """
+        关闭当前连接。
+
+        :param code (int): 代码
+        """
         self.close_codes.append(code)
         self.messages.put_nowait({"type": "websocket.disconnect", "code": code})
 
 
 def _binding() -> EgoBrowserRelayBinding:
+    """
+    创建测试绑定。
+
+    :return EgoBrowserRelayBinding: 绑定
+    """
     return EgoBrowserRelayBinding(
         user_id=uuid4(),
         ego_browser_device_id=uuid4(),
@@ -184,17 +258,29 @@ def _claims(
     binding: EgoBrowserRelayBinding,
     role: EgoBrowserRelayRole,
 ) -> EgoBrowserRelayTicketClaims:
+    """
+    构造中继票据声明。
+
+    :param binding (EgoBrowserRelayBinding): 绑定
+    :param role (EgoBrowserRelayRole): 角色
+    :return EgoBrowserRelayTicketClaims: 中继票据声明
+    """
     return EgoBrowserRelayTicketClaims(binding=binding, role=role)
 
 
 def test_redis_relay_hubs_pair_and_forward_across_workers() -> None:
-    """两个独立 worker 通过 Redis 配对并转发 opaque frame。"""
+    """
+    两个独立 worker 通过 Redis 配对并转发 opaque frame。
+    """
 
     redis_url = os.getenv("AGENT_REMOTE_INTEGRATION_REDIS_URL")
     if redis_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_REDIS_URL is not configured")
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         bridge_redis = Redis.from_url(redis_url, decode_responses=False)
         wrapper_redis = Redis.from_url(redis_url, decode_responses=False)
         bridge_hub = _distributed_hub(bridge_redis)
@@ -212,6 +298,13 @@ def test_redis_relay_hubs_pair_and_forward_across_workers() -> None:
             raw: bytes,
             _envelope: dict[str, object],
         ) -> None:
+            """
+            校验测试结果。
+
+            :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+            :param raw (bytes): 原始数据
+            :param _envelope (dict[str, object]): 信封
+            """
             validated.append((claims.role, raw))
 
         try:
@@ -237,13 +330,18 @@ def test_redis_relay_hubs_pair_and_forward_across_workers() -> None:
 
 
 def test_redis_relay_hubs_reject_duplicate_role_across_workers() -> None:
-    """Redis presence key 在不同 worker 间原子拒绝重复角色。"""
+    """
+    Redis presence key 在不同 worker 间原子拒绝重复角色。
+    """
 
     redis_url = os.getenv("AGENT_REMOTE_INTEGRATION_REDIS_URL")
     if redis_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_REDIS_URL is not configured")
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         first_hub = _distributed_hub(Redis.from_url(redis_url, decode_responses=False))
         second_hub = _distributed_hub(Redis.from_url(redis_url, decode_responses=False))
         first = _FakeWebSocket()
@@ -255,6 +353,13 @@ def test_redis_relay_hubs_reject_duplicate_role_across_workers() -> None:
             _raw: bytes,
             _envelope: dict[str, object],
         ) -> None:
+            """
+            校验测试结果。
+
+            :param _claims (EgoBrowserRelayTicketClaims): 未使用的中继票据声明
+            :param _raw (bytes): 原始数据
+            :param _envelope (dict[str, object]): 信封
+            """
             return None
 
         first_task = asyncio.create_task(
@@ -282,13 +387,18 @@ def test_redis_relay_hubs_reject_duplicate_role_across_workers() -> None:
 
 
 def test_redis_revocation_marker_closes_and_rejects_without_pubsub() -> None:
-    """共享撤销标记在 worker 漏收 Pub/Sub 时仍关闭并拒绝旧 generation。"""
+    """
+    共享撤销标记在 worker 漏收 Pub/Sub 时仍关闭并拒绝旧 generation。
+    """
 
     redis_url = os.getenv("AGENT_REMOTE_INTEGRATION_REDIS_URL")
     if redis_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_REDIS_URL is not configured")
 
     async def scenario() -> None:
+        """
+        执行测试场景。
+        """
         binding = _binding()
         bridge_hub = _distributed_hub(Redis.from_url(redis_url, decode_responses=False))
         wrapper_hub = _distributed_hub(Redis.from_url(redis_url, decode_responses=False))
@@ -318,6 +428,13 @@ def test_redis_revocation_marker_closes_and_rejects_without_pubsub() -> None:
             _raw: bytes,
             _envelope: dict[str, object],
         ) -> None:
+            """
+            校验测试结果。
+
+            :param _claims (EgoBrowserRelayTicketClaims): 未使用的中继票据声明
+            :param _raw (bytes): 原始数据
+            :param _envelope (dict[str, object]): 信封
+            """
             return None
 
         tasks = [
@@ -335,7 +452,6 @@ def test_redis_revocation_marker_closes_and_rejects_without_pubsub() -> None:
                 await asyncio.sleep(0.01)
             assert await probe.exists(*presence_keys) == 2
 
-            # 此处刻意不启动 publisher，用于验证没有 worker 收到 Pub/Sub 时的拒绝行为。
             await publisher.publish(binding.binding_id, binding.generation)
             await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
             assert 1008 in bridge.close_codes
@@ -366,9 +482,18 @@ def test_redis_revocation_marker_closes_and_rejects_without_pubsub() -> None:
 
 
 def test_relay_metrics_are_content_free(caplog: pytest.LogCaptureFixture) -> None:
-    """relay 指标只记录固定维度、计数和密文字节数。"""
+    """
+    relay 指标只记录固定维度、计数和密文字节数。
+
+    :param caplog (pytest.LogCaptureFixture): pytest 日志捕获器
+    """
 
     async def scenario() -> tuple[int, str]:
+        """
+        执行测试场景。
+
+        :return tuple[int, str]: 场景
+        """
         hub = EgoBrowserRelayHub(
             maximum_frame_bytes=16_384,
             pair_timeout_seconds=1,
@@ -387,6 +512,13 @@ def test_relay_metrics_are_content_free(caplog: pytest.LogCaptureFixture) -> Non
             _raw: bytes,
             _envelope: dict[str, object],
         ) -> None:
+            """
+            校验测试结果。
+
+            :param _claims (EgoBrowserRelayTicketClaims): 未使用的中继票据声明
+            :param _raw (bytes): 原始数据
+            :param _envelope (dict[str, object]): 信封
+            """
             return None
 
         await asyncio.gather(
@@ -448,6 +580,12 @@ def test_relay_metrics_are_content_free(caplog: pytest.LogCaptureFixture) -> Non
 
 
 def _distributed_hub(redis: Redis) -> EgoBrowserRelayHub:
+    """
+    返回分布式中心。
+
+    :param redis (Redis): Redis 客户端
+    :return EgoBrowserRelayHub: 分布式中心
+    """
     return EgoBrowserRelayHub(
         maximum_frame_bytes=16_384,
         pair_timeout_seconds=1,

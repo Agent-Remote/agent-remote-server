@@ -1,3 +1,7 @@
+"""
+提供工作区 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -33,7 +37,6 @@ def workspace_data(workspace: Workspace) -> WorkspaceData:
     转换工作区响应数据
 
     :param workspace (Workspace): 工作区实体
-
     :return WorkspaceData: 工作区响应数据
     """
 
@@ -64,7 +67,6 @@ async def list_workspaces(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return WorkspaceListResponse: 工作区列表响应
     """
 
@@ -91,7 +93,6 @@ async def create_workspace(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前令牌
-
     :return WorkspaceResponse: 工作区响应
     """
 
@@ -122,7 +123,6 @@ async def get_workspace(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return WorkspaceResponse: 工作区响应
     """
 
@@ -148,7 +148,6 @@ async def update_workspace(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return WorkspaceResponse: 工作区响应
     """
 

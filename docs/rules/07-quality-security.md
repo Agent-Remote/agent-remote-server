@@ -9,7 +9,7 @@ Before committing:
 - Mypy.
 - Pytest.
 - Server line coverage of at least 70%.
-- Public docstring and Pydantic field-description check.
+- Full Python docstring and Pydantic field-description check.
 - Git diff whitespace check.
 
 The hook scripts enforce these checks.

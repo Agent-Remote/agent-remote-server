@@ -1,8 +1,5 @@
-"""统一运行时会话状态约束
-
-Revision ID: 0008_sync_session_active_status
-Revises: 0007_native_runtime
-Create Date: 2026-07-23 00:00:00.000000
+"""
+统一运行时会话状态约束
 """
 
 from collections.abc import Sequence
@@ -16,7 +13,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """扩展工具会话和同步会话的活动状态约束。"""
+    """
+    扩展工具会话和同步会话的活动状态约束。
+    """
 
     op.drop_constraint("sync_sessions_status_ck", "sync_sessions", type_="check")
     op.create_check_constraint(
@@ -34,7 +33,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """恢复工具会话和同步会话的旧状态约束。"""
+    """
+    恢复工具会话和同步会话的旧状态约束。
+    """
 
     op.drop_constraint("sessions_status_ck", "sessions", type_="check")
     op.create_check_constraint(

@@ -1,3 +1,7 @@
+"""
+定义工作区持久化模型。
+"""
+
 from uuid import UUID
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, Text

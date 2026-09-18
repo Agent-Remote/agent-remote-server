@@ -1,3 +1,7 @@
+"""
+定义健康状态接口模型。
+"""
+
 from typing import Literal
 
 from pydantic import BaseModel, Field

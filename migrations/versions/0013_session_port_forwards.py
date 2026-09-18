@@ -1,8 +1,5 @@
-"""添加会话端口转发
-
-Revision ID: 0013_session_port_forwards
-Revises: 0012_device_cli_version
-Create Date: 2026-07-30 00:00:00.000000
+"""
+添加会话端口转发
 """
 
 from collections.abc import Sequence
@@ -22,7 +19,9 @@ TIMESTAMPTZ = sa.DateTime(timezone=True)
 
 
 def upgrade() -> None:
-    """创建 session 端口转发表。"""
+    """
+    创建 session 端口转发表。
+    """
 
     op.create_table(
         "port_forwards",
@@ -93,7 +92,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """删除 session 端口转发表。"""
+    """
+    删除 session 端口转发表。
+    """
 
     op.drop_index("port_forwards_node_lease_idx", table_name="port_forwards")
     op.drop_index("port_forwards_session_status_idx", table_name="port_forwards")

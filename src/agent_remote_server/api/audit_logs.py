@@ -1,3 +1,7 @@
+"""
+提供审计日志 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -24,7 +28,6 @@ def audit_log_data(audit_log: AuditLog) -> AuditLogData:
     转换审计日志响应数据
 
     :param audit_log (AuditLog): 审计日志实体
-
     :return AuditLogData: 审计日志响应数据
     """
 
@@ -51,7 +54,6 @@ async def list_audit_logs(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param limit (int): 最大返回数量
-
     :return AuditLogListResponse: 审计日志列表响应
     """
 
@@ -78,9 +80,7 @@ async def get_audit_log(
     :param audit_log_id (UUID): 审计日志 ID
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return AuditLogResponse: 审计日志响应
-
     :raises ApiError: 审计日志不存在或当前用户不可见
     """
 

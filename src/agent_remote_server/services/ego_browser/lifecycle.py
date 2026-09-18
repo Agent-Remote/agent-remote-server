@@ -1,4 +1,6 @@
-"""处理 ego-browser binding 的连接、续租和终止。"""
+"""
+处理 ego-browser binding 的连接、续租和终止。
+"""
 
 from __future__ import annotations
 
@@ -30,7 +32,9 @@ from agent_remote_server.services.ego_browser.requests import _EgoBrowserRequest
 
 
 class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
-    """实现 binding 连接后的完整生命周期。"""
+    """
+    实现 binding 连接后的完整生命周期。
+    """
 
     async def connected(
         self,
@@ -47,10 +51,9 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param binding_id (UUID): ego-browser binding 标识
         :param payload (EgoBrowserConnectedRequest): Bridge 连接完成请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
-        self._require_enabled()
+        self._require_execution()
         binding, device = await self._owned_binding_device(
             user, binding_id, device_id, for_update=True
         )
@@ -113,6 +116,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
             str(binding.id),
             self._binding_details(binding),
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         return binding
 
@@ -131,10 +135,9 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param binding_id (UUID): ego-browser 绑定标识
         :param payload (EgoBrowserRenewRequest): Bridge 发起的绑定续租请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser 绑定实体
         """
-        self._require_enabled()
+        self._require_execution()
         binding, device = await self._owned_binding_device(
             user, binding_id, device_id, for_update=True
         )
@@ -172,6 +175,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         await self._audit(
             user.id, "ego_browser_binding.renewed", str(binding.id), self._binding_details(binding)
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         return binding
 
@@ -188,11 +192,10 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param node (Node): 当前操作对应的节点
         :param binding_id (UUID): ego-browser binding 标识
         :param payload (EgoBrowserNodeRenewRequest): Node 发起的 binding 续租请求
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
 
-        self._require_enabled()
+        self._require_execution()
         binding = await self._repository.get_binding(binding_id, for_update=True)
         if binding is None or binding.node_id != node.id:
             self._error(
@@ -244,6 +247,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
             str(binding.id),
             self._binding_details(binding),
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         return binding
 
@@ -255,7 +259,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
 
         :param binding_id (UUID): ego-browser binding 标识
         :param generation (int): 目标 binding generation
-
         :return EgoBrowserBinding | None: 匹配的 binding；不存在或无需更新时为 None
         """
         binding = await self._repository.get_binding(binding_id, for_update=True)
@@ -305,7 +308,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param binding_id (UUID): ego-browser 绑定标识
         :param payload (EgoBrowserLifecycleRequest): 绑定生命周期操作请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser 绑定实体
         """
         binding, device = await self._owned_binding_device(
@@ -315,6 +317,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
             self._generation_error()
         if binding.status not in {"active", "connecting", "probing_local_browser"}:
             self._error("EGO_BROWSER_STATE_CONFLICT", "The browser binding cannot be paused.", 409)
+        self._validate_device_origin(device, bind_legacy=False)
         await self._validate_device_pop(
             device=device,
             operation_generation=binding.generation,
@@ -339,6 +342,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         await self._audit(
             user.id, "ego_browser_binding.paused", str(binding.id), self._binding_details(binding)
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         await self._publish_revocation(binding.id, old_generation)
         return binding
@@ -356,7 +360,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param user (User): 当前操作用户
         :param binding_id (UUID): ego-browser 绑定标识
         :param generation (int): 目标绑定代次
-
         :return EgoBrowserBinding: 操作后的 ego-browser 绑定实体
         """
 
@@ -403,10 +406,9 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param binding_id (UUID): ego-browser binding 标识
         :param payload (EgoBrowserResumeRequest): binding 恢复与用户确认请求
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
-        self._require_enabled()
+        self._require_execution()
         binding, device = await self._owned_binding_device(
             user, binding_id, device_id, for_update=True
         )
@@ -459,6 +461,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         await self._audit(
             user.id, "ego_browser_binding.resumed", str(binding.id), self._binding_details(binding)
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         await self._publish_revocation(binding.id, old_generation)
         return binding
@@ -480,7 +483,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param payload (EgoBrowserLifecycleRequest): binding 生命周期操作请求
         :param revoke (bool): 是否将 binding 永久标记为已撤销
         :param device_id (UUID | None): 独立 ego-browser 设备 ID
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
         binding, device = await self._owned_binding_device(
@@ -488,6 +490,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         )
         if binding.status in TERMINAL_STATUSES and (not revoke or binding.status == "revoked"):
             return binding
+        self._validate_device_origin(device, bind_legacy=False)
         if binding.generation != payload.generation:
             self._generation_error()
         await self._validate_device_pop(
@@ -504,6 +507,7 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
             reason=payload.reason,
             actor_user_id=user.id,
         )
+        self._bind_legacy_device_origin(device)
         await self._session.commit()
         if invalidated:
             await self._publish_revocation(binding.id, old_generation)
@@ -526,7 +530,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param generation (int): 目标 binding generation
         :param reason (str): 写入生命周期与审计记录的原因
         :param revoke (bool): 是否将 binding 永久标记为已撤销
-
         :return EgoBrowserBinding: 操作后的 ego-browser binding 实体
         """
 
@@ -555,7 +558,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
 
         :param user (User): 当前操作用户
         :param binding_id (UUID): ego-browser binding 标识
-
         :raises ApiError: binding 不存在、仍可执行或尚有未完成清理
         """
 
@@ -614,7 +616,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param reason (str): 写入生命周期与审计记录的原因
         :param commit (bool): 是否在操作完成后提交数据库事务
         :param publish (bool): 是否向其他服务实例发布撤销事件
-
         :return int: 受影响的绑定数量
         """
 
@@ -649,7 +650,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param reason (str): 写入生命周期与审计记录的原因
         :param commit (bool): 是否在操作完成后提交数据库事务
         :param publish (bool): 是否向其他服务实例发布撤销事件
-
         :return int: 受影响的 binding 数量
         """
 
@@ -682,7 +682,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param reason (str): 写入生命周期与审计记录的原因
         :param commit (bool): 是否在操作完成后提交数据库事务
         :param publish (bool): 是否向其他服务实例发布撤销事件
-
         :return int: 受影响的绑定数量
         """
 
@@ -715,7 +714,6 @@ class _EgoBrowserLifecycleOperations(_EgoBrowserRequestOperations):
         :param reason (str): 写入生命周期与审计记录的原因
         :param commit (bool): 是否在操作完成后提交数据库事务
         :param publish (bool): 是否向其他服务实例发布撤销事件
-
         :return int: 受影响的绑定数量
         """
 

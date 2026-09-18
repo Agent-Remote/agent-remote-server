@@ -1,3 +1,7 @@
+"""
+提供基础数据访问。
+"""
+
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -13,6 +17,12 @@ class Repository[ModelT: Base]:
     """
 
     def __init__(self, session: AsyncSession, model_type: type[ModelT]) -> None:
+        """
+        初始化数据仓库。
+
+        :param session (AsyncSession): 会话
+        :param model_type (type[ModelT]): 模型类型
+        """
         self._session = session
         self._model_type = model_type
 
@@ -21,8 +31,7 @@ class Repository[ModelT: Base]:
         按主键读取实体
 
         :param entity_id (UUID): 实体主键
-
-        :return ModelT: 实体对象
+        :return ModelT | None: 实体对象
         """
 
         return await self._session.get(self._model_type, entity_id)
@@ -32,7 +41,6 @@ class Repository[ModelT: Base]:
         添加实体并刷新会话
 
         :param entity (ModelT): 待添加实体
-
         :return ModelT: 已加入会话的实体
         """
 
@@ -46,8 +54,7 @@ class Repository[ModelT: Base]:
 
         :param limit (int): 最大返回数量
         :param offset (int): 起始偏移量
-
-        :return Sequence: 实体列表
+        :return Sequence[ModelT]: 实体列表
         """
 
         statement = select(self._model_type).limit(limit).offset(offset)

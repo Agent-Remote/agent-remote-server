@@ -1,4 +1,6 @@
-"""配对设备控制端点并转发端到端加密帧。"""
+"""
+配对设备控制端点并转发端到端加密帧。
+"""
 
 import asyncio
 import logging
@@ -17,11 +19,17 @@ _RATE_LIMIT_BURST_SECONDS = 2
 
 
 class _RelayBindingClosed(Exception):
-    """当前 relay binding 已被控制面撤销。"""
+    """
+    当前 relay binding 已被控制面撤销。
+    """
 
 
 @dataclass
 class _RelayEndpoint:
+    """
+    定义中继端点。
+    """
+
     websocket: WebSocket
     role: DeviceRelayRole
     peer: asyncio.Future[WebSocket]
@@ -48,6 +56,7 @@ class DeviceRelayHub:
         :param pair_timeout_seconds (int): 等待对端连接的最长秒数
         :param maximum_bytes_per_second (int): 每个方向每秒允许的最大密文字节数
         :param maximum_connection_seconds (float): 配对后单次中继连接最长秒数
+        :param revocation_bus (DeviceRelayRevocationPublisher | None): 撤销总线
         """
 
         self._maximum_frame_bytes = maximum_frame_bytes
@@ -189,6 +198,14 @@ class DeviceRelayHub:
         source: WebSocket,
         destination: WebSocket,
     ) -> None:
+        """
+        在中继端点之间转发二进制帧。
+
+        :param key (RelayBinding): 键
+        :param role (DeviceRelayRole): 角色
+        :param source (WebSocket): 源 WebSocket
+        :param destination (WebSocket): 目标 WebSocket
+        """
         loop = asyncio.get_running_loop()
         burst_capacity = self._maximum_bytes_per_second * _RATE_LIMIT_BURST_SECONDS
         available_bytes = float(burst_capacity)
@@ -265,6 +282,16 @@ class DeviceRelayHub:
         total_bytes: int,
         close_code: object,
     ) -> None:
+        """
+        记录中继转发结束原因和计数。
+
+        :param key (RelayBinding): 键
+        :param role (DeviceRelayRole): 角色
+        :param reason (str): 操作原因
+        :param frame_count (int): frame 统计
+        :param total_bytes (int): total 字节
+        :param close_code (object): 关闭代码
+        """
         logger.warning(
             (
                 "device_relay_forward_ended session=%s generation=%s role=%s "
@@ -289,6 +316,12 @@ class DeviceRelayHub:
         )
 
     async def _remove(self, key: RelayBinding, endpoint: _RelayEndpoint) -> None:
+        """
+        移除已断开的中继端点。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_RelayEndpoint): 端点
+        """
         async with self._lock:
             pair = self._pairs.get(key)
             if pair is None or pair.get(endpoint.role) is not endpoint:

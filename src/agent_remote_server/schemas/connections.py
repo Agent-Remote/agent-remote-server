@@ -1,3 +1,7 @@
+"""
+定义连接接口模型。
+"""
+
 from uuid import UUID
 
 from pydantic import BaseModel, Field

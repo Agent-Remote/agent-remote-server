@@ -1,3 +1,7 @@
+"""
+验证设备控制发布行为。
+"""
+
 import base64
 import json
 from datetime import UTC, datetime, timedelta
@@ -18,13 +22,25 @@ from agent_remote_server.device_control.release import (
     ensure_ego_browser_release_evidence_current,
     verify_device_control_release_evidence,
 )
+from agent_remote_server.ego_browser.release_policy import (
+    EGO_BROWSER_LOCAL_RUNTIME_VERSION,
+    EGO_BROWSER_PROTOCOL_VERSION,
+    EGO_BROWSER_SKILL_COMMIT,
+    EGO_BROWSER_SKILL_TREE_SHA256,
+    EGO_BROWSER_SKILL_VERSION,
+    EGO_BROWSER_WRAPPER_VERSION,
+)
 from agent_remote_server.main import create_app
 
 _DIGEST = "a" * 64
 
 
 def browser_deployment_pins() -> dict[str, object]:
-    """Return the root and Bridge pins emitted by the schema-9 fixture."""
+    """
+    返回浏览器部署固定摘要。
+
+    :return dict[str, object]: 浏览器 deployment pins
+    """
 
     return {
         "ego_browser_expected_distribution_version": "9.8.7",
@@ -48,7 +64,18 @@ def create_signed_evidence(
     apple_profile: bool = False,
     computer_use_v2_evidence_sha256: str | None = None,
 ) -> str:
-    """创建使用临时密钥签名的测试发布证据。"""
+    """
+    创建使用临时密钥签名的测试发布证据。
+
+    :param path (Path): 路径
+    :param expires_at (datetime | None): 使其过期时间
+    :param issued_at (datetime | None): issued 时间
+    :param release_version (str): 发布版本
+    :param schema_version (int): 模型版本
+    :param apple_profile (bool): apple 配置
+    :param computer_use_v2_evidence_sha256 (str | None): computer 使用 v2 证据 sha256
+    :return str: signed 证据
+    """
 
     private_key = Ed25519PrivateKey.generate()
     target_digests = {
@@ -117,7 +144,7 @@ def create_signed_evidence(
         components = cast(dict[str, object], composition_fields["components"])
         components["agent-remote-ego-browser"] = {
             "repository": "Agent-Remote/agent-remote-ego-browser",
-            "version": "0.1.11",
+            "version": EGO_BROWSER_WRAPPER_VERSION,
             "commit": "6" * 40,
             "release_workflow": "release.yml",
             "release_published": True,
@@ -134,11 +161,11 @@ def create_signed_evidence(
             "credential_profile": "community_file",
             "learning_bundle_digest": "a" * 64,
             "learning_bundle_signing_key_id": "ego-browser-learning-2026-01",
-            "skill_version": "1.2.3",
-            "skill_commit": "36053d07001a910cb806a15d42d00fdea1cdea3d",
-            "skill_tree_sha256": "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c",
-            "local_ego_browser_runtime_version": "0.4.7.4",
-            "protocol_version": "ego-browser-bridge-v1",
+            "skill_version": EGO_BROWSER_SKILL_VERSION,
+            "skill_commit": EGO_BROWSER_SKILL_COMMIT,
+            "skill_tree_sha256": EGO_BROWSER_SKILL_TREE_SHA256,
+            "local_ego_browser_runtime_version": EGO_BROWSER_LOCAL_RUNTIME_VERSION,
+            "protocol_version": EGO_BROWSER_PROTOCOL_VERSION,
         }
     if schema_version < 8 and expires_at is None:
         raise ValueError("legacy test evidence requires an expiry")
@@ -196,7 +223,11 @@ def create_signed_evidence(
 
 
 def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
-    """旧版有效签名、版本和有效期应允许迁移期生产发布。"""
+    """
+    旧版有效签名、版本和有效期应允许迁移期生产发布。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -213,7 +244,11 @@ def test_release_evidence_accepts_valid_signed_manifest(tmp_path: Path) -> None:
 
 
 def test_release_evidence_schema_8_is_permanent_and_release_bound(tmp_path: Path) -> None:
-    """schema 8 应与根发布组合绑定且不因验证时间推移而失效。"""
+    """
+    schema 8 应与根发布组合绑定且不因验证时间推移而失效。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     issued_at = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -243,7 +278,11 @@ def test_release_evidence_schema_8_is_permanent_and_release_bound(tmp_path: Path
 
 
 def test_release_evidence_schema_8_rejects_expiry_field(tmp_path: Path) -> None:
-    """永久 schema 不得重新引入 expires_at 字段。"""
+    """
+    永久 schema 不得重新引入 expires_at 字段。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     with pytest.raises(ValueError, match="must not contain expires_at"):
@@ -258,7 +297,11 @@ def test_release_evidence_schema_8_rejects_expiry_field(tmp_path: Path) -> None:
 def test_release_evidence_schema_9_is_current_and_keeps_schema_8_compatible(
     tmp_path: Path,
 ) -> None:
-    """schema 9 应使用永久组合约束，同时不撤销 schema 8 支持。"""
+    """
+    schema 9 应使用永久组合约束，同时不撤销 schema 8 支持。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     issued_at = datetime(2026, 7, 31, tzinfo=UTC)
     for schema_version in (8, 9):
@@ -278,7 +321,11 @@ def test_release_evidence_schema_9_is_current_and_keeps_schema_8_compatible(
 
 
 def test_session_full_trust_requires_schema_9_release_evidence(tmp_path: Path) -> None:
-    """生产全信任策略不得复用逐应用时代签发的 schema 8 证据。"""
+    """
+    生产全信任策略不得复用逐应用时代签发的 schema 8 证据。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_by_schema: dict[int, DeviceControlReleaseEvidence] = {}
@@ -320,7 +367,11 @@ def test_session_full_trust_requires_schema_9_release_evidence(tmp_path: Path) -
 
 
 def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> None:
-    """Schema 3 签名清单应同时绑定并验签全部 Node 与 Proxy 架构制品。"""
+    """
+    Schema 3 签名清单应同时绑定并验签全部 Node 与 Proxy 架构制品。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -347,7 +398,11 @@ def test_release_evidence_accepts_every_node_architecture(tmp_path: Path) -> Non
 
 
 def test_release_evidence_accepts_independent_component_versions(tmp_path: Path) -> None:
-    """Schema 5 应验签由根部署版本认证的独立组件版本组合。"""
+    """
+    Schema 5 应验签由根部署版本认证的独立组件版本组合。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -370,7 +425,9 @@ def test_release_evidence_accepts_independent_component_versions(tmp_path: Path)
 
 
 def test_release_evidence_rejects_mismatched_server_component() -> None:
-    """组合清单中的 Server 版本必须与运行时绑定版本一致。"""
+    """
+    组合清单中的 Server 版本必须与运行时绑定版本一致。
+    """
 
     now = datetime.now(UTC)
     target_digests = {
@@ -424,7 +481,9 @@ def test_release_evidence_rejects_mismatched_server_component() -> None:
 
 
 def test_multi_arch_release_evidence_rejects_missing_target() -> None:
-    """Schema 3 缺少任一受支持 Node target 时必须拒绝。"""
+    """
+    Schema 3 缺少任一受支持 Node target 时必须拒绝。
+    """
 
     with pytest.raises(ValueError, match="every supported Node target"):
         DeviceControlReleaseEvidence(
@@ -468,7 +527,13 @@ def test_community_release_evidence_rejects_conflicting_trust_claims(
     changes: dict[str, object],
     message: str,
 ) -> None:
-    """Community 清单不得伪装成 Apple 公证或公开可信分发。"""
+    """
+    Community 清单不得伪装成 Apple 公证或公开可信分发。
+
+    :param tmp_path (Path): pytest 临时目录
+    :param changes (dict[str, object]): 待覆盖的字段
+    :param message (str): 消息内容
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -482,7 +547,11 @@ def test_community_release_evidence_rejects_conflicting_trust_claims(
 
 
 def test_release_evidence_rejects_tampering(tmp_path: Path) -> None:
-    """签名后的任何证据字段变更都必须拒绝。"""
+    """
+    签名后的任何证据字段变更都必须拒绝。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -500,7 +569,11 @@ def test_release_evidence_rejects_tampering(tmp_path: Path) -> None:
 
 
 def test_release_evidence_rejects_symlinks_and_duplicate_fields(tmp_path: Path) -> None:
-    """生产证据必须拒绝符号链接和任何层级的重复 JSON 字段。"""
+    """
+    生产证据必须拒绝符号链接和任何层级的重复 JSON 字段。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -533,7 +606,11 @@ def test_release_evidence_rejects_symlinks_and_duplicate_fields(tmp_path: Path) 
 
 
 def test_release_evidence_rejects_empty_and_oversized_files(tmp_path: Path) -> None:
-    """空清单和超过固定读取上限的清单必须在解析前拒绝。"""
+    """
+    空清单和超过固定读取上限的清单必须在解析前拒绝。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = base64.b64encode(b"a" * 32).decode("ascii")
@@ -566,7 +643,14 @@ def test_release_evidence_rejects_expiry_and_version_mismatch(
     release_version: str,
     message: str,
 ) -> None:
-    """过期证据或其他服务端版本的证据必须拒绝。"""
+    """
+    过期证据或其他服务端版本的证据必须拒绝。
+
+    :param tmp_path (Path): pytest 临时目录
+    :param expires_at (datetime): 使其过期时间
+    :param release_version (str): 发布版本
+    :param message (str): 消息内容
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -605,7 +689,14 @@ def test_release_evidence_rejects_future_issue_and_excessive_lifetime(
     expires_at: datetime,
     message: str,
 ) -> None:
-    """未来签发或超过最长生命周期的证据必须拒绝。"""
+    """
+    未来签发或超过最长生命周期的证据必须拒绝。
+
+    :param tmp_path (Path): pytest 临时目录
+    :param issued_at (datetime): issued 时间
+    :param expires_at (datetime): 使其过期时间
+    :param message (str): 消息内容
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence_path = tmp_path / "release-evidence.json"
@@ -624,7 +715,9 @@ def test_release_evidence_rejects_future_issue_and_excessive_lifetime(
 
 
 def test_production_device_control_requires_release_evidence() -> None:
-    """生产环境不能只通过功能开关启用设备控制。"""
+    """
+    生产环境不能只通过功能开关启用设备控制。
+    """
 
     settings = Settings(
         secret_key="test-secret",
@@ -639,7 +732,9 @@ def test_production_device_control_requires_release_evidence() -> None:
 
 
 def test_production_ego_browser_requires_signed_schema_9_evidence() -> None:
-    """生产 Bridge 不能只依赖环境开关。"""
+    """
+    生产 Bridge 不能只依赖环境开关。
+    """
 
     settings = Settings(
         secret_key="test-secret",
@@ -655,7 +750,11 @@ def test_production_ego_browser_requires_signed_schema_9_evidence() -> None:
 
 
 def test_production_ego_browser_accepts_matching_schema_9_evidence(tmp_path: Path) -> None:
-    """生产 Bridge 在所有身份 pin 匹配时应通过启动门禁。"""
+    """
+    生产 Bridge 在所有身份 pin 匹配时应通过启动门禁。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, schema_version=9)
@@ -679,7 +778,11 @@ def test_production_ego_browser_accepts_matching_schema_9_evidence(tmp_path: Pat
 
 
 def test_production_ego_browser_requires_complete_deployment_pins(tmp_path: Path) -> None:
-    """有效签名本身不足以启用 Bridge，部署 pin 也必须齐全。"""
+    """
+    有效签名本身不足以启用 Bridge，部署 pin 也必须齐全。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, schema_version=9)
@@ -699,7 +802,11 @@ def test_production_ego_browser_requires_complete_deployment_pins(tmp_path: Path
 
 
 def test_production_ego_browser_rejects_identity_pin_drift(tmp_path: Path) -> None:
-    """schema 9 evidence 的身份字段漂移时必须拒绝启动。"""
+    """
+    schema 9 evidence 的身份字段漂移时必须拒绝启动。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, schema_version=9)
@@ -719,7 +826,11 @@ def test_production_ego_browser_rejects_identity_pin_drift(tmp_path: Path) -> No
 
 
 def test_production_ego_browser_rejects_deployment_pin_drift(tmp_path: Path) -> None:
-    """根组合或 Bridge 制品 pin 漂移时必须拒绝启动。"""
+    """
+    根组合或 Bridge 制品 pin 漂移时必须拒绝启动。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, schema_version=9)
@@ -744,7 +855,9 @@ def test_production_ego_browser_rejects_deployment_pin_drift(tmp_path: Path) -> 
 
 
 def test_ego_browser_release_gate_checks_all_identity_fields() -> None:
-    """运行时 Bridge 门禁必须要求 schema 9、精确版本和完整 artifact 摘要。"""
+    """
+    运行时 Bridge 门禁必须要求 schema 9、精确版本和完整 artifact 摘要。
+    """
 
     with pytest.raises(DeviceControlReleaseEvidenceError, match="schema 9"):
         ensure_ego_browser_release_evidence_current(
@@ -760,7 +873,11 @@ def test_ego_browser_release_gate_checks_all_identity_fields() -> None:
 
 
 def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path) -> None:
-    """生产环境应接受当前版本的有效签名发布证据。"""
+    """
+    生产环境应接受当前版本的有效签名发布证据。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -783,7 +900,11 @@ def test_production_device_control_accepts_valid_release_evidence(tmp_path: Path
 
 
 def test_production_full_trust_rejects_schema_8_at_startup(tmp_path: Path) -> None:
-    """启动门禁不得让旧审批证据授权新的会话级全信任策略。"""
+    """
+    启动门禁不得让旧审批证据授权新的会话级全信任策略。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(evidence_path, schema_version=8)
@@ -803,7 +924,11 @@ def test_production_full_trust_rejects_schema_8_at_startup(tmp_path: Path) -> No
 
 
 def test_production_default_v2_accepts_general_release_evidence(tmp_path: Path) -> None:
-    """生产默认 v2 只依赖当前通用发布证据，不要求专项验收摘要。"""
+    """
+    生产默认 v2 只依赖当前通用发布证据，不要求专项验收摘要。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -830,7 +955,11 @@ def test_production_default_v2_accepts_general_release_evidence(tmp_path: Path) 
 
 
 def test_production_preserves_optional_v2_evidence_metadata(tmp_path: Path) -> None:
-    """专项 v2 证据继续作为可选质量元数据被验证并保留。"""
+    """
+    专项 v2 证据继续作为可选质量元数据被验证并保留。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -857,7 +986,11 @@ def test_production_preserves_optional_v2_evidence_metadata(tmp_path: Path) -> N
 
 
 def test_production_accepts_optional_community_schema_v4_evidence(tmp_path: Path) -> None:
-    """Community schema v4 继续作为可选的运行时验收记录。"""
+    """
+    Community schema v4 继续作为可选的运行时验收记录。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     evidence_path = tmp_path / "release-evidence.json"
     public_key = create_signed_evidence(
@@ -886,7 +1019,9 @@ def test_production_accepts_optional_community_schema_v4_evidence(tmp_path: Path
 
 
 def test_legacy_community_evidence_cannot_claim_computer_use_v2_approval() -> None:
-    """旧 Community schema 的风险接受不能替代 Computer Use v2 专项证据。"""
+    """
+    旧 Community schema 的风险接受不能替代 Computer Use v2 专项证据。
+    """
 
     now = datetime.now(UTC)
     with pytest.raises(ValueError, match="cannot authorize Computer Use v2"):
@@ -917,7 +1052,9 @@ def test_legacy_community_evidence_cannot_claim_computer_use_v2_approval() -> No
 
 
 def test_community_schema_v4_requires_computer_use_v2_evidence() -> None:
-    """Schema v4 不允许省略专项证据摘要后退化为普通 Community 清单。"""
+    """
+    Schema v4 不允许省略专项证据摘要后退化为普通 Community 清单。
+    """
 
     now = datetime.now(UTC)
     target_digests = {
@@ -953,7 +1090,9 @@ def test_community_schema_v4_requires_computer_use_v2_evidence() -> None:
 
 
 def test_computer_use_v2_evidence_digest_must_be_sha256() -> None:
-    """专项摘要必须使用规范小写 SHA-256。"""
+    """
+    专项摘要必须使用规范小写 SHA-256。
+    """
 
     now = datetime.now(UTC)
     with pytest.raises(ValueError, match="lowercase SHA-256"):
@@ -982,7 +1121,9 @@ def test_computer_use_v2_evidence_digest_must_be_sha256() -> None:
 
 
 def test_development_device_control_does_not_require_release_evidence() -> None:
-    """开发环境仍可使用无敏感数据的显式设备控制测试。"""
+    """
+    开发环境仍可使用无敏感数据的显式设备控制测试。
+    """
 
     app = create_app(
         Settings(
@@ -996,7 +1137,9 @@ def test_development_device_control_does_not_require_release_evidence() -> None:
 
 
 def test_runtime_release_gate_rejects_expired_production_evidence() -> None:
-    """长时间运行的生产服务不得在证据过期后继续推进设备控制。"""
+    """
+    长时间运行的生产服务不得在证据过期后继续推进设备控制。
+    """
 
     now = datetime(2026, 7, 31, tzinfo=UTC)
     evidence = DeviceControlReleaseEvidence(

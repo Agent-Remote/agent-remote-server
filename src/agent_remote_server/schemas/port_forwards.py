@@ -1,3 +1,7 @@
+"""
+定义端口转发接口模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 
@@ -5,7 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class StrictPortForwardRequest(BaseModel):
-    """拒绝未声明字段的端口转发请求基类。"""
+    """
+    拒绝未声明字段的端口转发请求基类。
+    """
 
     model_config = ConfigDict(extra="forbid")
 

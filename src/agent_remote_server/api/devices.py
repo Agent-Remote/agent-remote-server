@@ -1,3 +1,7 @@
+"""
+提供设备 API。
+"""
+
 from typing import Annotated
 from uuid import UUID
 
@@ -34,6 +38,12 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 
 
 def _device_data(device: UserDevice) -> DeviceData:
+    """
+    返回设备数据。
+
+    :param device (UserDevice): 设备
+    :return DeviceData: 设备数据
+    """
     return DeviceData(
         id=device.id,
         user_id=device.user_id,
@@ -58,7 +68,6 @@ async def list_devices(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeviceListResponse: 设备列表响应
     """
 
@@ -84,7 +93,6 @@ async def register_device(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeviceRegistrationResponse: 设备注册响应
     """
 
@@ -122,7 +130,6 @@ async def get_device(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeviceResponse: 设备响应
     """
 
@@ -153,7 +160,6 @@ async def revoke_device(
     :param user (User): 当前用户
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-
     :return EmptyResponse: 空响应
     """
 
@@ -177,7 +183,6 @@ async def rotate_device_token(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return RotateDeviceTokenResponse: 新令牌响应
     """
 

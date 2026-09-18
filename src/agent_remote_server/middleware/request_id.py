@@ -1,3 +1,7 @@
+"""
+实现请求 ID模块。
+"""
+
 import logging
 import time
 from uuid import uuid4
@@ -14,12 +18,16 @@ logger = logging.getLogger(__name__)
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """
-    请求 ID 中间件
-
-    为每个请求生成或透传 request_id，并把它写入响应头和日志上下文
+    为请求生成或透传请求 ID，并写入响应头和日志上下文。
     """
 
     def __init__(self, app: ASGIApp, *, header_name: str = "x-request-id") -> None:
+        """
+        初始化请求 ID 中间件。
+
+        :param app (ASGIApp): ASGI 应用
+        :param header_name (str): 请求头名称
+        """
         super().__init__(app)
         self.header_name = header_name
 
@@ -29,7 +37,6 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
         :param request (Request): 当前请求对象
         :param call_next (RequestResponseEndpoint): 下一个请求处理器
-
         :return Response: 响应对象
         """
 

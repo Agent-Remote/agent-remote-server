@@ -1,3 +1,7 @@
+"""
+实现工作区业务逻辑。
+"""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -22,6 +26,12 @@ from agent_remote_server.schemas.workspaces import default_git_excludes
 
 
 def _managed_sync_excludes(exclude: list[str]) -> list[str]:
+    """
+    返回托管同步排除。
+
+    :param exclude (list[str]): 排除项
+    :return list[str]: 托管同步排除
+    """
     return list(dict.fromkeys([*exclude, *default_git_excludes()]))
 
 
@@ -42,6 +52,12 @@ class WorkspaceService:
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
+        """
+        初始化工作区业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        """
         self._session = session
         self._settings = settings
         self._repository = WorkspaceRepository(session)
@@ -53,8 +69,7 @@ class WorkspaceService:
         列出用户工作区
 
         :param user (User): 当前用户
-
-        :return list: 工作区列表
+        :return list[Workspace]: 工作区列表
         """
 
         return list(await self._repository.list_workspaces_for_user(user.id))
@@ -81,10 +96,8 @@ class WorkspaceService:
         :param local_start_path (str): 本地启动路径
         :param display_name (str): 显示名称
         :param sync_git (bool): 是否同步 .git 目录
-        :param git_sync_policy (dict): Git 同步策略
-
+        :param git_sync_policy (dict[str, object]): Git 同步策略
         :return Workspace: 工作区实体
-
         :raises ApiError: 令牌与设备不匹配，或目标设备未处于启用状态
         """
 
@@ -130,7 +143,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
-
         :return Workspace: 工作区实体
         """
 
@@ -151,11 +163,10 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
-        :param local_start_path (str): 本地启动路径
-        :param display_name (str): 显示名称
-        :param sync_git (bool): 是否同步 .git 目录
-        :param git_sync_policy (dict): Git 同步策略
-
+        :param local_start_path (str | None): 本地启动路径
+        :param display_name (str | None): 显示名称
+        :param sync_git (bool | None): 是否同步 .git 目录
+        :param git_sync_policy (dict[str, object] | None): Git 同步策略
         :return Workspace: 工作区实体
         """
 
@@ -184,7 +195,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
-
         :raises ApiError: 工作区不存在或仍有关联的同步或工具会话
         """
 
@@ -210,8 +220,7 @@ class WorkspaceService:
         列出用户同步会话
 
         :param user (User): 当前用户
-
-        :return list: 同步会话结果
+        :return list[SyncSessionResult]: 同步会话结果
         """
 
         items = list(await self._repository.list_sync_sessions_for_user(user.id))
@@ -237,14 +246,12 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param workspace_id (UUID): 工作区 ID
-        :param node_id (UUID): 节点 ID
-        :param local_path (str): 本地路径
+        :param node_id (UUID | None): 节点 ID
+        :param local_path (str | None): 本地路径
         :param sync_mode (str): 同步模式
         :param sync_git (bool): 是否同步 .git 目录
-        :param exclude (list): 排除规则
-
+        :param exclude (list[str]): 排除规则
         :return SyncSessionResult: 同步会话结果
-
         :raises ApiError: 同步模式、工作区或目标节点不满足创建条件
         """
 
@@ -311,7 +318,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -327,7 +333,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :raises ApiError: 同步会话不存在或尚未暂停、失败
         """
 
@@ -354,7 +359,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -372,7 +376,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -401,7 +404,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -419,7 +421,6 @@ class WorkspaceService:
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
-
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -451,6 +452,16 @@ class WorkspaceService:
         conflict_status: str | None,
         action: str,
     ) -> SyncSessionResult:
+        """
+        返回转换同步会话。
+
+        :param user (User): 用户
+        :param sync_session_id (UUID): 同步会话 ID
+        :param status (str): 状态
+        :param conflict_status (str | None): 冲突状态
+        :param action (str): 操作
+        :return SyncSessionResult: 转换同步会话
+        """
         sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
         sync_session.status = status
         if conflict_status is not None:
@@ -469,6 +480,12 @@ class WorkspaceService:
         return SyncSessionResult(sync_session=sync_session, node=node, prepare_task_id=None)
 
     async def _select_node(self, node_id: UUID | None) -> Node:
+        """
+        选择节点。
+
+        :param node_id (UUID | None): 节点 ID
+        :return Node: 节点
+        """
         if node_id is not None:
             node = await self._repository.get_node(node_id)
             if node is None:
@@ -493,6 +510,13 @@ class WorkspaceService:
         return nodes[0]
 
     async def _require_workspace(self, *, user: User, workspace_id: UUID) -> Workspace:
+        """
+        获取并校验工作区。
+
+        :param user (User): 用户
+        :param workspace_id (UUID): 工作区 ID
+        :return Workspace: 工作区
+        """
         workspace = await self._repository.get_workspace(workspace_id)
         if workspace is None or workspace.user_id != user.id:
             raise ApiError(
@@ -501,6 +525,13 @@ class WorkspaceService:
         return workspace
 
     async def _require_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSession:
+        """
+        获取并校验同步会话。
+
+        :param user (User): 用户
+        :param sync_session_id (UUID): 同步会话 ID
+        :return SyncSession: 同步会话
+        """
         sync_session = await self._repository.get_sync_session(sync_session_id)
         if sync_session is None or sync_session.user_id != user.id:
             raise ApiError(
@@ -511,6 +542,12 @@ class WorkspaceService:
         return sync_session
 
     def _require_token_device(self, *, token: AuthToken, device_id: UUID) -> None:
+        """
+        获取并校验令牌设备。
+
+        :param token (AuthToken): 令牌
+        :param device_id (UUID): 设备 ID
+        """
         if token.user_device_id is None:
             raise ApiError(
                 code="DEVICE_REQUIRED",
@@ -531,6 +568,14 @@ class WorkspaceService:
         workspace: Workspace,
         sync_session: SyncSession,
     ) -> str:
+        """
+        确保准备工作区任务。
+
+        :param node (Node): 节点
+        :param workspace (Workspace): 工作区
+        :param sync_session (SyncSession): 同步会话
+        :return str: 准备工作区任务
+        """
         task_id = f"prepare_workspace:{sync_session.id}"
         existing = await self._repository.get_task_by_task_id(task_id)
         ssh_keys = list(
@@ -584,6 +629,13 @@ class WorkspaceService:
         return task_id
 
     def _remote_workspace_path(self, *, user_id: UUID, workspace_id: UUID) -> str:
+        """
+        返回远端工作区路径。
+
+        :param user_id (UUID): 用户 ID
+        :param workspace_id (UUID): 工作区 ID
+        :return str: 远端工作区路径
+        """
         return f"/var/lib/agent-remote/users/{user_id}/workspaces/{workspace_id}/files"
 
     def _mutagen_session_name(
@@ -594,6 +646,15 @@ class WorkspaceService:
         sync_session_id: UUID,
         node_id: UUID,
     ) -> str:
+        """
+        返回Mutagen 会话名称。
+
+        :param user_id (UUID): 用户 ID
+        :param workspace_id (UUID): 工作区 ID
+        :param sync_session_id (UUID): 同步会话 ID
+        :param node_id (UUID): 节点 ID
+        :return str: Mutagen 会话名称
+        """
         _ = (user_id, workspace_id, node_id)
         return f"agent-remote-{sync_session_id}"
 
@@ -606,6 +667,15 @@ class WorkspaceService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -617,4 +687,9 @@ class WorkspaceService:
         )
 
     def _now(self) -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)

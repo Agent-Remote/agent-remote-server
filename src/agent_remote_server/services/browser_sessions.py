@@ -1,3 +1,7 @@
+"""
+实现浏览器会话业务逻辑。
+"""
+
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,6 +44,12 @@ class BrowserSessionService:
     """
 
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
+        """
+        初始化浏览器会话业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        """
         self._session = session
         self._settings = settings
         self._repository = BrowserSessionRepository(session)
@@ -50,7 +60,7 @@ class BrowserSessionService:
         列出用户浏览器 session，并标记已过期 session
 
         :param user (User): 当前用户
-        :return list: 浏览器 session 列表
+        :return list[BrowserSession]: 浏览器 session 列表
         """
 
         await self.expire_due_sessions()
@@ -85,14 +95,13 @@ class BrowserSessionService:
         创建远端临时浏览器 session 并投递节点任务
 
         :param user (User): 当前用户
-        :param tool_account_id (UUID): 工具账户 ID
-        :param target_url (str): 初始 URL
-        :param region_code (str): 地区代码
-        :param timezone (str): 时区
-        :param locale (str): 区域设置
+        :param tool_account_id (UUID | None): 工具账户 ID
+        :param target_url (str | None): 初始 URL
+        :param region_code (str | None): 地区代码
+        :param timezone (str | None): 时区
+        :param locale (str | None): 区域设置
         :param ttl_seconds (int): TTL 秒数
         :return BrowserSession: 浏览器 session 实体
-
         :raises ApiError: TTL 越界或未提供完整的浏览器区域配置
         """
 
@@ -192,7 +201,6 @@ class BrowserSessionService:
         :param user (User): 当前用户
         :param browser_session_id (UUID): 浏览器 session ID
         :return BrowserConnectInfo: 内嵌连接信息
-
         :raises ApiError: 浏览器 session 尚未就绪
         """
 
@@ -287,7 +295,6 @@ class BrowserSessionService:
 
         :param user (User): 当前用户
         :param browser_session_id (UUID): 浏览器 session ID
-
         :raises ApiError: 浏览器 session 尚未进入可删除的终态
         """
 
@@ -327,6 +334,13 @@ class BrowserSessionService:
     async def _require_user_browser_session(
         self, *, user: User, browser_session_id: UUID
     ) -> BrowserSession:
+        """
+        获取并校验用户浏览器会话。
+
+        :param user (User): 用户
+        :param browser_session_id (UUID): 浏览器会话 ID
+        :return BrowserSession: 用户浏览器会话
+        """
         browser_session = await self._repository.get_browser_session(browser_session_id)
         if browser_session is None or browser_session.user_id != user.id:
             raise ApiError(
@@ -337,6 +351,13 @@ class BrowserSessionService:
         return browser_session
 
     async def _require_active_account(self, *, user: User, account_id: UUID) -> ToolAccount:
+        """
+        获取并校验活动状态账号。
+
+        :param user (User): 用户
+        :param account_id (UUID): 账号 ID
+        :return ToolAccount: 活动状态账号
+        """
         account = await self._repository.get_account(account_id)
         if account is None or account.user_id != user.id:
             raise ApiError(
@@ -353,6 +374,14 @@ class BrowserSessionService:
     async def _choose_browser_node(
         self, *, account: ToolAccount | None, region_code: str, preferred_tags: list[str]
     ) -> Node:
+        """
+        选择浏览器节点。
+
+        :param account (ToolAccount | None): 账号
+        :param region_code (str): region 代码
+        :param preferred_tags (list[str]): 首选节点标签
+        :return Node: 浏览器节点
+        """
         if account is not None and account.affinity_node_id is not None:
             node = await self._repository.get_node(account.affinity_node_id)
             if node is not None and self._node_can_host(node, region_code):
@@ -369,11 +398,24 @@ class BrowserSessionService:
         return candidates[0]
 
     def _node_can_host(self, node: Node | None, region_code: str) -> bool:
+        """
+        判断节点能否承载浏览器会话。
+
+        :param node (Node | None): 节点
+        :param region_code (str): region 代码
+        :return bool: 是否满足校验条件
+        """
         if node is None or node.status not in ACTIVE_NODE_STATUSES:
             return False
         return node.region_code == region_code
 
     async def _schedule_stop(self, *, browser_session: BrowserSession, reason: str) -> None:
+        """
+        调度停止。
+
+        :param browser_session (BrowserSession): 浏览器会话
+        :param reason (str): 操作原因
+        """
         task_id = f"stop_browser_session:{browser_session.id}"
         if await self._repository.get_task_by_task_id(task_id) is not None:
             return
@@ -400,6 +442,14 @@ class BrowserSessionService:
         browser_session: BrowserSession,
         expires_at: datetime,
     ) -> None:
+        """
+        将浏览器嵌入令牌保存到 Redis。
+
+        :param token (str): 令牌
+        :param user_id (UUID): 用户 ID
+        :param browser_session (BrowserSession): 浏览器会话
+        :param expires_at (datetime): 使其过期时间
+        """
         ttl = max(1, int((expires_at - self._now()).total_seconds()))
         value = {
             "user_id": str(user_id),
@@ -422,6 +472,13 @@ class BrowserSessionService:
             await client.aclose()
 
     async def _load_embed_token(self, *, browser_session_id: UUID, token: str) -> dict[str, object]:
+        """
+        加载嵌入令牌。
+
+        :param browser_session_id (UUID): 浏览器会话 ID
+        :param token (str): 令牌
+        :return dict[str, object]: 嵌入令牌
+        """
         key = f"browser_embed:{hash_token(self._settings.secret_key, token)}"
         client: Redis = Redis.from_url(self._settings.redis_url, decode_responses=True)
         try:
@@ -457,6 +514,12 @@ class BrowserSessionService:
         return value
 
     def _container_name(self, browser_session: BrowserSession) -> str:
+        """
+        返回容器名称。
+
+        :param browser_session (BrowserSession): 浏览器会话
+        :return str: 容器名称
+        """
         return f"agent-remote-browser-{str(browser_session.id).replace('-', '')[:24]}"
 
     async def _audit(
@@ -468,6 +531,15 @@ class BrowserSessionService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -479,14 +551,31 @@ class BrowserSessionService:
         )
 
     def _now(self) -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)
 
     def _as_aware(self, value: datetime) -> datetime:
+        """
+        补全时间值的时区信息。
+
+        :param value (datetime): 值
+        :return datetime: 转为时区感知
+        """
         if value.tzinfo is not None:
             return value
         return value.replace(tzinfo=UTC)
 
     def _stream_redirect_html(self, endpoint: str) -> str:
+        """
+        返回数据流重定向 HTML。
+
+        :param endpoint (str): 端点
+        :return str: 数据流重定向 HTML
+        """
         safe_endpoint = escape(endpoint, quote=True)
         return f"""<!doctype html>
 <html lang="en">
@@ -514,6 +603,11 @@ class BrowserSessionService:
 """
 
     def _stream_unavailable_html(self) -> str:
+        """
+        返回数据流不可用 HTML。
+
+        :return str: 数据流不可用 HTML
+        """
         return """<!doctype html>
 <html lang="en">
   <head>

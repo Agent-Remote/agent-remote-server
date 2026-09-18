@@ -1,4 +1,6 @@
-"""添加 ego-browser Device Client 独立短期凭据。"""
+"""
+添加 ego-browser Device Client 独立短期凭据。
+"""
 
 from collections.abc import Sequence
 
@@ -16,7 +18,9 @@ TIMESTAMPTZ = sa.DateTime(timezone=True)
 
 
 def upgrade() -> None:
-    """创建独立 ego-browser Device Client 凭据表。"""
+    """
+    创建独立 ego-browser Device Client 凭据表。
+    """
 
     op.create_table(
         "ego_browser_device_credentials",
@@ -79,7 +83,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """删除独立 ego-browser Device Client 凭据表。"""
+    """
+    删除独立 ego-browser Device Client 凭据表。
+    """
 
     op.drop_index(
         "ego_browser_device_credentials_user_status_idx",

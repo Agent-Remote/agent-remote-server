@@ -1,3 +1,7 @@
+"""
+验证设备中继撤销行为。
+"""
+
 import asyncio
 import os
 from uuid import UUID, uuid4
@@ -9,13 +13,18 @@ from agent_remote_server.device_control.relay_revocation import DeviceRelayRevoc
 
 
 def test_redis_relay_revocation_reaches_another_worker() -> None:
-    """在真实 Redis 中验证撤销事件能到达另一 worker。"""
+    """
+    在真实 Redis 中验证撤销事件能到达另一 worker。
+    """
 
     redis_url = os.getenv("AGENT_REMOTE_INTEGRATION_REDIS_URL")
     if redis_url is None:
         pytest.skip("AGENT_REMOTE_INTEGRATION_REDIS_URL is not configured")
 
     async def run() -> None:
+        """
+        执行服务流程。
+        """
         publisher = Redis.from_url(redis_url, decode_responses=True)
         subscriber = Redis.from_url(redis_url, decode_responses=True)
         bus = DeviceRelayRevocationBus(
@@ -26,6 +35,12 @@ def test_redis_relay_revocation_reaches_another_worker() -> None:
         received: asyncio.Future[tuple[str, int]] = asyncio.get_running_loop().create_future()
 
         async def handle(device_session_id: UUID, generation: int) -> None:
+            """
+            记录收到的撤销事件。
+
+            :param device_session_id (UUID): 设备会话 ID
+            :param generation (int): 代次
+            """
             if not received.done():
                 received.set_result((str(device_session_id), generation))
 

@@ -1,3 +1,7 @@
+"""
+验证设备控制发布证据生成器。
+"""
+
 import base64
 import json
 import subprocess
@@ -15,7 +19,12 @@ _DIGEST = "a" * 64
 
 
 def write_private_key(path: Path, key: Ed25519PrivateKey) -> None:
-    """写入测试专用的 owner-only Ed25519 私钥。"""
+    """
+    写入测试专用的 owner-only Ed25519 私钥。
+
+    :param path (Path): 路径
+    :param key (Ed25519PrivateKey): 键
+    """
 
     path.write_bytes(
         key.private_bytes(
@@ -28,7 +37,11 @@ def write_private_key(path: Path, key: Ed25519PrivateKey) -> None:
 
 
 def write_draft(path: Path) -> None:
-    """写入当前版本的测试发布证据 draft。"""
+    """
+    写入当前版本的测试发布证据 draft。
+
+    :param path (Path): 路径
+    """
 
     now = datetime.now(UTC)
     path.write_text(
@@ -62,7 +75,11 @@ def write_draft(path: Path) -> None:
 
 
 def write_permanent_draft(path: Path) -> None:
-    """写入不含过期时间、绑定根版本组合的 schema 9 draft。"""
+    """
+    写入不含过期时间、绑定根版本组合的 schema 9 draft。
+
+    :param path (Path): 路径
+    """
 
     components = {
         name: {
@@ -116,7 +133,15 @@ def run_creator(
     output: Path,
     public_key_output: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """运行发布证据生成器并返回完成结果。"""
+    """
+    运行发布证据生成器并返回完成结果。
+
+    :param draft (Path): 草稿
+    :param private_key (Path): 私钥
+    :param output (Path): 输出
+    :param public_key_output (Path | None): 公钥输出
+    :return subprocess.CompletedProcess[str]: 证据生成进程结果
+    """
 
     command = [
         sys.executable,
@@ -139,7 +164,11 @@ def run_creator(
 
 
 def test_creator_writes_a_verifiable_owner_only_manifest(tmp_path: Path) -> None:
-    """生成器应写出可由生产验证器接受的 owner-only 清单。"""
+    """
+    生成器应写出可由生产验证器接受的 owner-only 清单。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     key = Ed25519PrivateKey.generate()
     key_path = tmp_path / "release-key.pem"
@@ -164,7 +193,11 @@ def test_creator_writes_a_verifiable_owner_only_manifest(tmp_path: Path) -> None
 
 
 def test_creator_writes_permanent_schema_9_manifest(tmp_path: Path) -> None:
-    """当前生成器必须输出与根版本绑定且永久有效的 schema 9 清单。"""
+    """
+    当前生成器必须输出与根版本绑定且永久有效的 schema 9 清单。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     key = Ed25519PrivateKey.generate()
     key_path = tmp_path / "release-key.pem"
@@ -206,7 +239,11 @@ def test_creator_writes_permanent_schema_9_manifest(tmp_path: Path) -> None:
 
 
 def test_creator_writes_the_verified_raw_public_key(tmp_path: Path) -> None:
-    """可选公钥输出必须对应实际签名密钥并保持 owner-only。"""
+    """
+    可选公钥输出必须对应实际签名密钥并保持 owner-only。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     key = Ed25519PrivateKey.generate()
     key_path = tmp_path / "release-key.pem"
@@ -233,7 +270,11 @@ def test_creator_writes_the_verified_raw_public_key(tmp_path: Path) -> None:
 
 
 def test_creator_preserves_existing_public_key_output(tmp_path: Path) -> None:
-    """已有公钥目标必须导致失败，且不得留下配套 manifest 或覆盖目标。"""
+    """
+    已有公钥目标必须导致失败，且不得留下配套 manifest 或覆盖目标。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     key_path = tmp_path / "release-key.pem"
     draft_path = tmp_path / "draft.json"
@@ -251,7 +292,11 @@ def test_creator_preserves_existing_public_key_output(tmp_path: Path) -> None:
 
 
 def test_creator_rejects_group_readable_key_and_existing_output(tmp_path: Path) -> None:
-    """生成器必须拒绝宽松私钥权限和覆盖已有输出。"""
+    """
+    生成器必须拒绝宽松私钥权限和覆盖已有输出。
+
+    :param tmp_path (Path): pytest 临时目录
+    """
 
     key_path = tmp_path / "release-key.pem"
     draft_path = tmp_path / "draft.json"

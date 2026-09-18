@@ -1,3 +1,7 @@
+"""
+提供依赖 API。
+"""
+
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -41,7 +45,9 @@ DEVICE_LAST_SEEN_WRITE_INTERVAL = timedelta(minutes=1)
 
 @dataclass(frozen=True)
 class EgoBrowserDeviceAuth:
-    """已验证的独立 ego-browser 设备客户端身份。"""
+    """
+    已验证的独立 ego-browser 设备客户端身份。
+    """
 
     user: User
     device: EgoBrowserDevice
@@ -50,7 +56,9 @@ class EgoBrowserDeviceAuth:
 
 @dataclass(frozen=True)
 class EgoBrowserPrincipal:
-    """已验证的 ego-browser 用户或独立 Device Client 身份。"""
+    """
+    已验证的 ego-browser 用户或独立 Device Client 身份。
+    """
 
     user: User
     device_auth: EgoBrowserDeviceAuth | None
@@ -61,7 +69,6 @@ def get_settings(request: Request) -> Settings:
     获取应用配置
 
     :param request (Request): 当前请求对象
-
     :return Settings: 应用配置实例
     """
 
@@ -73,7 +80,6 @@ def get_port_forward_token_store(request: Request) -> PortForwardTokenStore:
     获取一次性端口转发 token store
 
     :param request (Request): 当前请求对象
-
     :return PortForwardTokenStore: 端口转发令牌存储
     """
 
@@ -85,7 +91,6 @@ def get_device_relay_store(request: Request) -> DeviceRelayStore:
     获取设备中继短期状态存储
 
     :param request (Request): 当前请求对象
-
     :return DeviceRelayStore: 设备中继短期状态存储
     """
 
@@ -97,7 +102,6 @@ def get_device_relay_hub(request: Request) -> DeviceRelayHub:
     获取设备密文 relay 的进程内连接中心
 
     :param request (Request): 当前请求
-
     :return DeviceRelayHub: 设备密文 relay 连接中心
     """
 
@@ -109,7 +113,6 @@ def get_ego_browser_relay_store(request: Request) -> EgoBrowserRelayStore:
     获取独立 ego-browser relay 一次性票据存储。
 
     :param request (Request): 当前 HTTP 请求上下文
-
     :return EgoBrowserRelayStore: 按当前部署模式创建的短期状态存储
     """
 
@@ -121,7 +124,6 @@ def get_ego_browser_relay_hub(request: Request) -> EgoBrowserRelayHub:
     获取独立 ego-browser relay 连接中心。
 
     :param request (Request): 当前 HTTP 请求上下文
-
     :return EgoBrowserRelayHub: 按当前部署模式创建的 relay 连接中心
     """
 
@@ -133,7 +135,6 @@ def get_ego_browser_revocation_bus(request: Request) -> EgoBrowserRevocationPubl
     获取独立 ego-browser relay 撤销总线。
 
     :param request (Request): 当前 HTTP 请求上下文
-
     :return EgoBrowserRevocationPublisher: 应用配置的 ego-browser 撤销发布器
     """
 
@@ -149,7 +150,6 @@ def require_current_device_control_release(
 
     :param request (Request): 当前请求对象
     :param settings (Settings): 应用配置
-
     :raises ApiError: 生产发布证据缺失、尚未生效或旧版证据已经过期
     """
 
@@ -182,8 +182,7 @@ async def get_session(
 
     :param request (Request): 当前请求对象
     :param settings (Settings): 应用配置
-
-    :return AsyncIterator: 数据库会话迭代器
+    :return AsyncIterator[AsyncSession]: 数据库会话迭代器
     """
 
     session_factory = getattr(request.app.state, "session_factory", None)
@@ -205,8 +204,7 @@ async def get_current_token(
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-    :param credentials (HTTPAuthorizationCredentials): Bearer 凭证
-
+    :param credentials (HTTPAuthorizationCredentials | None): Bearer 凭证
     :return AuthToken: 当前令牌记录
     """
 
@@ -228,8 +226,7 @@ async def get_refreshable_token(
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-    :param credentials (HTTPAuthorizationCredentials): Bearer 凭证
-
+    :param credentials (HTTPAuthorizationCredentials | None): Bearer 凭证
     :return AuthToken: 可刷新令牌记录
     """
 
@@ -248,6 +245,15 @@ async def _resolve_token(
     credentials: HTTPAuthorizationCredentials | None,
     allow_expired_device: bool,
 ) -> AuthToken:
+    """
+    解析令牌。
+
+    :param settings (Settings): 配置
+    :param session (AsyncSession): 会话
+    :param credentials (HTTPAuthorizationCredentials | None): 凭据
+    :param allow_expired_device (bool): allow 过期状态设备
+    :return AuthToken: 令牌
+    """
     if credentials is None:
         raise ApiError(
             code="COMMON_UNAUTHORIZED",
@@ -306,9 +312,7 @@ async def get_current_user(
 
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前令牌
-
     :return User: 当前用户
-
     :raises ApiError: 令牌所属用户不存在或未处于启用状态
     """
 
@@ -333,9 +337,7 @@ async def get_ego_browser_device_auth(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param credentials (HTTPAuthorizationCredentials | None): 请求携带的可选 Bearer 凭据
-
     :return EgoBrowserDeviceAuth: 通过校验的独立设备认证上下文
-
     :raises ApiError: 请求未携带独立设备凭据或凭据无效
     """
 
@@ -359,17 +361,12 @@ async def get_ego_browser_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> EgoBrowserPrincipal:
     """
-    解析 ego-browser 接口支持的用户或独立设备身份。
-
-    独立设备凭据带有不可混淆的 ``egbc_`` 前缀；一旦请求使用该前缀，
-    任何失效都返回设备凭据错误，而不会回退为普通用户令牌。
+    按不可混淆前缀解析用户或设备身份，设备凭据失败时不回退用户令牌。
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 异步数据库会话
     :param credentials (HTTPAuthorizationCredentials | None): 请求携带的可选 Bearer 凭据
-
     :return EgoBrowserPrincipal: 通过校验的用户或独立设备认证主体
-
     :raises ApiError: 请求未认证或凭据对应的用户不可用
     """
 
@@ -411,7 +408,6 @@ async def get_ego_browser_user_or_device_auth(
     返回 ego-browser 只读接口使用的已验证用户。
 
     :param principal (EgoBrowserPrincipal): 当前认证的用户或独立设备主体
-
     :return User: 认证主体所属用户
     """
 
@@ -425,7 +421,15 @@ async def _resolve_ego_browser_device_auth(
     raw_token: str,
     touch: bool,
 ) -> EgoBrowserDeviceAuth:
-    """解析并校验独立设备凭据的状态、代际和所属用户。"""
+    """
+    解析并校验独立设备凭据的状态、代际和所属用户。
+
+    :param settings (Settings): 配置
+    :param session (AsyncSession): 会话
+    :param raw_token (str): 原始数据令牌
+    :param touch (bool): 是否更新活跃时间
+    :return EgoBrowserDeviceAuth: Ego Browser 设备认证
+    """
 
     repository = EgoBrowserRepository(session)
     credential = await repository.get_device_credential_by_hash(
@@ -473,6 +477,15 @@ async def _resolve_ego_browser_device_auth(
             message="The ego-browser device is no longer active.",
             status_code=403,
         )
+    # 旧记录仅在首次凭据认证时绑定规范来源，禁止跨 Server 静默复用身份。
+    current_origin = settings.public_origin
+    stored_origin = getattr(device, "server_origin", None)
+    if stored_origin is not None and stored_origin != current_origin:
+        raise ApiError(
+            code="EGO_BROWSER_IDENTITY_ORIGIN_CONFLICT",
+            message="The device identity belongs to a different Server origin.",
+            status_code=409,
+        )
     user = await IdentityRepository(session).get_user(credential.user_id)
     if user is None or user.status != "active":
         raise ApiError(
@@ -480,6 +493,10 @@ async def _resolve_ego_browser_device_auth(
             message="User is not active.",
             status_code=401,
         )
+    bind_legacy_origin = stored_origin is None
+    if bind_legacy_origin:
+        device.server_origin = current_origin
+    should_update = False
     if touch:
         last_used_at = credential.last_used_at
         if last_used_at is not None and last_used_at.tzinfo is None:
@@ -496,7 +513,8 @@ async def _resolve_ego_browser_device_auth(
         if should_update:
             credential.last_used_at = now
             device.last_seen_at = now
-            await session.commit()
+    if bind_legacy_origin or (touch and should_update):
+        await session.commit()
     return EgoBrowserDeviceAuth(user=user, device=device, credential=credential)
 
 
@@ -505,9 +523,7 @@ async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> Use
     要求当前用户是管理员
 
     :param user (User): 当前用户
-
     :return User: 当前管理员
-
     :raises ApiError: 当前用户不是管理员
     """
 
@@ -530,10 +546,8 @@ async def get_current_node(
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
-    :param credentials (HTTPAuthorizationCredentials): Bearer 凭证
-
+    :param credentials (HTTPAuthorizationCredentials | None): Bearer 凭证
     :return Node: 当前节点
-
     :raises ApiError: 请求未携带有效的 Node 凭据
     """
 

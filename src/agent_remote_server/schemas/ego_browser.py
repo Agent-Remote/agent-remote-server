@@ -1,8 +1,14 @@
+"""
+定义Ego Browser接口模型。
+"""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_PROTOCOL_VERSION
 
 EgoBrowserAuthorizationMode = Literal["ego_browser_script_full_trust"]
 EgoBrowserProtocol = Literal["ego-browser-bridge-v1"]
@@ -31,6 +37,7 @@ EgoBrowserRequestStatus = Literal[
 ]
 EgoBrowserProofOperation = Literal[
     "register_device",
+    "device_rotate",
     "claim_binding",
     "connect_binding",
     "renew_binding",
@@ -42,37 +49,72 @@ EgoBrowserProofOperation = Literal[
     "issue_relay_ticket",
     "confirm_allowlist",
 ]
+EgoBrowserEnrollmentMode = Literal["initial", "ensure", "re_enroll", "rotate"]
 
 
 class _Schema(BaseModel):
+    """
+    定义模型。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
 
 class EgoBrowserProofChallengeRequest(_Schema):
-    """申请一次性设备所有权证明挑战。"""
+    """
+    申请一次性设备所有权证明挑战。
+    """
 
     operation: EgoBrowserProofOperation = Field(..., description="即将签署的设备操作")
     ego_browser_device_id: UUID = Field(..., description="签署操作的独立设备 ID")
-    generation: int = Field(..., ge=1, description="即将签署的操作代次")
+    generation: int = Field(default=1, ge=1, description="即将签署的操作代次（兼容字段）")
+    device_generation: int | None = Field(
+        default=None, ge=1, description="签名设备身份代次；与 binding 代次分开"
+    )
+    operation_generation: int | None = Field(
+        default=None, ge=1, description="即将签署的 binding 或设备操作代次"
+    )
     binding_id: UUID | None = Field(default=None, description="操作绑定的浏览器绑定 ID")
+
+    @model_validator(mode="after")
+    def normalize_explicit_generations(self) -> "EgoBrowserProofChallengeRequest":
+        """
+        兼容旧 generation，同时保留设备与操作代次的明确命名。
+
+        :return "EgoBrowserProofChallengeRequest": 规范化后的挑战请求
+        """
+
+        if self.operation_generation is not None:
+            if self.generation != 1 and self.generation != self.operation_generation:
+                raise ValueError("generation and operation_generation disagree")
+            self.generation = self.operation_generation
+        return self
 
 
 class EgoBrowserProofChallengeData(_Schema):
-    """一次性设备所有权证明挑战。"""
+    """
+    一次性设备所有权证明挑战。
+    """
 
     challenge: str = Field(..., min_length=43, max_length=64, description="单次随机挑战值")
     expires_at: datetime = Field(..., description="挑战过期时间")
+    device_generation: int | None = Field(default=None, ge=1, description="签名设备身份代次")
+    operation_generation: int | None = Field(default=None, ge=1, description="本次操作代次")
 
 
 class EgoBrowserProofChallengeResponse(_Schema):
-    """一次性设备所有权证明挑战响应。"""
+    """
+    一次性设备所有权证明挑战响应。
+    """
 
     data: EgoBrowserProofChallengeData = Field(..., description="挑战数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserDeviceRegisterRequest(_Schema):
-    """注册或轮换独立 ego-browser 设备的请求。"""
+    """
+    注册或轮换独立 ego-browser 设备的请求。
+    """
 
     device_id: UUID = Field(..., description="待注册或轮换的独立设备 ID")
     public_key: str = Field(
@@ -81,14 +123,27 @@ class EgoBrowserDeviceRegisterRequest(_Schema):
     encryption_public_key: str | None = Field(
         default=None, min_length=40, max_length=64, description="独立 X25519 加密公钥"
     )
+    signing_public_key: str | None = Field(
+        default=None, min_length=40, max_length=64, description="签名公钥的明确兼容字段"
+    )
     generation: int = Field(default=1, ge=1, description="待注册或轮换的设备代次")
+    device_generation: int | None = Field(
+        default=None, ge=1, description="独立设备身份代次；优先于旧 generation 字段"
+    )
+    enrollment_mode: EgoBrowserEnrollmentMode = Field(
+        default="initial",
+        description="设备登记意图：首次登记、幂等 ensure、显式重新加入或密钥轮换",
+    )
     release_profile: EgoBrowserReleaseProfile = Field(
         ..., description="Bridge 构建与签名发布配置档案"
     )
     credential_profile: EgoBrowserCredentialProfile = Field(..., description="设备凭据存储配置档案")
     platform: Literal["macos"] = Field(..., description="独立设备支持的本地平台")
     bridge_protocol_version: str = Field(
-        default="ego-browser-bridge-v1", min_length=1, max_length=64, description="Bridge 协议版本"
+        default=EGO_BROWSER_PROTOCOL_VERSION,
+        min_length=1,
+        max_length=64,
+        description="Bridge 协议版本",
     )
     bridge_version: str | None = Field(default=None, max_length=64, description="Bridge 客户端版本")
     local_ego_browser_runtime_version: str | None = Field(
@@ -113,6 +168,8 @@ class EgoBrowserDeviceRegisterRequest(_Schema):
     capabilities: list[str] = Field(
         default_factory=list, max_length=32, description="经策略校验的 Bridge 能力列表"
     )
+    policy_digest: str | None = Field(default=None, max_length=128, description="本地策略摘要")
+    capability_digest: str | None = Field(default=None, max_length=128, description="能力集合摘要")
     proof_challenge: str | None = Field(
         default=None, max_length=512, description="一次性设备 PoP 挑战值"
     )
@@ -127,9 +184,7 @@ class EgoBrowserDeviceRegisterRequest(_Schema):
         拒绝凭据字段中的控制字符。
 
         :param value (str | None): 待校验或规范化的值
-
         :return str | None: 通过控制字符校验的原值
-
         :raises ValueError: 值包含控制字符
         """
         if value is not None and any(ord(char) < 0x20 for char in value):
@@ -141,28 +196,43 @@ class EgoBrowserDeviceRegisterRequest(_Schema):
         """
         确保所有权证明挑战和签名必须成对出现。
 
-        :return EgoBrowserDeviceRegisterRequest: 通过 proof 字段完整性校验的注册请求
-
+        :return "EgoBrowserDeviceRegisterRequest": 通过 proof 字段完整性校验的注册请求
         :raises ValueError: challenge 与签名未同时提供
         """
         if (self.proof_challenge is None) != (self.proof_signature is None):
             raise ValueError("proof_challenge and proof_signature must be supplied together")
+        if self.device_generation is not None:
+            if self.generation != 1 and self.generation != self.device_generation:
+                raise ValueError("generation and device_generation disagree")
+            self.generation = self.device_generation
+        if self.signing_public_key is not None and self.signing_public_key != self.public_key:
+            raise ValueError("public_key and signing_public_key disagree")
         return self
 
 
 class EgoBrowserDeviceCredentialData(_Schema):
-    """独立 ego-browser 设备凭据的非秘密元数据。"""
+    """
+    独立 ego-browser 设备凭据的非秘密元数据。
+    """
 
     id: UUID = Field(..., description="凭据记录 ID")
     ego_browser_device_id: UUID = Field(..., description="所属独立浏览器设备 ID")
     credential_profile: EgoBrowserCredentialProfile = Field(..., description="凭据存储配置档案")
-    generation: int = Field(..., description="签发时设备代次")
+    generation: int = Field(..., description="签发时设备代次（兼容字段）")
+    device_generation: int = Field(..., description="签发时独立设备身份代次")
     revision: int = Field(..., description="凭据轮换修订版本")
+    credential_revision: int = Field(..., description="明确命名的凭据轮换修订版本")
     expires_at: datetime = Field(..., description="凭据过期时间")
+    credential_expires_at: datetime = Field(..., description="明确命名的凭据过期时间")
+    credential_scope: Literal["device"] = Field(
+        default="device", description="凭据仅授权一个独立 Device identity"
+    )
 
 
 class EgoBrowserDeviceCredentialIssueData(EgoBrowserDeviceCredentialData):
-    """独立设备凭据首次签发响应；原始 token 只在此响应出现。"""
+    """
+    独立设备凭据首次签发响应；原始 token 只在此响应出现。
+    """
 
     access_token: str = Field(..., description="仅返回一次的独立设备访问凭据")
     token_type: str = Field(default="bearer", description="凭据类型")
@@ -170,15 +240,20 @@ class EgoBrowserDeviceCredentialIssueData(EgoBrowserDeviceCredentialData):
 
 
 class EgoBrowserDeviceData(_Schema):
-    """独立 ego-browser 设备的零内容响应数据。"""
+    """
+    独立 ego-browser 设备的零内容响应数据。
+    """
 
     id: UUID = Field(..., description="设备 ID")
+    device_id: UUID = Field(..., description="明确命名的独立设备 ID")
     user_id: UUID = Field(..., description="所属用户 ID")
     public_key: str = Field(..., description="设备公钥")
+    signing_public_key: str = Field(..., description="明确命名的 Ed25519 签名公钥")
     encryption_public_key: str | None = Field(
         default=None, description="Bridge 密钥包装用 X25519 公钥"
     )
-    generation: int = Field(..., description="设备代次")
+    generation: int = Field(..., description="设备代次（兼容字段）")
+    device_generation: int = Field(..., description="独立设备身份代次")
     status: Literal["active", "retiring", "revoked"] = Field(..., description="设备状态")
     platform: Literal["macos"] = Field(..., description="本地平台")
     release_profile: EgoBrowserReleaseProfile = Field(..., description="Bridge 发布配置档案")
@@ -197,6 +272,9 @@ class EgoBrowserDeviceData(_Schema):
     allowlist_revision: int = Field(..., description="文件允许列表修订版本")
     allowlist_roots_digest: str | None = Field(default=None, description="允许列表根摘要")
     learning_bundle_digest: str | None = Field(default=None, description="学习软件包内容摘要")
+    policy_digest: str = Field(..., description="规范化本地策略摘要")
+    capability_digest: str = Field(..., description="规范化能力集合摘要")
+    server_origin: str = Field(..., description="登记该身份的规范 Server origin")
     last_seen_at: datetime | None = Field(default=None, description="最后在线时间")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
@@ -206,29 +284,38 @@ class EgoBrowserDeviceData(_Schema):
 
 
 class EgoBrowserDeviceResponse(_Schema):
-    """单个设备响应。"""
+    """
+    单个设备响应。
+    """
 
     data: EgoBrowserDeviceData = Field(..., description="独立设备响应数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserDeviceListData(_Schema):
-    """设备列表响应数据。"""
+    """
+    设备列表响应数据。
+    """
 
     items: list[EgoBrowserDeviceData] = Field(default_factory=list, description="独立设备数据列表")
 
 
 class EgoBrowserDeviceListResponse(_Schema):
-    """设备列表响应。"""
+    """
+    设备列表响应。
+    """
 
     data: EgoBrowserDeviceListData = Field(..., description="独立设备列表数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserDeviceRevokeRequest(_Schema):
-    """永久撤销独立 ego-browser 设备及其凭据的请求。"""
+    """
+    永久撤销独立 ego-browser 设备及其凭据的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="期望的设备代次")
+    generation: int = Field(default=1, ge=1, description="期望的设备代次（兼容字段）")
+    device_generation: int | None = Field(default=None, ge=1, description="期望的独立设备身份代次")
     reason: str = Field(
         default="device_revoked", min_length=1, max_length=64, description="设备撤销原因"
     )
@@ -240,18 +327,23 @@ class EgoBrowserDeviceRevokeRequest(_Schema):
         """
         确保设备撤销请求的 proof 字段成对出现。
 
-        :return EgoBrowserDeviceRevokeRequest: 通过 proof 字段完整性校验的撤销请求
-
+        :return "EgoBrowserDeviceRevokeRequest": 通过 proof 字段完整性校验的撤销请求
         :raises ValueError: challenge 与签名未同时提供
         """
 
         if (self.proof_challenge is None) != (self.proof_signature is None):
             raise ValueError("proof_challenge and proof_signature must be supplied together")
+        if self.device_generation is not None:
+            if self.generation != 1 and self.generation != self.device_generation:
+                raise ValueError("generation and device_generation disagree")
+            self.generation = self.device_generation
         return self
 
 
 class EgoBrowserBindingClaimRequest(_Schema):
-    """用户明确选择远端会话后创建绑定的请求。"""
+    """
+    用户明确选择远端会话后创建绑定的请求。
+    """
 
     tool_session_id: UUID = Field(..., description="关联的远端工具会话 ID")
     ego_browser_device_id: UUID = Field(..., description="关联的独立 ego-browser 设备 ID")
@@ -294,8 +386,7 @@ class EgoBrowserBindingClaimRequest(_Schema):
         """
         要求显式全信任确认并校验 proof 字段成对出现。
 
-        :return EgoBrowserBindingClaimRequest: 通过用户确认与 proof 完整性校验的认领请求
-
+        :return "EgoBrowserBindingClaimRequest": 通过用户确认与 proof 完整性校验的认领请求
         :raises ValueError: 用户未明确确认全信任操作或 proof 字段不完整
         """
         if not self.user_confirmation:
@@ -306,7 +397,9 @@ class EgoBrowserBindingClaimRequest(_Schema):
 
 
 class EgoBrowserBindingCandidateData(_Schema):
-    """可供用户选择的远端 Claude 会话候选。"""
+    """
+    可供用户选择的远端 Claude 会话候选。
+    """
 
     tool_session_id: UUID = Field(..., description="关联的远端工具会话 ID")
     tool_type: Literal["claude"] = Field(..., description="候选会话的工具类型")
@@ -328,7 +421,9 @@ class EgoBrowserBindingCandidateData(_Schema):
 
 
 class EgoBrowserBindingCandidateListData(_Schema):
-    """绑定候选列表数据。"""
+    """
+    绑定候选列表数据。
+    """
 
     items: list[EgoBrowserBindingCandidateData] = Field(
         default_factory=list, description="可认领的远端会话候选列表"
@@ -336,14 +431,18 @@ class EgoBrowserBindingCandidateListData(_Schema):
 
 
 class EgoBrowserBindingCandidateListResponse(_Schema):
-    """绑定候选列表响应。"""
+    """
+    绑定候选列表响应。
+    """
 
     data: EgoBrowserBindingCandidateListData = Field(..., description="绑定候选列表数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserBindingData(_Schema):
-    """ego-browser 绑定的生命周期和能力元数据。"""
+    """
+    ego-browser 绑定的生命周期和能力元数据。
+    """
 
     id: UUID = Field(..., description="独立浏览器绑定标识")
     user_id: UUID = Field(..., description="绑定所属用户 ID")
@@ -387,7 +486,8 @@ class EgoBrowserBindingData(_Schema):
     lease_renew_interval_seconds: int = Field(..., description="Bridge 自动续租间隔秒数")
     lease_renew_failure_grace_seconds: int = Field(..., description="续租失败后的宽限秒数")
     absolute_ttl_until: datetime = Field(..., description="绑定绝对 TTL 截止时间")
-    generation: int = Field(..., description="绑定当前代次")
+    generation: int = Field(..., description="绑定当前代次（兼容字段）")
+    binding_generation: int = Field(..., description="绑定当前代次")
     connected_at: datetime | None = Field(..., description="当前代次首次激活时间")
     stopped_at: datetime | None = Field(..., description="绑定进入终态的时间")
     stop_reason: str | None = Field(..., description="绑定进入终态或暂停的原因")
@@ -397,14 +497,18 @@ class EgoBrowserBindingData(_Schema):
 
 
 class EgoBrowserBindingResponse(_Schema):
-    """单个绑定响应。"""
+    """
+    单个绑定响应。
+    """
 
     data: EgoBrowserBindingData = Field(..., description="单个绑定响应数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserBindingListData(_Schema):
-    """绑定列表响应数据。"""
+    """
+    绑定列表响应数据。
+    """
 
     items: list[EgoBrowserBindingData] = Field(
         default_factory=list, description="ego-browser 绑定数据列表"
@@ -412,18 +516,23 @@ class EgoBrowserBindingListData(_Schema):
 
 
 class EgoBrowserBindingListResponse(_Schema):
-    """绑定列表响应。"""
+    """
+    绑定列表响应。
+    """
 
     data: EgoBrowserBindingListData = Field(..., description="绑定列表响应数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserActiveRequestData(_Schema):
-    """可由用户取消的零内容 browser request 元数据。"""
+    """
+    可由用户取消的零内容 browser request 元数据。
+    """
 
     id: UUID = Field(..., description="请求账本 ID")
     binding_id: UUID = Field(..., description="所属浏览器绑定 ID")
-    generation: int = Field(..., ge=1, description="请求绑定代次")
+    generation: int = Field(..., ge=1, description="请求绑定代次（兼容字段）")
+    binding_generation: int = Field(..., ge=1, description="请求绑定代次")
     request_id: str = Field(..., min_length=1, max_length=128, description="不透明请求 ID")
     sequence: int = Field(..., ge=1, description="代次内单调序号")
     message_type: Literal["execute"] = Field(..., description="原始请求消息类型")
@@ -433,7 +542,9 @@ class EgoBrowserActiveRequestData(_Schema):
 
 
 class EgoBrowserActiveRequestListData(_Schema):
-    """当前可取消 browser request 列表数据。"""
+    """
+    当前可取消 browser request 列表数据。
+    """
 
     items: list[EgoBrowserActiveRequestData] = Field(
         default_factory=list, description="当前活跃浏览器请求列表"
@@ -441,30 +552,54 @@ class EgoBrowserActiveRequestListData(_Schema):
 
 
 class EgoBrowserActiveRequestListResponse(_Schema):
-    """当前可取消 browser request 列表响应。"""
+    """
+    当前可取消 browser request 列表响应。
+    """
 
     data: EgoBrowserActiveRequestListData = Field(..., description="活跃请求列表数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserCancelRequest(_Schema):
-    """取消一个确切 browser request 的控制请求。"""
+    """
+    取消一个确切 browser request 的控制请求。
+    """
 
-    generation: int = Field(..., ge=1, description="原始请求代次")
+    generation: int = Field(default=1, ge=1, description="原始请求代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="原始请求绑定代次")
     sequence: int = Field(..., ge=1, description="原始请求序号")
+
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserCancelRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserCancelRequest": 规范化后的取消请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
 
 
 class EgoBrowserCancelResponse(_Schema):
-    """请求取消状态响应。"""
+    """
+    请求取消状态响应。
+    """
 
     data: EgoBrowserActiveRequestData = Field(..., description="取消后的请求元数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserConnectedRequest(_Schema):
-    """Bridge 上报本地运行时能力并激活绑定的请求。"""
+    """
+    Bridge 上报本地运行时能力并激活绑定的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="待激活的绑定代次")
+    generation: int = Field(default=1, ge=1, description="待激活的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="待激活的绑定代次")
     encryption_public_key: str | None = Field(
         default=None, min_length=40, max_length=64, description="Bridge X25519 公钥"
     )
@@ -507,11 +642,28 @@ class EgoBrowserConnectedRequest(_Schema):
         default=None, max_length=512, description="设备对 PoP 挑战值的签名"
     )
 
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserConnectedRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserConnectedRequest": 规范化后的连接请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
+
 
 class EgoBrowserRenewRequest(_Schema):
-    """Bridge 续租当前绑定代次的请求。"""
+    """
+    Bridge 续租当前绑定代次的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="待续租的绑定代次")
+    generation: int = Field(default=1, ge=1, description="待续租的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="待续租的绑定代次")
     allowlist_revision: int = Field(..., ge=1, description="文件允许列表修订版本")
     learning_bundle_digest: str | None = Field(
         default=None, max_length=80, description="学习 bundle 内容摘要"
@@ -523,11 +675,28 @@ class EgoBrowserRenewRequest(_Schema):
         default=None, max_length=512, description="设备对 PoP 挑战值的签名"
     )
 
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserRenewRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserRenewRequest": 规范化后的续租请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
+
 
 class EgoBrowserLifecycleRequest(_Schema):
-    """停止或暂停绑定的生命周期请求。"""
+    """
+    停止或暂停绑定的生命周期请求。
+    """
 
-    generation: int = Field(..., ge=1, description="期望的绑定代次")
+    generation: int = Field(default=1, ge=1, description="期望的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="期望的绑定代次")
     reason: str = Field(
         default="user_stop", min_length=1, max_length=64, description="生命周期原因"
     )
@@ -539,20 +708,26 @@ class EgoBrowserLifecycleRequest(_Schema):
         """
         确保生命周期请求的 proof 字段成对出现。
 
-        :return EgoBrowserLifecycleRequest: 通过 proof 字段完整性校验的生命周期请求
-
+        :return "EgoBrowserLifecycleRequest": 通过 proof 字段完整性校验的生命周期请求
         :raises ValueError: challenge 与签名未同时提供
         """
 
         if (self.proof_challenge is None) != (self.proof_signature is None):
             raise ValueError("proof_challenge and proof_signature must be supplied together")
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
         return self
 
 
 class EgoBrowserResumeRequest(_Schema):
-    """用户确认后恢复暂停绑定的请求。"""
+    """
+    用户确认后恢复暂停绑定的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="待恢复的绑定代次")
+    generation: int = Field(default=1, ge=1, description="待恢复的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="待恢复的绑定代次")
     user_confirmation: bool = Field(..., description="用户是否明确确认当前高权限操作")
     allowlist_revision: int = Field(..., ge=1, description="文件允许列表修订版本")
     learning_bundle_digest: str | None = Field(
@@ -570,12 +745,15 @@ class EgoBrowserResumeRequest(_Schema):
         """
         确保恢复请求的 proof 字段成对出现。
 
-        :return EgoBrowserResumeRequest: 通过 proof 字段完整性校验的恢复请求
-
+        :return "EgoBrowserResumeRequest": 通过 proof 字段完整性校验的恢复请求
         :raises ValueError: challenge 与签名未同时提供
         """
         if (self.proof_challenge is None) != (self.proof_signature is None):
             raise ValueError("proof_challenge and proof_signature must be supplied together")
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
         return self
 
     @field_validator("user_confirmation")
@@ -585,9 +763,7 @@ class EgoBrowserResumeRequest(_Schema):
         要求恢复操作包含显式用户确认。
 
         :param value (bool): 待校验或规范化的值
-
         :return bool: 通过显式确认校验的布尔值
-
         :raises ValueError: 用户未明确确认恢复操作
         """
         if not value:
@@ -596,9 +772,12 @@ class EgoBrowserResumeRequest(_Schema):
 
 
 class EgoBrowserRelayTicketRequest(_Schema):
-    """申请一次性中继票据的请求。"""
+    """
+    申请一次性中继票据的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="申请票据的绑定代次")
+    generation: int = Field(default=1, ge=1, description="申请票据的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="申请票据的绑定代次")
     role: EgoBrowserRelayRole = Field(..., description="中继连接端角色")
     ego_browser_device_id: UUID | None = Field(
         default=None, description="关联的独立 ego-browser 设备 ID"
@@ -610,12 +789,29 @@ class EgoBrowserRelayTicketRequest(_Schema):
         default=None, max_length=512, description="设备对 PoP 挑战值的签名"
     )
 
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserRelayTicketRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserRelayTicketRequest": 规范化后的 relay 票据请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
+
 
 class EgoBrowserRelayTicketData(_Schema):
-    """一次性中继票据的返回元数据。"""
+    """
+    一次性中继票据的返回元数据。
+    """
 
     role: EgoBrowserRelayRole = Field(..., description="中继连接端角色")
-    generation: int = Field(..., description="票据绑定的代次")
+    generation: int = Field(..., description="票据绑定的代次（兼容字段）")
+    binding_generation: int = Field(..., description="票据绑定的代次")
     relay_binding_kind: Literal["ego_browser"] = Field(
         ..., description="独立 ego-browser 中继绑定类型"
     )
@@ -625,14 +821,18 @@ class EgoBrowserRelayTicketData(_Schema):
 
 
 class EgoBrowserRelayTicketResponse(_Schema):
-    """中继票据响应。"""
+    """
+    中继票据响应。
+    """
 
     data: EgoBrowserRelayTicketData = Field(..., description="一次性中继票据数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserNodeBindingData(_Schema):
-    """提供给承载封装器的 Node 的绑定元数据；不包含脚本或连接秘密。"""
+    """
+    提供给承载封装器的 Node 的绑定元数据；不包含脚本或连接秘密。
+    """
 
     binding_id: UUID = Field(..., description="独立浏览器绑定标识")
     ego_browser_device_id: UUID = Field(..., description="本地独立浏览器设备 ID")
@@ -644,7 +844,8 @@ class EgoBrowserNodeBindingData(_Schema):
     relay_binding_kind: Literal["ego_browser"] = Field(..., description="独立中继绑定类型")
     authorization_mode: EgoBrowserAuthorizationMode = Field(..., description="全信任授权模式")
     authorization_policy_version: int = Field(..., description="授权策略版本")
-    generation: int = Field(..., description="当前绑定代次")
+    generation: int = Field(..., description="当前绑定代次（兼容字段）")
+    binding_generation: int = Field(..., description="当前绑定代次")
     release_profile: EgoBrowserReleaseProfile = Field(..., description="Bridge 发布配置档案")
     signer_certificate_sha256: str = Field(..., description="签名证书摘要")
     credential_profile: EgoBrowserCredentialProfile = Field(..., description="凭据存储配置档案")
@@ -670,33 +871,57 @@ class EgoBrowserNodeBindingData(_Schema):
 
 
 class EgoBrowserNodeBindingListData(_Schema):
-    """Node 当前承载的 ego-browser 绑定列表。"""
+    """
+    Node 当前承载的 ego-browser 绑定列表。
+    """
 
     items: list[EgoBrowserNodeBindingData] = Field(default_factory=list, description="绑定列表")
 
 
 class EgoBrowserNodeBindingListResponse(_Schema):
-    """Node 绑定列表响应。"""
+    """
+    Node 绑定列表响应。
+    """
 
     data: EgoBrowserNodeBindingListData = Field(..., description="绑定列表数据")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class EgoBrowserNodeRenewRequest(_Schema):
-    """Node 代理续租绑定的请求。"""
+    """
+    Node 代理续租绑定的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="期望的绑定代次")
+    generation: int = Field(default=1, ge=1, description="期望的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="期望的绑定代次")
     allowlist_revision: int = Field(..., ge=1, description="期望的允许列表修订版本")
     learning_bundle_digest: str | None = Field(
         default=None, max_length=80, description="期望的学习 bundle 摘要"
     )
 
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserNodeRenewRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserNodeRenewRequest": 规范化后的 Node 续租请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
+
 
 class EgoBrowserNodeRenewData(_Schema):
-    """Node 代理续租结果。"""
+    """
+    Node 代理续租结果。
+    """
 
     binding_id: UUID = Field(..., description="独立浏览器绑定标识")
-    generation: int = Field(..., description="当前代次")
+    generation: int = Field(..., description="当前代次（兼容字段）")
+    binding_generation: int = Field(..., description="当前绑定代次")
     lease_until: datetime | None = Field(default=None, description="新的租约截止时间")
     lease_health: EgoBrowserLeaseHealth = Field(..., description="租约健康状态")
     lease_grace_until: datetime | None = Field(default=None, description="宽限截止时间")
@@ -704,14 +929,18 @@ class EgoBrowserNodeRenewData(_Schema):
 
 
 class EgoBrowserNodeRenewResponse(_Schema):
-    """Node 代理续租响应。"""
+    """
+    Node 代理续租响应。
+    """
 
     data: EgoBrowserNodeRenewData = Field(..., description="续租结果")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 
 class EgoBrowserAllowlistData(_Schema):
-    """文件允许列表的修订版本和限制元数据。"""
+    """
+    文件允许列表的修订版本和限制元数据。
+    """
 
     allowlist_revision: int = Field(..., description="文件允许列表修订版本")
     roots_digest: str | None = Field(..., description="规范化允许列表根摘要")
@@ -719,16 +948,21 @@ class EgoBrowserAllowlistData(_Schema):
 
 
 class EgoBrowserAllowlistResponse(_Schema):
-    """文件允许列表响应。"""
+    """
+    文件允许列表响应。
+    """
 
     data: EgoBrowserAllowlistData = Field(..., description="允许列表修订版本与文件限制数据")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserAllowlistConfirmRequest(_Schema):
-    """用户确认新文件允许列表修订版本的请求。"""
+    """
+    用户确认新文件允许列表修订版本的请求。
+    """
 
-    generation: int = Field(..., ge=1, description="期望的绑定代次")
+    generation: int = Field(..., ge=1, description="期望的绑定代次（兼容字段）")
+    binding_generation: int | None = Field(default=None, ge=1, description="期望的绑定代次")
     expected_revision: int = Field(..., ge=1, description="客户端期望替换的允许列表修订版本")
     roots_digest: str = Field(..., min_length=1, max_length=128, description="规范化允许列表根摘要")
     user_confirmation: bool = Field(..., description="用户是否明确确认当前高权限操作")
@@ -739,6 +973,20 @@ class EgoBrowserAllowlistConfirmRequest(_Schema):
         default=None, max_length=512, description="设备对 PoP 挑战值的签名"
     )
 
+    @model_validator(mode="after")
+    def normalize_binding_generation(self) -> "EgoBrowserAllowlistConfirmRequest":
+        """
+        兼容旧 generation 字段并固定其 binding 语义。
+
+        :return "EgoBrowserAllowlistConfirmRequest": 规范化后的 allowlist 确认请求
+        """
+
+        if self.binding_generation is not None:
+            if self.generation != 1 and self.generation != self.binding_generation:
+                raise ValueError("generation and binding_generation disagree")
+            self.generation = self.binding_generation
+        return self
+
     @field_validator("user_confirmation")
     @classmethod
     def must_confirm(cls, value: bool) -> bool:
@@ -746,9 +994,7 @@ class EgoBrowserAllowlistConfirmRequest(_Schema):
         要求 allowlist 更新包含显式用户确认。
 
         :param value (bool): 待校验或规范化的值
-
         :return bool: 通过显式确认校验的布尔值
-
         :raises ValueError: 用户未明确确认 allowlist 更新
         """
         if not value:
@@ -757,9 +1003,11 @@ class EgoBrowserAllowlistConfirmRequest(_Schema):
 
 
 class EgoBrowserOuterEnvelope(_Schema):
-    """服务端可见的外层信封；内层密文始终保持 opaque。"""
+    """
+    服务端可见的外层信封；内层密文始终保持 opaque。
+    """
 
-    protocol: Literal["ego-browser-bridge-v1"] = Field(..., description="外层中继协议版本")
+    protocol: EgoBrowserProtocol = Field(..., description="外层中继协议版本")
     channel: Literal["ego_browser_bridge"] = Field(..., description="外层信封使用的独立控制通道")
     relay_binding_kind: Literal["ego_browser"] = Field(
         ..., description="独立 ego-browser 中继绑定类型"
@@ -785,8 +1033,7 @@ class EgoBrowserOuterEnvelope(_Schema):
         """
         确保外层消息类型与传输方向一致。
 
-        :return EgoBrowserOuterEnvelope: 通过消息方向与类型校验的外层信封
-
+        :return "EgoBrowserOuterEnvelope": 通过消息方向与类型校验的外层信封
         :raises ValueError: 消息类型与传输方向不匹配
         """
         if (self.direction == "request" and self.type not in {"execute", "cancel"}) or (
@@ -797,10 +1044,16 @@ class EgoBrowserOuterEnvelope(_Schema):
 
 
 class EgoBrowserPolicyData(_Schema):
-    """当前 Bridge 策略与限制。"""
+    """
+    当前 Bridge 策略与限制。
+    """
 
     enabled: bool = Field(..., description="部署是否启用 ego-browser 桥接服务")
-    protocol: Literal["ego-browser-bridge-v1"] = Field(..., description="外层中继协议版本")
+    enrollment_enabled: bool = Field(
+        default=True, description="是否允许设备登记、状态查询和凭据刷新"
+    )
+    execution_admission: bool = Field(default=False, description="是否允许 claim、relay 和远端执行")
+    protocol: EgoBrowserProtocol = Field(..., description="外层中继协议版本")
     authorization_mode: EgoBrowserAuthorizationMode = Field(..., description="脚本全信任授权模式")
     authorization_policy_version: int = Field(..., description="授权策略版本")
     remote_platform: Literal["linux"] = Field(..., description="远端封装器所在平台")
@@ -815,15 +1068,64 @@ class EgoBrowserPolicyData(_Schema):
     max_script_bytes: int = Field(..., description="单次脚本载荷最大字节数")
 
 
+class EgoBrowserMachineStateData(_Schema):
+    """
+    Server 可证明的五状态投影；本机不可观察的值保持 unknown。
+    """
+
+    installed: bool | None = Field(
+        default=None, description="本机 release 验证状态；Server 无本机证据时为 null"
+    )
+    enabled: bool | None = Field(
+        default=None, description="本机功能和 release 启用状态；Server 无本机证据时为 null"
+    )
+    registered: bool = Field(..., description="是否存在 active Server Device")
+    available: bool | None = Field(
+        default=None,
+        description="是否满足 claim 前置条件；本机 readiness 不可观察时为 null",
+    )
+    connected: bool | None = Field(
+        default=None,
+        description="是否满足执行条件；本机 admission 不可观察时为 null",
+    )
+
+
+class EgoBrowserLifecycleStatusData(_Schema):
+    """
+    不把 Server 记录猜测成本机状态的只读生命周期摘要。
+    """
+
+    state: EgoBrowserMachineStateData = Field(..., description="统一五状态投影")
+    scope: Literal["current_user", "all_users"] = Field(..., description="状态聚合范围")
+    local_observation: Literal["unknown"] = Field(
+        default="unknown", description="Server 无法直接观察本机 release 和 admission"
+    )
+    stale: bool = Field(default=False, description="Server 查询结果是否来自缓存")
+    checked_at: datetime = Field(..., description="Server 计算该投影的时间")
+
+
+class EgoBrowserLifecycleStatusResponse(_Schema):
+    """
+    统一五状态响应。
+    """
+
+    data: EgoBrowserLifecycleStatusData = Field(..., description="生命周期状态数据")
+    request_id: str | None = Field(default=None, description="请求追踪 ID")
+
+
 class EgoBrowserPolicyResponse(_Schema):
-    """策略响应。"""
+    """
+    策略响应。
+    """
 
     data: EgoBrowserPolicyData = Field(..., description="当前 Bridge 策略与限制")
     request_id: str | None = Field(default=None, description="请求追踪 ID")
 
 
 class EgoBrowserErrorResponse(_Schema):
-    """ego-browser 接口错误响应。"""
+    """
+    ego-browser 接口错误响应。
+    """
 
     error: dict[str, object] = Field(..., description="结构化 API 错误对象")
     request_id: str | None = Field(default=None, description="请求追踪 ID")

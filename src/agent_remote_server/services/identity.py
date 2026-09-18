@@ -1,3 +1,7 @@
+"""
+实现身份业务逻辑。
+"""
+
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -87,6 +91,14 @@ class IdentityService:
         relay_hub: DeviceRelayHub | None = None,
         ego_browser_revocation_publisher: EgoBrowserRevocationPublisher | None = None,
     ) -> None:
+        """
+        初始化身份业务服务。
+
+        :param session (AsyncSession): 会话
+        :param settings (Settings): 配置
+        :param relay_hub (DeviceRelayHub | None): 中继中心
+        :param ego_browser_revocation_publisher (EgoBrowserRevocationPublisher | None): 撤销发布器
+        """
         self._session = session
         self._settings = settings
         self._repository = IdentityRepository(session)
@@ -115,10 +127,8 @@ class IdentityService:
 
         :param username (str): 用户名
         :param password (str): 明文密码
-        :param display_name (str): 显示名
-
+        :param display_name (str | None): 显示名
         :return TokenIssue: 管理员登录令牌
-
         :raises ApiError: 系统已经完成首个管理员初始化
         """
 
@@ -162,10 +172,8 @@ class IdentityService:
 
         :param username (str): 用户名
         :param password (str): 明文密码
-        :param totp_code (str): TOTP 验证码
-
+        :param totp_code (str | None): TOTP 验证码
         :return TokenIssue: 登录令牌
-
         :raises ApiError: 用户凭据无效或仍需有效的 TOTP 验证码
         """
 
@@ -235,7 +243,6 @@ class IdentityService:
         刷新当前令牌
 
         :param token (AuthToken): 当前令牌
-
         :return TokenIssue: 新令牌
         """
 
@@ -294,7 +301,6 @@ class IdentityService:
 
         :param user (User): 当前用户
         :param user_code (str): 用户确认码
-
         :raises ApiError: CLI 登录码不存在或不再可确认
         """
 
@@ -320,9 +326,7 @@ class IdentityService:
         CLI 轮询完成登录
 
         :param device_code (str): 设备代码
-
         :return TokenIssue: 登录令牌
-
         :raises ApiError: CLI 登录码不存在、已过期、未获批准或已不可使用
         """
 
@@ -378,8 +382,7 @@ class IdentityService:
         :param username (str): 用户名
         :param password (str): 明文密码
         :param role (str): 角色
-        :param display_name (str): 显示名
-
+        :param display_name (str | None): 显示名
         :return User: 新用户
         """
 
@@ -417,9 +420,8 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param user_id (UUID): 用户 ID
-        :param display_name (str): 显示名
-        :param status (str): 用户状态
-
+        :param display_name (str | None): 显示名
+        :param status (str | None): 用户状态
         :return User: 更新后的用户
         """
 
@@ -463,7 +465,6 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param user_id (UUID): 用户 ID
-
         :return User: 禁用后的用户
         """
 
@@ -502,7 +503,6 @@ class IdentityService:
         创建并保存 TOTP 密钥
 
         :param user (User): 当前用户
-
         :return str: 明文密钥
         """
 
@@ -525,7 +525,6 @@ class IdentityService:
 
         :param user (User): 当前用户
         :param code (str): TOTP 验证码
-
         :raises ApiError: TOTP 尚未设置或验证码无效
         """
 
@@ -567,13 +566,11 @@ class IdentityService:
         :param user (User): 当前用户
         :param name (str): 设备名称
         :param platform (str): 设备平台
-        :param cli_version (str): agent-remote CLI 版本
+        :param cli_version (str | None): agent-remote CLI 版本
         :param ssh_public_key (str): SSH 公钥
-        :param wireguard_public_key (str): WireGuard 公钥
+        :param wireguard_public_key (str | None): WireGuard 公钥
         :param existing_device_id (UUID | None): 需要复用的现有设备 ID
-
         :return DeviceRegistrationResult: 注册结果
-
         :raises ApiError: 指定的复用设备不存在或未处于启用状态
         """
 
@@ -681,7 +678,6 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param device_id (UUID): 设备 ID
-
         :return UserDevice: 撤销后的设备
         """
 
@@ -760,7 +756,6 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param device_id (UUID): 设备 ID
-
         :raises ApiError: 设备未撤销或仍有关联工作区与控制历史
         """
 
@@ -799,9 +794,7 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param device_id (UUID): 设备 ID
-
         :return TokenIssue: 新设备令牌
-
         :raises ApiError: 设备已经撤销
         """
 
@@ -828,7 +821,7 @@ class IdentityService:
         """
         列出所有用户
 
-        :return list: 用户列表
+        :return list[User]: 用户列表
         """
 
         return list(await self._repository.list_users())
@@ -838,8 +831,7 @@ class IdentityService:
         列出当前用户设备
 
         :param user (User): 当前用户
-
-        :return list: 设备列表
+        :return list[UserDevice]: 设备列表
         """
 
         return list(await self._repository.list_devices_for_user(user.id))
@@ -850,7 +842,6 @@ class IdentityService:
 
         :param actor (User): 操作人
         :param device_id (UUID): 设备 ID
-
         :return UserDevice: 设备实体
         """
 
@@ -861,7 +852,6 @@ class IdentityService:
         读取用户
 
         :param user_id (UUID): 用户 ID
-
         :return User: 用户实体
         """
 
@@ -874,6 +864,14 @@ class IdentityService:
         device: UserDevice | None,
         token_type: str,
     ) -> TokenIssue:
+        """
+        签发令牌。
+
+        :param user (User): 用户
+        :param device (UserDevice | None): 设备
+        :param token_type (str): 令牌类型
+        :return TokenIssue: 令牌
+        """
         raw_token = create_opaque_token("art")
         expires_in = (
             self._settings.device_token_ttl_seconds
@@ -901,6 +899,15 @@ class IdentityService:
         target_id: str,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param action (str): 操作
+        :param target_type (str): target 类型
+        :param target_id (str): 审计目标 ID
+        :param details (dict[str, object]): 详情
+        """
         await self._repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -912,18 +919,36 @@ class IdentityService:
         )
 
     async def _ensure_username_available(self, username: str) -> None:
+        """
+        确保用户名可用状态。
+
+        :param username (str): 用户名
+        """
         if await self._repository.get_user_by_username(username) is not None:
             raise ApiError(
                 code="COMMON_CONFLICT", message="Username already exists.", status_code=409
             )
 
     async def _require_user(self, user_id: UUID) -> User:
+        """
+        获取并校验用户。
+
+        :param user_id (UUID): 用户 ID
+        :return User: 用户
+        """
         user = await self._repository.get_user(user_id)
         if user is None:
             raise ApiError(code="COMMON_NOT_FOUND", message="User was not found.", status_code=404)
         return user
 
     async def _require_visible_device(self, *, actor: User, device_id: UUID) -> UserDevice:
+        """
+        获取并校验可见状态设备。
+
+        :param actor (User): 操作用户
+        :param device_id (UUID): 设备 ID
+        :return UserDevice: 可见状态设备
+        """
         device = await self._repository.get_device(device_id)
         if device is None or (actor.role != "admin" and device.user_id != actor.id):
             raise ApiError(
@@ -932,15 +957,30 @@ class IdentityService:
         return device
 
     async def _next_wireguard_ip(self) -> str:
+        """
+        返回下一个 WireGuard ip。
+
+        :return str: 下一个 WireGuard ip
+        """
         count = await self._repository.count_wireguard_peers()
         host = 2 + (count % 200)
         return f"10.77.0.{host}"
 
     def _revoke_token(self, token: AuthToken) -> None:
+        """
+        撤销令牌。
+
+        :param token (AuthToken): 令牌
+        """
         token.status = "revoked"
         token.revoked_at = self._now()
 
     def _ensure_cli_code_pending(self, cli_code: CliLoginCode) -> None:
+        """
+        确保CLI 代码待处理状态。
+
+        :param cli_code (CliLoginCode): CLI 代码
+        """
         if self._is_expired(cli_code.expires_at):
             cli_code.status = "expired"
             raise ApiError(
@@ -952,14 +992,36 @@ class IdentityService:
             )
 
     def _is_expired(self, value: datetime) -> bool:
+        """
+        判断是否过期状态。
+
+        :param value (datetime): 值
+        :return bool: 是否满足校验条件
+        """
         expires_at = value if value.tzinfo else value.replace(tzinfo=UTC)
         return expires_at <= self._now()
 
     def _now(self) -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)
 
     def _create_user_code(self) -> str:
+        """
+        创建用户代码。
+
+        :return str: 用户代码
+        """
         return f"{secrets.randbelow(10_000):04d}-{secrets.randbelow(10_000):04d}"
 
     def _fingerprint(self, public_key: str) -> str:
+        """
+        返回指纹。
+
+        :param public_key (str): 公钥
+        :return str: 指纹
+        """
         return f"SHA256:{sha256(public_key.encode('utf-8')).hexdigest()}"

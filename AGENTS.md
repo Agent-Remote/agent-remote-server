@@ -22,7 +22,14 @@ Before making changes, identify the task domain and read the matching rule docum
 
 ## Mandatory Gates
 
-- Public classes, methods, and functions in `src/` must have Chinese docstrings.
+- Every Python module, class, method, and function in `src/`, `migrations/`, `scripts/`, and
+  `tests/` must have a concise Chinese multiline docstring, including private, nested, fixture,
+  and test definitions, BaseModel classes, and dataclasses.
+- Every module docstring, plus all class and function docstrings, must place its content between
+  standalone opening and closing `"""` lines; single-line docstrings are forbidden.
+- Every function parameter except `self` and `cls` must repeat its annotated value type and a
+  Chinese description in `:param`; every non-`None` return annotation must be repeated with a
+  Chinese description in `:return`.
 - Pydantic model and settings fields must use `Field(..., description="中文描述")`.
 - Inline comments must explain why a trade-off exists, not restate the code.
 - `ruff format --check`, `ruff check`, `mypy`, `pytest`, and docstring checks must pass before commit.

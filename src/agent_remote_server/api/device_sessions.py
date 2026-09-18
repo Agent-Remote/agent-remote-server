@@ -1,3 +1,7 @@
+"""
+提供设备会话 API。
+"""
+
 from datetime import UTC, datetime
 from typing import Annotated, cast
 from uuid import UUID
@@ -72,7 +76,6 @@ async def get_device_control_policy(
 
     :param settings (Settings): 应用配置
     :param user (User): 当前管理员用户
-
     :return DeviceControlPolicyResponse: 不含连接材料的设备控制部署策略响应
     """
 
@@ -105,7 +108,6 @@ def _data(device_session: DeviceSession) -> DeviceSessionData:
     将设备控制实体转换为公开的零内容响应
 
     :param device_session (DeviceSession): 设备控制会话实体
-
     :return DeviceSessionData: 设备控制会话公开数据
     """
 
@@ -144,7 +146,6 @@ def _relay_material_data(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param material (IssuedDeviceRelayMaterial): 已签发临时连接材料
-
     :return DeviceRelayMaterialData: 设备中继临时连接材料数据
     """
 
@@ -176,12 +177,11 @@ async def create_device_session(
     管理员迁移兼容：创建严格绑定设备和远端工具 session 的控制会话
 
     :param payload (CreateDeviceSessionRequest): 创建设备控制会话请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param token (AuthToken): 当前认证令牌
-
     :return DeviceSessionResponse: 新建设备控制会话响应
     """
 
@@ -207,12 +207,11 @@ async def claim_device_session(
     由当前设备应用原子认领一个远端 Claude 会话
 
     :param payload (ClaimDeviceSessionRequest): 待 claim 的远端 session
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
     :param relay_hub (DeviceRelayHub): 设备密文 relay 连接中心
-
     :return DeviceSessionResponse: 新的设备控制会话
     """
 
@@ -238,7 +237,6 @@ async def list_device_sessions(
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param all_users (bool): 是否以管理员身份读取全部用户会话
-
     :return DeviceSessionListResponse: 设备控制会话列表响应
     """
 
@@ -266,7 +264,6 @@ async def delete_terminal_device_sessions(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return EmptyResponse: 空响应
     """
 
@@ -286,7 +283,6 @@ async def list_device_session_inbox(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionListResponse: 不含审批和连接材料的设备会话 inbox
     """
 
@@ -309,7 +305,6 @@ async def list_device_session_candidates(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionCandidateListResponse: 最小化候选列表
     """
 
@@ -334,7 +329,6 @@ async def get_device_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return DeviceSessionResponse: 设备控制会话响应
     """
 
@@ -358,7 +352,6 @@ async def delete_device_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-
     :return EmptyResponse: 空响应
     """
 
@@ -382,11 +375,10 @@ async def mark_device_connected(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RenewDeviceSessionRequest): 当前连接代次请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 更新后的设备控制会话响应
     """
 
@@ -412,11 +404,10 @@ async def approve_device_session(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (ApproveDeviceSessionRequest): 本机应用审批请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 审批后的设备控制会话响应
     """
 
@@ -443,11 +434,10 @@ async def acquire_device_lock(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RenewDeviceSessionRequest): 当前连接代次请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 已持有机器锁的设备控制会话响应
     """
 
@@ -473,11 +463,10 @@ async def renew_device_session(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RenewDeviceSessionRequest): 当前连接代次请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 已续租的设备控制会话响应
     """
 
@@ -503,11 +492,10 @@ async def reconnect_device_session(
 
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RenewDeviceSessionRequest): 断线前连接代次请求
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 进入新代次的设备控制会话响应
     """
 
@@ -535,7 +523,6 @@ async def abort_device_action(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
-
     :return DeviceSessionResponse: 等待新代次连接的设备控制会话响应
     """
 
@@ -568,9 +555,7 @@ async def stop_device_session(
     :param user (User): 当前用户
     :param token (AuthToken): 当前认证令牌
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
-
     :return DeviceSessionResponse: 已停止的设备控制会话响应
-
     :raises ApiError: 当前令牌类型不支持停止设备控制
     """
 
@@ -613,12 +598,11 @@ async def register_device_relay_material(
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RegisterDeviceRelayMaterialRequest): 本端临时公钥请求
     :param response (Response): HTTP 响应对象
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param token (AuthToken): 当前设备认证令牌
     :param relay_store (DeviceRelayStore): 设备中继短期状态存储
-
     :return DeviceRelayMaterialResponse: 设备角色临时连接材料响应
     """
 
@@ -655,12 +639,11 @@ async def register_proxy_relay_material(
     :param device_session_id (UUID): 设备控制会话 ID
     :param payload (RegisterDeviceRelayMaterialRequest): proxy 临时公钥请求
     :param response (Response): HTTP 响应对象
-    :param _release_gate (None): 当前生产发布证据门禁
+    :param _release_gate (DeviceControlReleaseGate): 当前生产发布证据门禁
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param node (Node): 当前认证 Node
     :param relay_store (DeviceRelayStore): 设备中继短期状态存储
-
     :return DeviceRelayMaterialResponse: proxy 角色临时连接材料响应
     """
 
@@ -734,7 +717,6 @@ async def _relay_claims_are_current(
 
     :param session (AsyncSession): 数据库会话
     :param claims (DeviceRelayTicketClaims): 已消费票据声明
-
     :return bool: 票据绑定是否仍然有效
     """
 

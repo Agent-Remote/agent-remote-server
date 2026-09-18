@@ -1,3 +1,7 @@
+"""
+实现数据库模块。
+"""
+
 import asyncio
 import time
 
@@ -23,7 +27,6 @@ def create_engine(settings: Settings) -> AsyncEngine:
     创建异步数据库引擎
 
     :param settings (Settings): 应用配置
-
     :return AsyncEngine: SQLAlchemy 异步引擎
     """
 
@@ -45,9 +48,7 @@ def create_session_factory(
     创建异步数据库会话工厂
 
     :param settings (Settings): 应用配置
-
-    :param engine (AsyncEngine): 可选数据库引擎
-
+    :param engine (AsyncEngine | None): 可选数据库引擎
     :return async_sessionmaker: 异步会话工厂
     """
 
@@ -62,7 +63,6 @@ async def check_database(settings: Settings) -> HealthComponent:
     检查 PostgreSQL 可用性
 
     :param settings (Settings): 应用配置
-
     :return HealthComponent: 数据库健康状态
     """
 

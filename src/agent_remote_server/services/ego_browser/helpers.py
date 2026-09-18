@@ -1,4 +1,6 @@
-"""提供 ego-browser 服务的无状态验证与规范化函数。"""
+"""
+提供 ego-browser 服务的无状态验证与规范化函数。
+"""
 
 import base64
 import binascii
@@ -27,7 +29,12 @@ logger = logging.getLogger("agent_remote_server.services.ego_browser")
 
 
 def _cancel_task_identity(task: NodeTask) -> tuple[UUID, int, str, int] | None:
-    """严格读取 Server 自身创建的无内容 request 取消任务身份。"""
+    """
+    严格读取 Server 自身创建的无内容 request 取消任务身份。
+
+    :param task (NodeTask): 任务
+    :return tuple[UUID, int, str, int] | None: 取消任务身份
+    """
 
     payload = task.payload
     if task.task_type != "cancel_ego_browser_request" or set(payload) != {
@@ -63,7 +70,12 @@ def _cancel_task_identity(task: NodeTask) -> tuple[UUID, int, str, int] | None:
 
 
 def _canonical_capabilities(values: Iterable[object]) -> list[str]:
-    """返回去重、排序且有界的 capability 名称列表。"""
+    """
+    返回去重、排序且有界的 capability 名称列表。
+
+    :param values (Iterable[object]): 待处理值
+    :return list[str]: canonical 能力
+    """
 
     result = sorted(
         {value for value in values if isinstance(value, str) and value and len(value) <= 128}
@@ -74,7 +86,12 @@ def _canonical_capabilities(values: Iterable[object]) -> list[str]:
 
 
 def _as_utc(value: datetime) -> datetime:
-    """归一化 SQLite 返回的不带时区数据库时间。"""
+    """
+    归一化 SQLite 返回的不带时区数据库时间。
+
+    :param value (datetime): 值
+    :return datetime: 转为 utc
+    """
 
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -82,13 +99,23 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _decode_public_key(value: str) -> bytes:
-    """解码 canonical Ed25519 公钥。"""
+    """
+    解码 canonical Ed25519 公钥。
+
+    :param value (str): 值
+    :return bytes: 公钥
+    """
 
     return _decode_fixed_key(value, "EGO_BROWSER_PUBLIC_KEY_INVALID")
 
 
 def _decode_encryption_public_key(value: str | None) -> bytes | None:
-    """在提供时解码 canonical 32-byte X25519 公钥。"""
+    """
+    在提供时解码 canonical 32-byte X25519 公钥。
+
+    :param value (str | None): 值
+    :return bytes | None: encryption 公钥
+    """
 
     if value is None:
         return None
@@ -96,7 +123,13 @@ def _decode_encryption_public_key(value: str | None) -> bytes | None:
 
 
 def _decode_fixed_key(value: str, code: str) -> bytes:
-    """严格解码未填充的 32-byte base64url 公钥。"""
+    """
+    严格解码未填充的 32-byte base64url 公钥。
+
+    :param value (str): 值
+    :param code (str): 代码
+    :return bytes: fixed 键
+    """
 
     # 重新编码可拒绝宽松解码器原本会接受的标准 base64 别名、填充和隐藏空白。
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", value):
@@ -123,7 +156,11 @@ def _decode_fixed_key(value: str, code: str) -> bytes:
 
 
 def _validate_outer_key_wrap(envelope: dict[str, object]) -> None:
-    """只允许 execute request 携带 canonical key-wrap。"""
+    """
+    只允许 execute request 携带 canonical key-wrap。
+
+    :param envelope (dict[str, object]): 信封
+    """
 
     direction = envelope.get("direction")
     message_type = envelope.get("type")
@@ -149,7 +186,12 @@ def _validate_outer_key_wrap(envelope: dict[str, object]) -> None:
 
 
 def _encode_public_key(value: bytes) -> str:
-    """把固定长度公钥编码为未填充 base64url。"""
+    """
+    把固定长度公钥编码为未填充 base64url。
+
+    :param value (bytes): 值
+    :return str: 公钥
+    """
 
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
@@ -169,7 +211,23 @@ def _verify_pop(
     binding_id: UUID | None,
     payload: BaseModel,
 ) -> bool:
-    """校验绑定操作身份与 payload 的设备持有证明。"""
+    """
+    校验绑定操作身份与 payload 的设备持有证明。
+
+    :param public_key (bytes): 公钥
+    :param challenge (str): 挑战
+    :param signature (str): 签名
+    :param device_id (UUID): 设备 ID
+    :param device_generation (int): 设备代次
+    :param operation_generation (int): 操作代次
+    :param release_profile (str): 发布配置
+    :param credential_profile (str): 凭据配置
+    :param server_host (str): 服务端主机
+    :param operation (str): 操作
+    :param binding_id (UUID | None): 绑定 ID
+    :param payload (BaseModel): 载荷
+    :return bool: 是否满足校验条件
+    """
 
     try:
         challenge_bytes = base64.urlsafe_b64decode(challenge + "=" * (-len(challenge) % 4))
@@ -204,7 +262,12 @@ def _verify_pop(
 
 
 def _append_pop_field(message: bytearray, value: str) -> None:
-    """向 PoP transcript 写入无歧义的 UTF-8 长度前缀字段。"""
+    """
+    向 PoP transcript 写入无歧义的 UTF-8 长度前缀字段。
+
+    :param message (bytearray): 消息内容
+    :param value (str): 值
+    """
 
     encoded = value.encode("utf-8")
     message.extend(len(encoded).to_bytes(4, "big"))
@@ -212,7 +275,12 @@ def _append_pop_field(message: bytearray, value: str) -> None:
 
 
 def _canonical_pop_payload(payload: BaseModel) -> bytes:
-    """序列化客户端实际提交且不含签名字段的 canonical payload。"""
+    """
+    序列化客户端实际提交且不含签名字段的 canonical payload。
+
+    :param payload (BaseModel): 载荷
+    :return bytes: canonical pop 载荷
+    """
 
     value = payload.model_dump(
         mode="json",
@@ -229,13 +297,22 @@ def _canonical_pop_payload(payload: BaseModel) -> bytes:
 
 
 def _safe_reason(value: str) -> str:
-    """把任意撤销原因归一化为有限且无内容的值。"""
+    """
+    把任意撤销原因归一化为有限且无内容的值。
+
+    :param value (str): 值
+    :return str: 安全 reason
+    """
 
     return value if value in CONTENT_FREE_REASONS else "other"
 
 
 def _record_revocation_metric(reason: str) -> None:
-    """记录一次已成功投递撤销的无内容指标。"""
+    """
+    记录一次已成功投递撤销的无内容指标。
+
+    :param reason (str): 操作原因
+    """
 
     logger.info(
         "ego browser revocation metric",
@@ -250,7 +327,12 @@ def _record_revocation_metric(reason: str) -> None:
 
 
 def _validate_digest(value: str | None, error: Callable[[str, str, int], NoReturn]) -> None:
-    """校验可公开记录的 SHA-256 摘要格式。"""
+    """
+    校验可公开记录的 SHA-256 摘要格式。
+
+    :param value (str | None): 值
+    :param error (Callable[[str, str, int], NoReturn]): 错误
+    """
 
     if value is not None and not SAFE_DIGEST.fullmatch(value):
         error(

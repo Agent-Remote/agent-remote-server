@@ -1,3 +1,7 @@
+"""
+定义Ego Browser持久化模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 
@@ -9,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -26,7 +31,9 @@ LIVE_EGO_BROWSER_STATUS_SQL = "status NOT IN ('stopped', 'expired', 'failed', 'r
 
 
 class EgoBrowserDevice(IdMixin, TimestampMixin, Base):
-    """独立的本地 ego-browser 设备身份。"""
+    """
+    独立的本地 ego-browser 设备身份。
+    """
 
     __tablename__ = "ego_browser_devices"
     __table_args__ = (
@@ -65,6 +72,8 @@ class EgoBrowserDevice(IdMixin, TimestampMixin, Base):
     generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     platform: Mapped[str] = mapped_column(String(32), nullable=False, default="macos")
+    # 旧记录可在首次成功认证时补齐来源。
+    server_origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     release_profile: Mapped[str] = mapped_column(String(32), nullable=False)
     signer_certificate_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     credential_profile: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -80,9 +89,82 @@ class EgoBrowserDevice(IdMixin, TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    @property
+    def device_generation(self) -> int:
+        """
+        返回独立 Device identity 的代次；保留旧列名以兼容迁移。
+
+        :return int: 当前设备身份代次
+        """
+
+        return self.generation
+
+    @device_generation.setter
+    def device_generation(self, value: int) -> None:
+        """
+        更新独立 Device identity 的代次。
+
+        :param value (int): 新的设备身份代次
+        """
+
+        self.generation = value
+
+
+class EgoBrowserEnsureRequest(IdMixin, TimestampMixin, Base):
+    """
+    设备 ensure 幂等记录及短期凭据恢复材料。
+    """
+
+    __tablename__ = "ego_browser_ensure_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "logical_operation",
+            "idempotency_key_hash",
+            name="ego_browser_ensure_requests_key_uidx",
+        ),
+        Index(
+            "ego_browser_ensure_requests_device_idx",
+            "ego_browser_device_id",
+            "created_at",
+        ),
+        Index(
+            "ego_browser_ensure_requests_expiry_idx",
+            "result_expires_at",
+            "created_at",
+        ),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    ego_browser_device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ego_browser_devices.id", ondelete="CASCADE"), nullable=False
+    )
+    logical_operation: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="device.ensure"
+    )
+    idempotency_key_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    credential_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ego_browser_device_credentials.id", ondelete="SET NULL"), nullable=True
+    )
+    # 原始令牌仅加密保留到同一幂等键的丢失响应可恢复为止。
+    encrypted_access_token: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    credential_revision: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    credential_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class EgoBrowserDeviceCredential(IdMixin, TimestampMixin, Base):
-    """独立 ego-browser 设备客户端的可撤销短期凭据。"""
+    """
+    独立 ego-browser 设备客户端的可撤销短期凭据。
+    """
 
     __tablename__ = "ego_browser_device_credentials"
     __table_args__ = (
@@ -134,7 +216,9 @@ class EgoBrowserDeviceCredential(IdMixin, TimestampMixin, Base):
 
 
 class EgoBrowserBinding(IdMixin, TimestampMixin, Base):
-    """一个工具 session 与一个浏览器设备之间的显式全信任绑定。"""
+    """
+    一个工具 session 与一个浏览器设备之间的显式全信任绑定。
+    """
 
     __tablename__ = "ego_browser_bindings"
     __table_args__ = (
@@ -262,6 +346,26 @@ class EgoBrowserBinding(IdMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @property
+    def binding_generation(self) -> int:
+        """
+        返回 binding 生命周期代次；数据库旧列仍名为 generation。
+
+        :return int: 当前 binding 生命周期代次
+        """
+
+        return self.generation
+
+    @binding_generation.setter
+    def binding_generation(self, value: int) -> None:
+        """
+        更新 binding 生命周期代次。
+
+        :param value (int): 新的 binding 生命周期代次
+        """
+
+        self.generation = value
+
+    @property
     def binding_tool_session_id(self) -> UUID:
         """
         返回 session 删除后仍保留的稳定引用。
@@ -273,7 +377,9 @@ class EgoBrowserBinding(IdMixin, TimestampMixin, Base):
 
 
 class EgoBrowserRequestLedger(IdMixin, Base):
-    """记录已认证外层信封的无内容重放状态。"""
+    """
+    记录已认证外层信封的无内容重放状态。
+    """
 
     __tablename__ = "ego_browser_request_ledger"
     __table_args__ = (
@@ -330,7 +436,9 @@ class EgoBrowserRequestLedger(IdMixin, Base):
 
 
 class EgoBrowserRevocationOutbox(IdMixin, Base):
-    """等待发布的持久化无内容撤销通知。"""
+    """
+    等待发布的持久化无内容撤销通知。
+    """
 
     __tablename__ = "ego_browser_revocation_outbox"
     __table_args__ = (

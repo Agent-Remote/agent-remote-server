@@ -1,3 +1,7 @@
+"""
+验证Ego Browser API行为。
+"""
+
 import asyncio
 import base64
 import hashlib
@@ -34,6 +38,7 @@ from agent_remote_server.models import (
     EgoBrowserBinding,
     EgoBrowserDevice,
     EgoBrowserDeviceCredential,
+    EgoBrowserEnsureRequest,
     EgoBrowserRequestLedger,
     EgoBrowserRevocationOutbox,
     Node,
@@ -50,7 +55,11 @@ _ROTATED_ENCRYPTION_PUBLIC_KEY = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM"
 
 
 async def create_schema(app: FastAPI) -> None:
-    """创建隔离的 API 测试 schema。"""
+    """
+    创建隔离的 API 测试 schema。
+
+    :param app (FastAPI): ASGI 应用
+    """
 
     async with app.state.database_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -58,7 +67,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """创建已启用开发环境 browser 能力的应用。"""
+    """
+    创建已启用开发环境 browser 能力的应用。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
 
     settings = Settings(
         secret_key="test-secret",
@@ -77,7 +90,11 @@ def client() -> Iterator[TestClient]:
 
 @pytest.fixture
 def pop_client() -> Iterator[TestClient]:
-    """创建强制启用设备 PoP 的隔离应用。"""
+    """
+    创建强制启用设备 PoP 的隔离应用。
+
+    :return Iterator[TestClient]: pop 客户端
+    """
 
     settings = Settings(
         secret_key="test-pop-secret",
@@ -94,7 +111,14 @@ def pop_client() -> Iterator[TestClient]:
 
 
 def create_user(client: TestClient, admin_token: str, username: str) -> tuple[str, str]:
-    """创建普通用户并返回其 ID 和访问 token。"""
+    """
+    创建普通用户并返回其 ID 和访问 token。
+
+    :param client (TestClient): 测试 API 客户端
+    :param admin_token (str): 管理员令牌
+    :param username (str): 用户名
+    :return tuple[str, str]: 用户
+    """
 
     password = f"{username}-secret"
     created = client.post(
@@ -122,7 +146,14 @@ def create_running_session(
     admin_token: str,
     owner_token: str,
 ) -> tuple[str, str, str]:
-    """在兼容 Node 上创建运行中的 Claude session。"""
+    """
+    在兼容 Node 上创建运行中的 Claude session。
+
+    :param client (TestClient): 测试 API 客户端
+    :param admin_token (str): 管理员令牌
+    :param owner_token (str): 所有者令牌
+    :return tuple[str, str, str]: 运行中会话
+    """
 
     node_id, node_token = create_node(
         client,
@@ -153,6 +184,9 @@ def create_running_session(
     tool_session_id = str(created.json()["data"]["id"])
 
     async def mark_compatible() -> None:
+        """
+        标记兼容。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -184,7 +218,12 @@ def create_running_session(
 
 
 def ego_browser_device_payload(device_id: str) -> dict[str, object]:
-    """构造规范的逻辑测试 Device Client 注册 payload。"""
+    """
+    构造规范的逻辑测试 Device Client 注册 payload。
+
+    :param device_id (str): 设备 ID
+    :return dict[str, object]: Ego Browser 设备载荷
+    """
 
     return {
         "device_id": device_id,
@@ -217,9 +256,29 @@ def signed_pop_payload(
     release_profile: str = "logic-test",
     credential_profile: str = "community_file",
 ) -> dict[str, object]:
-    """使用共享 v2 PoP transcript 签署 API payload。"""
+    """
+    使用共享 v2 PoP transcript 签署 API payload。
+
+    :param private_key (Ed25519PrivateKey): 私钥
+    :param payload (dict[str, object]): 载荷
+    :param challenge (str): 挑战
+    :param operation (str): 操作
+    :param device_id (str): 设备 ID
+    :param device_generation (int): 设备代次
+    :param operation_generation (int): 操作代次
+    :param binding_id (str | None): 绑定 ID
+    :param release_profile (str): 发布配置
+    :param credential_profile (str): 凭据配置
+    :return dict[str, object]: signed pop 载荷
+    """
 
     def field(value: str) -> bytes:
+        """
+        提取响应字段。
+
+        :param value (str): 值
+        :return bytes: 字段
+        """
         encoded = value.encode()
         return len(encoded).to_bytes(4, "big") + encoded
 
@@ -253,7 +312,11 @@ def signed_pop_payload(
 
 
 def test_device_pop_binds_payload_and_consumes_challenge_once(pop_client: TestClient) -> None:
-    """篡改或重放的设备请求必须在改变状态前失败。"""
+    """
+    篡改或重放的设备请求必须在改变状态前失败。
+
+    :param pop_client (TestClient): pop 客户端
+    """
 
     admin_token = bootstrap(pop_client)
     _, owner_token = create_user(pop_client, admin_token, "browser-pop-owner")
@@ -347,7 +410,13 @@ def test_device_pop_binds_payload_and_consumes_challenge_once(pop_client: TestCl
 
 
 def register_ego_browser_device(client: TestClient, owner_token: str) -> tuple[str, str]:
-    """注册独立 browser 设备并返回一次性凭据。"""
+    """
+    注册独立 browser 设备并返回一次性凭据。
+
+    :param client (TestClient): 测试 API 客户端
+    :param owner_token (str): 所有者令牌
+    :return tuple[str, str]: Ego Browser 设备
+    """
 
     device_id = str(uuid4())
     registered = client.post(
@@ -362,6 +431,160 @@ def register_ego_browser_device(client: TestClient, owner_token: str) -> tuple[s
     return device_id, str(credential["access_token"])
 
 
+def test_canonical_ensure_creates_initial_identity_but_retained_mode_requires_existing(
+    client: TestClient,
+) -> None:
+    """
+    验证规范登记可创建身份，而保留模式要求身份已存在。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    _, owner_token = create_user(client, admin_token, "browser-ensure-mode")
+    payload = ego_browser_device_payload(str(uuid4()))
+
+    registered = client.post(
+        "/api/v1/ego-browser/devices/register",
+        headers=auth_header(owner_token),
+        json=payload,
+    )
+    assert registered.status_code == 200, registered.text
+
+    initial = ego_browser_device_payload(str(uuid4()))
+    initial["enrollment_mode"] = "initial"
+    ensured = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={
+            **auth_header(owner_token),
+            "Idempotency-Key": "ensure-mode-test-key-123456",
+        },
+        json=initial,
+    )
+    assert ensured.status_code == 200, ensured.text
+    assert ensured.json()["data"]["id"] == initial["device_id"]
+
+    missing = ego_browser_device_payload(str(uuid4()))
+    missing["enrollment_mode"] = "ensure"
+    rejected = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={
+            **auth_header(owner_token),
+            "Idempotency-Key": "ensure-mode-missing-key-123456",
+        },
+        json=missing,
+    )
+    assert rejected.status_code == 404
+    assert rejected.json()["error"]["code"] == "EGO_BROWSER_DEVICE_NOT_FOUND"
+
+    revoked = client.post(
+        f"/api/v1/ego-browser/devices/{initial['device_id']}/revoke",
+        headers=auth_header(owner_token),
+        json={"generation": 1, "reason": "initial_identity_revoked"},
+    )
+    assert revoked.status_code == 200, revoked.text
+    replayed_initial = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={
+            **auth_header(owner_token),
+            "Idempotency-Key": "ensure-mode-revoked-key-123456",
+        },
+        json=initial,
+    )
+    assert replayed_initial.status_code == 409
+    assert replayed_initial.json()["error"]["code"] == "EGO_BROWSER_DEVICE_CONFLICT"
+
+
+def test_ensure_rejects_an_identity_owned_by_another_user(client: TestClient) -> None:
+    """
+    验证幂等登记拒绝其他用户拥有的身份。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    _, first_token = create_user(client, admin_token, "browser-identity-first-owner")
+    _, second_token = create_user(client, admin_token, "browser-identity-second-owner")
+    payload = ego_browser_device_payload(str(uuid4()))
+    payload["enrollment_mode"] = "initial"
+    registered = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={
+            **auth_header(first_token),
+            "Idempotency-Key": "identity-first-owner-key-123456",
+        },
+        json=payload,
+    )
+    assert registered.status_code == 200, registered.text
+
+    payload["enrollment_mode"] = "ensure"
+    rejected = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={
+            **auth_header(second_token),
+            "Idempotency-Key": "identity-second-owner-key-123456",
+        },
+        json=payload,
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "EGO_BROWSER_DEVICE_CONFLICT"
+
+    first_owner_devices = client.get(
+        "/api/v1/ego-browser/devices", headers=auth_header(first_token)
+    )
+    second_owner_devices = client.get(
+        "/api/v1/ego-browser/devices", headers=auth_header(second_token)
+    )
+    assert [item["id"] for item in first_owner_devices.json()["data"]["items"]] == [
+        payload["device_id"]
+    ]
+    assert second_owner_devices.json()["data"]["items"] == []
+
+
+def test_register_and_ensure_replay_one_logical_device_enrollment(
+    client: TestClient,
+) -> None:
+    """
+    验证注册和幂等登记会重放同一逻辑设备。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    _, owner_token = create_user(client, admin_token, "browser-ensure-replay")
+    device_id = str(uuid4())
+    payload = ego_browser_device_payload(device_id)
+    headers = {
+        **auth_header(owner_token),
+        "Idempotency-Key": "shared-register-ensure-key-123456",
+    }
+
+    registered = client.post(
+        "/api/v1/ego-browser/devices/register",
+        headers=headers,
+        json=payload,
+    )
+    assert registered.status_code == 200, registered.text
+    ensured = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers=headers,
+        json=payload,
+    )
+    assert ensured.status_code == 200, ensured.text
+    assert ensured.json()["data"]["id"] == device_id
+    assert (
+        ensured.json()["data"]["credential"]["access_token"]
+        == registered.json()["data"]["credential"]["access_token"]
+    )
+
+    devices = client.get(
+        "/api/v1/ego-browser/devices",
+        headers=auth_header(owner_token),
+    )
+    assert devices.status_code == 200
+    assert [item["id"] for item in devices.json()["data"]["items"]] == [device_id]
+
+
 def claim_binding(
     client: TestClient,
     *,
@@ -369,7 +592,15 @@ def claim_binding(
     device_token: str,
     tool_session_id: str,
 ) -> str:
-    """通过显式全信任确认认领运行中的 session。"""
+    """
+    通过显式全信任确认认领运行中的 session。
+
+    :param client (TestClient): 测试 API 客户端
+    :param device_id (str): 设备 ID
+    :param device_token (str): 设备令牌
+    :param tool_session_id (str): 工具会话 ID
+    :return str: claim 绑定
+    """
 
     claimed = client.post(
         "/api/v1/ego-browser/bindings/claim",
@@ -383,7 +614,13 @@ def claim_binding(
 
 
 def ego_browser_claim_payload(device_id: str, tool_session_id: str) -> dict[str, object]:
-    """构造显式全信任 binding claim payload。"""
+    """
+    构造显式全信任 binding claim payload。
+
+    :param device_id (str): 设备 ID
+    :param tool_session_id (str): 工具会话 ID
+    :return dict[str, object]: Ego Browser claim 载荷
+    """
 
     return {
         "tool_session_id": tool_session_id,
@@ -404,7 +641,11 @@ def ego_browser_claim_payload(device_id: str, tool_session_id: str) -> dict[str,
 
 
 def test_docker_session_can_be_claimed_when_node_advertises_backend(client: TestClient) -> None:
-    """Node 明确上报 Docker 支持后应允许对应会话建立浏览器绑定。"""
+    """
+    Node 明确上报 Docker 支持后应允许对应会话建立浏览器绑定。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     _, owner_token = create_user(client, admin_token, "browser-docker-owner")
@@ -415,6 +656,9 @@ def test_docker_session_can_be_claimed_when_node_advertises_backend(client: Test
     )
 
     async def select_docker_backend() -> None:
+        """
+        选择Docker 后端。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             tool_session = await session.get(Session, UUID(tool_session_id))
@@ -455,7 +699,16 @@ def connect_binding(
     allowlist_revision: int = 1,
     allowlist_roots_digest: str | None = None,
 ) -> None:
-    """使用匹配的能力快照激活已认领 generation。"""
+    """
+    使用匹配的能力快照激活已认领 generation。
+
+    :param client (TestClient): 测试 API 客户端
+    :param binding_id (str): 绑定 ID
+    :param device_token (str): 设备令牌
+    :param generation (int): 代次
+    :param allowlist_revision (int): 允许列表版本
+    :param allowlist_roots_digest (str | None): 允许列表 roots 摘要
+    """
 
     capabilities = list(REQUIRED_CAPABILITIES)
     if allowlist_roots_digest is not None:
@@ -485,10 +738,16 @@ def connect_binding(
     assert connected.json()["data"]["status"] == "active"
 
 
-def create_active_binding(
+def create_active_binding_with_token(
     client: TestClient, *, username: str
-) -> tuple[str, str, str, str, str, str, str]:
-    """创建 active binding 并返回其所有者、Node 和设备身份。"""
+) -> tuple[str, str, str, str, str, str, str, str]:
+    """
+    创建 active binding 并同时返回测试用设备凭据。
+
+    :param client (TestClient): 测试 API 客户端
+    :param username (str): 用户名
+    :return tuple[str, str, str, str, str, str, str, str]: 活动绑定带令牌
+    """
 
     admin_token = bootstrap(client)
     owner_id, owner_token = create_user(client, admin_token, username)
@@ -510,13 +769,441 @@ def create_active_binding(
         device_token=device_token,
         generation=1,
     )
-    return admin_token, owner_id, owner_token, node_id, node_token, device_id, binding_id
+    return (
+        admin_token,
+        owner_id,
+        owner_token,
+        node_id,
+        node_token,
+        device_id,
+        device_token,
+        binding_id,
+    )
+
+
+def create_active_binding(
+    client: TestClient, *, username: str
+) -> tuple[str, str, str, str, str, str, str]:
+    """
+    创建 active binding 并返回其所有者、Node 和设备身份。
+
+    :param client (TestClient): 测试 API 客户端
+    :param username (str): 用户名
+    :return tuple[str, str, str, str, str, str, str]: 活动绑定
+    """
+
+    admin, owner, token, node, node_token, device, _device_token, binding = (
+        create_active_binding_with_token(client, username=username)
+    )
+    return admin, owner, token, node, node_token, device, binding
+
+
+def test_lifecycle_status_exposes_unknown_local_facts_without_guessing(
+    client: TestClient,
+) -> None:
+    """
+    验证生命周期状态不猜测本机不可观测条件。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    _, owner_token = create_user(client, admin_token, "browser-status-owner")
+
+    empty = client.get("/api/v1/ego-browser/status", headers=auth_header(owner_token))
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["data"] == {
+        "state": {
+            "installed": None,
+            "enabled": None,
+            "registered": False,
+            "available": False,
+            "connected": False,
+        },
+        "scope": "current_user",
+        "local_observation": "unknown",
+        "stale": False,
+        "checked_at": empty.json()["data"]["checked_at"],
+    }
+
+    register_ego_browser_device(client, owner_token)
+    registered = client.get("/api/v1/ego-browser/status", headers=auth_header(owner_token))
+    assert registered.status_code == 200, registered.text
+    assert registered.json()["data"]["state"] == {
+        "installed": None,
+        "enabled": None,
+        "registered": True,
+        "available": None,
+        "connected": False,
+    }
+
+    forbidden = client.get(
+        "/api/v1/ego-browser/status?all_users=true",
+        headers=auth_header(owner_token),
+    )
+    assert forbidden.status_code == 403
+    aggregate = client.get(
+        "/api/v1/ego-browser/status?all_users=true",
+        headers=auth_header(admin_token),
+    )
+    assert aggregate.status_code == 200, aggregate.text
+    assert aggregate.json()["data"]["scope"] == "all_users"
+    assert aggregate.json()["data"]["state"]["registered"] is True
+
+
+def test_lifecycle_status_keeps_positive_connection_unknown_without_local_admission(
+    client: TestClient,
+) -> None:
+    """
+    验证缺少本机准入信息时连接状态保持未知。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    _, _, owner_token, _, _, _, _ = create_active_binding(client, username="browser-status-active")
+    status = client.get("/api/v1/ego-browser/status", headers=auth_header(owner_token))
+    assert status.status_code == 200, status.text
+    assert status.json()["data"]["state"] == {
+        "installed": None,
+        "enabled": None,
+        "registered": True,
+        "available": None,
+        "connected": None,
+    }
+
+
+def test_enrollment_gate_blocks_identity_operations_but_not_execution(
+    client: TestClient,
+) -> None:
+    """
+    关闭 enrollment 时应冻结身份操作，但不得关闭独立 execution admission。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    (
+        admin_token,
+        _,
+        owner_token,
+        node_id,
+        node_token,
+        device_id,
+        device_token,
+        binding_id,
+    ) = create_active_binding_with_token(client, username="browser-enrollment-gate")
+    next_session_id, _next_node_id, _next_node_token = create_running_session(
+        client,
+        admin_token=admin_token,
+        owner_token=owner_token,
+    )
+    next_device_id, next_device_token = register_ego_browser_device(client, owner_token)
+
+    async def mark_explicit_node_projection() -> None:
+        """
+        标记显式节点投影。
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            node = await session.get(Node, UUID(node_id))
+            assert node is not None
+            bridge = dict(node.runtime_capabilities["ego_browser_bridge"])
+            bridge.update(
+                configured_enabled=True,
+                effective_enabled=True,
+                node_execution_allowed=True,
+            )
+            node.ego_browser_enabled = True
+            node.runtime_capabilities = {"ego_browser_bridge": bridge}
+            await session.commit()
+
+    asyncio.run(mark_explicit_node_projection())
+    settings = cast(FastAPI, client.app).state.settings
+    settings.ego_browser_enrollment_enabled = False
+    try:
+        blocked_requests = [
+            client.get("/api/v1/ego-browser/status", headers=auth_header(owner_token)),
+            client.get("/api/v1/ego-browser/devices", headers=auth_header(device_token)),
+            client.get("/api/v1/ego-browser/bindings", headers=auth_header(owner_token)),
+            client.get(
+                "/api/v1/ego-browser/bindings/candidates",
+                headers=auth_header(owner_token),
+            ),
+            client.get(
+                f"/api/v1/ego-browser/bindings/{binding_id}",
+                headers=auth_header(owner_token),
+            ),
+            client.get(
+                f"/api/v1/ego-browser/bindings/{binding_id}/allowlist",
+                headers=auth_header(owner_token),
+            ),
+            client.post(
+                "/api/v1/ego-browser/devices/ensure",
+                headers={
+                    **auth_header(owner_token),
+                    "Idempotency-Key": "enrollment-gate-ensure-key-123456",
+                },
+                json=ego_browser_device_payload(device_id),
+            ),
+        ]
+        for response in blocked_requests:
+            assert response.status_code == 503, response.text
+            assert response.json()["error"]["code"] == "EGO_BROWSER_ENROLLMENT_DISABLED"
+
+        claimed = client.post(
+            "/api/v1/ego-browser/bindings/claim",
+            headers=auth_header(next_device_token),
+            json=ego_browser_claim_payload(next_device_id, next_session_id),
+        )
+        assert claimed.status_code == 200, claimed.text
+        next_binding_id = str(claimed.json()["data"]["id"])
+        connect_binding(
+            client,
+            binding_id=next_binding_id,
+            device_token=next_device_token,
+            generation=1,
+        )
+
+        renewed = client.post(
+            f"/api/v1/ego-browser/bindings/{next_binding_id}/renew",
+            headers=auth_header(next_device_token),
+            json={"generation": 1, "allowlist_revision": 1},
+        )
+        assert renewed.status_code == 200, renewed.text
+
+        bridge_ticket = client.post(
+            f"/api/v1/ego-browser/bindings/{next_binding_id}/relay-ticket",
+            headers=auth_header(next_device_token),
+            json={
+                "generation": 1,
+                "role": "bridge",
+                "ego_browser_device_id": next_device_id,
+            },
+        )
+        assert bridge_ticket.status_code == 200, bridge_ticket.text
+        node_ticket = client.post(
+            f"/api/v1/node-api/ego-browser/bindings/{next_binding_id}/relay-ticket",
+            headers=auth_header(node_token),
+            json={"generation": 1, "role": "wrapper"},
+        )
+        assert node_ticket.status_code == 200, node_ticket.text
+        node_bindings = client.get(
+            "/api/v1/node-api/ego-browser/bindings",
+            headers=auth_header(node_token),
+        )
+        assert node_bindings.status_code == 200, node_bindings.text
+        assert next_binding_id in {
+            item["binding_id"] for item in node_bindings.json()["data"]["items"]
+        }
+
+        paused_for_resume = client.post(
+            f"/api/v1/ego-browser/bindings/{next_binding_id}/pause",
+            headers=auth_header(owner_token),
+            json={"generation": 1, "reason": "gate_test"},
+        )
+        assert paused_for_resume.status_code == 200, paused_for_resume.text
+        resume_generation = paused_for_resume.json()["data"]["generation"]
+        resumed = client.post(
+            f"/api/v1/ego-browser/bindings/{next_binding_id}/resume",
+            headers=auth_header(next_device_token),
+            json={
+                "generation": resume_generation,
+                "user_confirmation": True,
+                "allowlist_revision": 1,
+            },
+        )
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["data"]["status"] == "connecting"
+
+        paused = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/pause",
+            headers=auth_header(owner_token),
+            json={"generation": 1, "reason": "gate_test"},
+        )
+        assert paused.status_code == 200, paused.text
+        assert paused.json()["data"]["status"] == "paused"
+        paused_generation = paused.json()["data"]["generation"]
+        stopped = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/stop",
+            headers=auth_header(owner_token),
+            json={"generation": paused_generation, "reason": "gate_test"},
+        )
+        assert stopped.status_code == 200, stopped.text
+        stopped_generation = stopped.json()["data"]["generation"]
+        revoked = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/revoke",
+            headers=auth_header(owner_token),
+            json={"generation": stopped_generation, "reason": "gate_test"},
+        )
+        assert revoked.status_code == 200, revoked.text
+        assert revoked.json()["data"]["status"] == "revoked"
+
+        next_stopped = client.post(
+            f"/api/v1/ego-browser/bindings/{next_binding_id}/stop",
+            headers=auth_header(owner_token),
+            json={
+                "generation": resumed.json()["data"]["generation"],
+                "reason": "gate_test",
+            },
+        )
+        assert next_stopped.status_code == 200, next_stopped.text
+
+        device_revoked = client.post(
+            f"/api/v1/ego-browser/devices/{device_id}/revoke",
+            headers=auth_header(owner_token),
+            json={"generation": 1, "reason": "gate_test"},
+        )
+        assert device_revoked.status_code == 200, device_revoked.text
+        assert device_revoked.json()["data"]["status"] == "revoked"
+
+        nodes = client.get("/api/v1/nodes", headers=auth_header(admin_token))
+        assert nodes.status_code == 200, nodes.text
+        projected = next(item for item in nodes.json()["data"]["items"] if item["id"] == node_id)
+        assert projected["enrollment_admission"] is False
+        assert projected["execution_admission"] is True
+        assert projected["node_execution_allowed"] is True
+    finally:
+        settings.ego_browser_enrollment_enabled = True
+
+
+def test_execution_gate_blocks_new_execution_but_allows_enrollment_and_cleanup(
+    client: TestClient,
+) -> None:
+    """
+    关闭 execution admission 时仍可 ensure、查询和策略确认。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    _, _, owner_token, node_id, node_token, device_id, binding_id = create_active_binding(
+        client, username="browser-execution-gate"
+    )
+    settings = cast(FastAPI, client.app).state.settings
+    settings.ego_browser_bridge_enabled = False
+    try:
+        ensured = client.post(
+            "/api/v1/ego-browser/devices/ensure",
+            headers={
+                **auth_header(owner_token),
+                "Idempotency-Key": "execution-gate-ensure-key-123456",
+            },
+            json=ego_browser_device_payload(device_id),
+        )
+        assert ensured.status_code == 200, ensured.text
+        device_token = str(ensured.json()["data"]["credential"]["access_token"])
+
+        for response in (
+            client.get("/api/v1/ego-browser/devices", headers=auth_header(device_token)),
+            client.get("/api/v1/ego-browser/bindings", headers=auth_header(owner_token)),
+            client.get(
+                "/api/v1/ego-browser/bindings/candidates",
+                headers=auth_header(owner_token),
+            ),
+            client.get(
+                f"/api/v1/ego-browser/bindings/{binding_id}/allowlist",
+                headers=auth_header(owner_token),
+            ),
+        ):
+            assert response.status_code == 200, response.text
+
+        blocked = [
+            client.post(
+                "/api/v1/ego-browser/bindings/claim",
+                headers=auth_header(device_token),
+                json=ego_browser_claim_payload(device_id, str(uuid4())),
+            ),
+            client.post(
+                f"/api/v1/ego-browser/bindings/{binding_id}/renew",
+                headers=auth_header(device_token),
+                json={"generation": 1, "allowlist_revision": 1},
+            ),
+            client.post(
+                f"/api/v1/ego-browser/bindings/{binding_id}/resume",
+                headers=auth_header(device_token),
+                json={
+                    "generation": 1,
+                    "user_confirmation": True,
+                    "allowlist_revision": 1,
+                },
+            ),
+            client.post(
+                f"/api/v1/ego-browser/bindings/{binding_id}/relay-ticket",
+                headers=auth_header(device_token),
+                json={
+                    "generation": 1,
+                    "role": "bridge",
+                    "ego_browser_device_id": device_id,
+                },
+            ),
+            client.post(
+                f"/api/v1/node-api/ego-browser/bindings/{binding_id}/relay-ticket",
+                headers=auth_header(node_token),
+                json={"generation": 1, "role": "wrapper"},
+            ),
+            client.get(
+                "/api/v1/node-api/ego-browser/bindings",
+                headers=auth_header(node_token),
+            ),
+        ]
+        for response in blocked:
+            assert response.status_code == 503, response.text
+            assert response.json()["error"]["code"] == ("EGO_BROWSER_EXECUTION_ADMISSION_DISABLED")
+
+        confirmed = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/allowlist/confirm",
+            headers=auth_header(device_token),
+            json={
+                "generation": 1,
+                "expected_revision": 1,
+                "roots_digest": f"sha256:{'d' * 64}",
+                "user_confirmation": True,
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["data"]["status"] == "paused"
+        paused_generation = confirmed.json()["data"]["generation"]
+        stopped = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/stop",
+            headers=auth_header(owner_token),
+            json={"generation": paused_generation, "reason": "gate_test"},
+        )
+        assert stopped.status_code == 200, stopped.text
+        stopped_generation = stopped.json()["data"]["generation"]
+        revoked = client.post(
+            f"/api/v1/ego-browser/bindings/{binding_id}/revoke",
+            headers=auth_header(owner_token),
+            json={"generation": stopped_generation, "reason": "gate_test"},
+        )
+        assert revoked.status_code == 200, revoked.text
+
+        policy = client.get("/api/v1/ego-browser/policy", headers=auth_header(owner_token))
+        assert policy.status_code == 200, policy.text
+        assert policy.json()["data"]["enrollment_enabled"] is True
+        assert policy.json()["data"]["execution_admission"] is False
+        assert policy.json()["data"]["enabled"] is False
+
+        status = client.get("/api/v1/ego-browser/status", headers=auth_header(owner_token))
+        assert status.status_code == 200, status.text
+        assert status.json()["data"]["state"]["available"] is False
+        assert status.json()["data"]["state"]["connected"] is False
+
+        device_revoked = client.post(
+            f"/api/v1/ego-browser/devices/{device_id}/revoke",
+            headers=auth_header(owner_token),
+            json={"generation": 1, "reason": "gate_test"},
+        )
+        assert device_revoked.status_code == 200, device_revoked.text
+    finally:
+        settings.ego_browser_bridge_enabled = True
 
 
 def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
     client: TestClient,
 ) -> None:
-    """删除接口必须阻止活动控制、活动请求和未投递的撤销事件。"""
+    """
+    删除接口必须阻止活动控制、活动请求和未投递的撤销事件。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     _, _, owner_token, _, _, device_id, binding_id = create_active_binding(
         client, username="browser-delete-guards"
@@ -550,6 +1237,9 @@ def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
     app = cast(FastAPI, client.app)
 
     async def add_unfinished_history() -> None:
+        """
+        添加未完成历史记录。
+        """
         async with app.state.session_factory() as session:
             request = EgoBrowserRequestLedger(
                 binding_id=UUID(binding_id),
@@ -583,6 +1273,9 @@ def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
     )
 
     async def finish_request() -> None:
+        """
+        完成请求。
+        """
         async with app.state.session_factory() as session:
             request = await session.scalar(
                 select(EgoBrowserRequestLedger).where(
@@ -605,6 +1298,9 @@ def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
     ) == (409, "EGO_BROWSER_BINDING_DELETE_PENDING_REVOCATION")
 
     async def deliver_revocation() -> None:
+        """
+        投递撤销。
+        """
         async with app.state.session_factory() as session:
             event = await session.scalar(
                 select(EgoBrowserRevocationOutbox).where(
@@ -624,7 +1320,11 @@ def test_ego_browser_delete_enforces_terminal_state_and_revocation_delivery(
 
 
 def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -> None:
-    """删除终态 binding 和设备时必须清理其子记录且保留删除审计。"""
+    """
+    删除终态 binding 和设备时必须清理其子记录且保留删除审计。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     _, _, owner_token, _, _, device_id, binding_id = create_active_binding(
         client, username="browser-delete-cleanup"
@@ -639,6 +1339,9 @@ def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -
     app = cast(FastAPI, client.app)
 
     async def add_completed_request() -> None:
+        """
+        添加已完成请求。
+        """
         async with app.state.session_factory() as session:
             session.add(
                 EgoBrowserRequestLedger(
@@ -662,6 +1365,9 @@ def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -
     assert deleted_binding.status_code == 200
 
     async def verify_binding_cleanup() -> None:
+        """
+        验证绑定清理。
+        """
         async with app.state.session_factory() as session:
             assert await session.get(EgoBrowserBinding, UUID(binding_id)) is None
             assert (
@@ -696,6 +1402,9 @@ def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -
     assert deleted_device.status_code == 200
 
     async def verify_device_cleanup() -> None:
+        """
+        验证设备清理。
+        """
         async with app.state.session_factory() as session:
             assert await session.get(EgoBrowserDevice, UUID(device_id)) is None
             assert (
@@ -720,7 +1429,11 @@ def test_ego_browser_delete_cleans_history_and_credentials(client: TestClient) -
 def test_ego_browser_delete_hides_foreign_resources_and_rejects_device_credentials(
     client: TestClient,
 ) -> None:
-    """删除接口只接受普通用户令牌并隐藏其他用户的资源。"""
+    """
+    删除接口只接受普通用户令牌并隐藏其他用户的资源。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     _, owner_token = create_user(client, admin_token, "browser-delete-owner")
@@ -744,7 +1457,11 @@ def test_ego_browser_delete_hides_foreign_resources_and_rejects_device_credentia
 
 
 def test_owner_device_revoke_invalidates_live_binding_and_credential(client: TestClient) -> None:
-    """所有者恢复撤销必须原子终止 binding 和设备凭据。"""
+    """
+    所有者恢复撤销必须原子终止 binding 和设备凭据。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token, _, owner_token, _, _, device_id, binding_id = create_active_binding(
         client, username="browser-device-revoke-owner"
@@ -782,7 +1499,12 @@ def test_owner_device_revoke_invalidates_live_binding_and_credential(client: Tes
 
 @pytest.mark.parametrize("endpoint", ["patch", "disable"])
 def test_user_disable_revokes_live_ego_browser_binding(client: TestClient, endpoint: str) -> None:
-    """所有管理员禁用用户路径都必须立即撤销 browser 权限。"""
+    """
+    所有管理员禁用用户路径都必须立即撤销 browser 权限。
+
+    :param client (TestClient): 测试 API 客户端
+    :param endpoint (str): 端点
+    """
 
     admin_token, owner_id, _, _, _, _, binding_id = create_active_binding(
         client, username=f"browser-user-{endpoint}"
@@ -813,7 +1535,12 @@ def test_user_disable_revokes_live_ego_browser_binding(client: TestClient, endpo
 
 @pytest.mark.parametrize("trigger", ["disable", "heartbeat_loss"])
 def test_node_loss_revokes_live_ego_browser_binding(client: TestClient, trigger: str) -> None:
-    """显式禁用 Node 和心跳过期都必须撤销 browser binding。"""
+    """
+    显式禁用 Node 和心跳过期都必须撤销 browser binding。
+
+    :param client (TestClient): 测试 API 客户端
+    :param trigger (str): 触发器名称
+    """
 
     admin_token, _, _, node_id, _, _, binding_id = create_active_binding(
         client, username=f"browser-node-{trigger}"
@@ -826,6 +1553,9 @@ def test_node_loss_revokes_live_ego_browser_binding(client: TestClient, trigger:
     else:
 
         async def make_stale() -> None:
+            """
+            设置过期。
+            """
             app = cast(FastAPI, client.app)
             async with app.state.session_factory() as session:
                 node = await session.get(Node, UUID(node_id))
@@ -858,7 +1588,12 @@ def test_expiry_triggering_reads_publish_revocation_immediately(
     client: TestClient,
     reader: str,
 ) -> None:
-    """读取路径触发租约过期时必须在响应前投递 durable revocation。"""
+    """
+    读取路径触发租约过期时必须在响应前投递 durable revocation。
+
+    :param client (TestClient): 测试 API 客户端
+    :param reader (str): 读取方标识
+    """
 
     _, _, owner_token, _, node_token, _, binding_id = create_active_binding(
         client,
@@ -867,6 +1602,9 @@ def test_expiry_triggering_reads_publish_revocation_immediately(
     app = cast(FastAPI, client.app)
 
     async def expire_lease() -> None:
+        """
+        过期处理租约。
+        """
         async with app.state.session_factory() as session:
             binding = await session.get(EgoBrowserBinding, UUID(binding_id))
             assert binding is not None
@@ -892,6 +1630,9 @@ def test_expiry_triggering_reads_publish_revocation_immediately(
     assert response.status_code == 200, response.text
 
     async def verify_delivery() -> None:
+        """
+        验证任务投递。
+        """
         async with app.state.session_factory() as session:
             binding = await session.get(EgoBrowserBinding, UUID(binding_id))
             event = await session.scalar(
@@ -911,7 +1652,11 @@ def test_expiry_triggering_reads_publish_revocation_immediately(
 def test_http_lifecycle_preserves_device_only_authorization_and_admin_cleanup(
     client: TestClient,
 ) -> None:
-    """验证用户、Device Client 与 Node 的完整控制面合同。"""
+    """
+    验证用户、Device Client 与 Node 的完整控制面合同。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     owner_id, owner_token = create_user(client, admin_token, "browser-owner")
@@ -1179,7 +1924,11 @@ def test_http_lifecycle_preserves_device_only_authorization_and_admin_cleanup(
 def test_device_policy_and_key_rotation_revoke_old_credentials_and_generations(
     client: TestClient,
 ) -> None:
-    """策略和密钥轮换必须使此前的全部执行权限失效。"""
+    """
+    策略和密钥轮换必须使此前的全部执行权限失效。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     _, owner_token = create_user(client, admin_token, "rotation-owner")
@@ -1270,10 +2019,121 @@ def test_device_policy_and_key_rotation_revoke_old_credentials_and_generations(
     assert revoked.json()["data"]["stop_reason"] == "device_key_rotated"
 
 
+def test_device_rotate_recovers_after_lost_response_without_advancing_twice(
+    client: TestClient,
+) -> None:
+    """
+    过期的 rotation 响应重试必须复用同一 Device 和目标代次。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    owner_id, owner_token = create_user(client, admin_token, "rotation-recovery-owner")
+    device_id, _ = register_ego_browser_device(client, owner_token)
+    rotated_payload = ego_browser_device_payload(device_id)
+    rotated_payload.update(
+        {
+            "public_key": _ROTATED_SIGNING_PUBLIC_KEY,
+            "signing_public_key": _ROTATED_SIGNING_PUBLIC_KEY,
+            "encryption_public_key": _ROTATED_ENCRYPTION_PUBLIC_KEY,
+            "generation": 2,
+            "device_generation": 2,
+        }
+    )
+    rotation_key = "rotation-recovery-key-20260912"
+    first = client.post(
+        "/api/v1/ego-browser/devices/rotate",
+        headers={**auth_header(owner_token), "Idempotency-Key": rotation_key},
+        json=rotated_payload,
+    )
+    assert first.status_code == 200, first.text
+    first_data = first.json()["data"]
+    assert first_data["device_id"] == device_id
+    assert first_data["device_generation"] == 2
+    first_revision = first_data["credential"]["credential_revision"]
+
+    async def expire_rotation_credential() -> None:
+        """
+        过期处理轮换凭据。
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            expired_at = datetime.now(UTC) - timedelta(seconds=1)
+            credentials = (
+                await session.execute(
+                    select(EgoBrowserDeviceCredential).where(
+                        EgoBrowserDeviceCredential.ego_browser_device_id == UUID(device_id)
+                    )
+                )
+            ).scalars()
+            for credential in credentials:
+                credential.status = "expired"
+                credential.expires_at = expired_at
+            requests = (
+                await session.execute(
+                    select(EgoBrowserEnsureRequest).where(
+                        EgoBrowserEnsureRequest.ego_browser_device_id == UUID(device_id)
+                    )
+                )
+            ).scalars()
+            for request in requests:
+                request.credential_expires_at = expired_at
+            await session.commit()
+
+    asyncio.run(expire_rotation_credential())
+    recovered = client.post(
+        "/api/v1/ego-browser/devices/rotate",
+        headers={**auth_header(owner_token), "Idempotency-Key": rotation_key},
+        json=rotated_payload,
+    )
+    assert recovered.status_code == 200, recovered.text
+    recovered_data = recovered.json()["data"]
+    assert recovered_data["id"] == device_id
+    assert recovered_data["device_id"] == device_id
+    assert recovered_data["device_generation"] == 2
+    assert recovered_data["public_key"] == _ROTATED_SIGNING_PUBLIC_KEY
+    assert recovered_data["credential"]["credential_revision"] > first_revision
+
+    async def count_devices() -> int:
+        """
+        统计设备。
+
+        :return int: 设备
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            return len(
+                (
+                    await session.execute(
+                        select(EgoBrowserDevice).where(EgoBrowserDevice.user_id == UUID(owner_id))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+    assert asyncio.run(count_devices()) == 1
+
+    mismatched = dict(rotated_payload)
+    mismatched["bridge_version"] = "different-release"
+    conflict = client.post(
+        "/api/v1/ego-browser/devices/rotate",
+        headers={**auth_header(owner_token), "Idempotency-Key": rotation_key},
+        json=mismatched,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "EGO_BROWSER_IDEMPOTENCY_CONFLICT"
+
+
 def test_outer_admission_records_request_and_response_without_inner_content(
     client: TestClient,
 ) -> None:
-    """外层信封 admission 必须单调、配对且不透明于内容。"""
+    """
+    外层信封 admission 必须单调、配对且不透明于内容。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     _, owner_token = create_user(client, admin_token, "ledger-owner")
@@ -1316,6 +2176,12 @@ def test_outer_admission_records_request_and_response_without_inner_content(
     store = cast(InMemoryEgoBrowserRelayStore, app.state.ego_browser_relay_store)
 
     async def consume(raw_ticket: str) -> EgoBrowserRelayTicketClaims:
+        """
+        消费待处理记录。
+
+        :param raw_ticket (str): 原始数据票据
+        :return EgoBrowserRelayTicketClaims: 消费
+        """
         claims = await store.consume_ticket(
             token_hash=hash_token(app.state.settings.secret_key, raw_ticket)
         )
@@ -1355,12 +2221,30 @@ def test_outer_admission_records_request_and_response_without_inner_content(
     }
 
     async def admit_and_verify() -> None:
+        """
+        准入并验证。
+        """
         async with app.state.session_factory() as session:
             service = EgoBrowserService(session, app.state.settings)
+            gate_request = {
+                **request_envelope,
+                "request_id": "request-ledger-gate",
+                "sequence": 99,
+            }
+            app.state.settings.ego_browser_bridge_enabled = False
+            with pytest.raises(ValueError, match="execution_admission"):
+                await service.admit_outer_envelope(
+                    claims=wrapper_claims,
+                    envelope=gate_request,
+                )
+            app.state.settings.ego_browser_bridge_enabled = True
+            app.state.settings.ego_browser_enrollment_enabled = False
+            assert await service.relay_claims_are_current(wrapper_claims)
             await service.admit_outer_envelope(
                 claims=wrapper_claims,
                 envelope=request_envelope,
             )
+            app.state.settings.ego_browser_enrollment_enabled = True
             await service.admit_outer_envelope(
                 claims=bridge_claims,
                 envelope=response_envelope,
@@ -1452,7 +2336,11 @@ def test_outer_admission_records_request_and_response_without_inner_content(
 
 
 def test_active_request_listing_and_cancel_enqueue_exact_node_task(client: TestClient) -> None:
-    """用户取消只推进原 ledger，并幂等下发确切 Node request。"""
+    """
+    用户取消只推进原 ledger，并幂等下发确切 Node request。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     admin_token = bootstrap(client)
     _, owner_token = create_user(client, admin_token, "cancel-owner")
@@ -1478,6 +2366,9 @@ def test_active_request_listing_and_cancel_enqueue_exact_node_task(client: TestC
     app = cast(FastAPI, client.app)
 
     async def seed_request() -> None:
+        """
+        准备请求。
+        """
         async with app.state.session_factory() as session:
             session.add(
                 EgoBrowserRequestLedger(
@@ -1547,6 +2438,9 @@ def test_active_request_listing_and_cancel_enqueue_exact_node_task(client: TestC
     cancel_task_ids: list[str] = []
 
     async def verify_persistence() -> None:
+        """
+        验证持久化。
+        """
         async with app.state.session_factory() as session:
             request = await session.scalar(
                 select(EgoBrowserRequestLedger).where(
@@ -1603,6 +2497,9 @@ def test_active_request_listing_and_cancel_enqueue_exact_node_task(client: TestC
     assert completed.status_code == 200, completed.text
 
     async def verify_fail_closed_convergence() -> None:
+        """
+        验证取消流程以拒绝状态收敛。
+        """
         async with app.state.session_factory() as session:
             request = await session.scalar(
                 select(EgoBrowserRequestLedger).where(
@@ -1638,7 +2535,11 @@ def test_active_request_listing_and_cancel_enqueue_exact_node_task(client: TestC
 def test_binding_invalidation_terminalizes_only_its_nonterminal_request_rows(
     client: TestClient,
 ) -> None:
-    """Binding generation 失效必须同步终结旧代次请求并保留已完成结果。"""
+    """
+    Binding generation 失效必须同步终结旧代次请求并保留已完成结果。
+
+    :param client (TestClient): 测试 API 客户端
+    """
 
     _, _, owner_token, _, _, _, binding_id = create_active_binding(
         client,
@@ -1647,6 +2548,9 @@ def test_binding_invalidation_terminalizes_only_its_nonterminal_request_rows(
     app = cast(FastAPI, client.app)
 
     async def seed_requests() -> None:
+        """
+        准备请求。
+        """
         async with app.state.session_factory() as session:
             session.add_all(
                 [
@@ -1684,6 +2588,9 @@ def test_binding_invalidation_terminalizes_only_its_nonterminal_request_rows(
     assert listed.json()["data"]["items"] == []
 
     async def verify_terminal_rows() -> None:
+        """
+        验证终态记录行。
+        """
         async with app.state.session_factory() as session:
             requests = list(
                 await session.scalars(

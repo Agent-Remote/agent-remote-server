@@ -1,4 +1,6 @@
-"""收敛 ego-browser binding 租约和撤销 outbox。"""
+"""
+收敛 ego-browser binding 租约和撤销 outbox。
+"""
 
 from __future__ import annotations
 
@@ -42,15 +44,24 @@ async def run_ego_browser_cleanup(app: FastAPI, stop: asyncio.Event) -> None:
                     revocation_publisher=app.state.ego_browser_revocation_bus,
                 )
                 expired = await service.expire_due()
+                # 兼容尚未实现保留期清理的旧 worker，避免混合版本阻塞生命周期循环。
+                expire_ensure_results = getattr(service, "expire_ensure_results", None)
+                if expire_ensure_results is None:
+                    expired_ensure_results = 0
+                else:
+                    expired_ensure_results = await expire_ensure_results(
+                        limit=settings.ego_browser_cleanup_batch_size
+                    )
                 published = await service.publish_pending_revocations(
                     limit=settings.ego_browser_cleanup_batch_size
                 )
-            if stale_nodes or expired or published:
+            if stale_nodes or expired or expired_ensure_results or published:
                 logger.info(
                     "ego browser lifecycle cleanup completed",
                     extra={
                         "stale_nodes": stale_nodes,
                         "expired": expired,
+                        "expired_ensure_results": expired_ensure_results,
                         "revocations_published": published,
                     },
                 )

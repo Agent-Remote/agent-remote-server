@@ -1,4 +1,6 @@
-"""配对并转发 ego-browser 的本地或分布式密文帧。"""
+"""
+配对并转发 ego-browser 的本地或分布式密文帧。
+"""
 
 from __future__ import annotations
 
@@ -62,15 +64,27 @@ return 0
 
 
 class _BindingClosed(Exception):
+    """
+    定义绑定已关闭。
+    """
+
     pass
 
 
 class _DistributedStateError(Exception):
+    """
+    定义分布式状态错误类型。
+    """
+
     pass
 
 
 @dataclass
 class _Endpoint:
+    """
+    定义端点。
+    """
+
     websocket: WebSocket
     role: EgoBrowserRelayRole
     peer: asyncio.Future[WebSocket]
@@ -83,6 +97,10 @@ class _Endpoint:
 
 @dataclass
 class _DistributedEndpoint:
+    """
+    定义分布式端点。
+    """
+
     websocket: WebSocket
     role: EgoBrowserRelayRole
     endpoint_id: str
@@ -95,7 +113,9 @@ class _DistributedEndpoint:
 
 
 class EgoBrowserRelayHub:
-    """每个绑定代次仅配对一个 Bridge 和一个包装器。"""
+    """
+    每个绑定代次仅配对一个 Bridge 和一个包装器。
+    """
 
     def __init__(
         self,
@@ -107,6 +127,16 @@ class EgoBrowserRelayHub:
         revocation_bus: EgoBrowserRevocationPublisher | None = None,
         redis: Redis | None = None,
     ) -> None:
+        """
+        初始化Ego Browser 中继中心。
+
+        :param maximum_frame_bytes (int): maximum frame 字节
+        :param pair_timeout_seconds (int): 配对超时 seconds
+        :param maximum_bytes_per_second (int): maximum 字节 per second
+        :param maximum_connection_seconds (float): maximum 连接 seconds
+        :param revocation_bus (EgoBrowserRevocationPublisher | None): 撤销总线
+        :param redis (Redis | None): Redis 客户端
+        """
         self._maximum_frame_bytes = maximum_frame_bytes
         self._pair_timeout_seconds = pair_timeout_seconds
         self._maximum_bytes_per_second = maximum_bytes_per_second
@@ -150,6 +180,13 @@ class EgoBrowserRelayHub:
         websocket: WebSocket,
         validator: FrameValidator,
     ) -> None:
+        """
+        连接本机。
+
+        :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+        :param websocket (WebSocket): WebSocket 连接
+        :param validator (FrameValidator): 帧校验器
+        """
         await websocket.accept()
         key = claims.binding.relay_binding
         loop = asyncio.get_running_loop()
@@ -208,6 +245,13 @@ class EgoBrowserRelayHub:
         websocket: WebSocket,
         validator: FrameValidator,
     ) -> None:
+        """
+        连接分布式。
+
+        :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+        :param websocket (WebSocket): WebSocket 连接
+        :param validator (FrameValidator): 帧校验器
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -335,7 +379,9 @@ class EgoBrowserRelayHub:
         await self.close_binding(binding_id, generation, publish=False)
 
     async def close(self) -> None:
-        """停止所有本地端点并关闭分布式 relay 连接。"""
+        """
+        停止所有本地端点并关闭分布式 relay 连接。
+        """
 
         async with self._lock:
             self._closing = True
@@ -355,6 +401,15 @@ class EgoBrowserRelayHub:
         destination: WebSocket,
         validator: FrameValidator,
     ) -> None:
+        """
+        在本机中继端点之间转发加密帧。
+
+        :param endpoint (_Endpoint): 端点
+        :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+        :param source (WebSocket): 源 WebSocket
+        :param destination (WebSocket): 目标 WebSocket
+        :param validator (FrameValidator): 帧校验器
+        """
         loop = asyncio.get_running_loop()
         burst = max(self._maximum_bytes_per_second, self._maximum_frame_bytes) * 2
         available = float(burst)
@@ -398,6 +453,13 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         endpoint: _DistributedEndpoint,
     ) -> str:
+        """
+        等待分布式对等端点上线。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        :return str: 分布式对等节点
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -438,6 +500,17 @@ class EgoBrowserRelayHub:
         pubsub: PubSub,
         validator: FrameValidator,
     ) -> int:
+        """
+        服务分布式中继端点。
+
+        :param key (RelayBinding): 键
+        :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+        :param endpoint (_DistributedEndpoint): 端点
+        :param peer_endpoint_id (str): 对等节点端点 ID
+        :param pubsub (PubSub): Redis Pub/Sub 订阅器
+        :param validator (FrameValidator): 帧校验器
+        :return int: 分布式
+        """
         tasks = {
             asyncio.create_task(
                 self._websocket_to_redis(
@@ -478,6 +551,16 @@ class EgoBrowserRelayHub:
         peer_endpoint_id: str,
         validator: FrameValidator,
     ) -> int:
+        """
+        将 WebSocket 消息转发到 Redis。
+
+        :param endpoint (_DistributedEndpoint): 端点
+        :param claims (EgoBrowserRelayTicketClaims): 中继票据声明
+        :param source (WebSocket): 源 WebSocket
+        :param peer_endpoint_id (str): 对等节点端点 ID
+        :param validator (FrameValidator): 帧校验器
+        :return int: WebSocket 到 Redis
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -517,6 +600,13 @@ class EgoBrowserRelayHub:
                 return 1011
 
     async def _redis_to_websocket(self, destination: WebSocket, pubsub: PubSub) -> int:
+        """
+        将 Redis 消息转发到 WebSocket。
+
+        :param destination (WebSocket): 目标 WebSocket
+        :param pubsub (PubSub): Redis Pub/Sub 订阅器
+        :return int: Redis 到 WebSocket
+        """
         while True:
             message = await pubsub.get_message(timeout=1.0)
             if message is None or message.get("type") != "message":
@@ -546,6 +636,14 @@ class EgoBrowserRelayHub:
         endpoint: _DistributedEndpoint,
         peer_endpoint_id: str,
     ) -> int:
+        """
+        维持分布式端点配对。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        :param peer_endpoint_id (str): 对等节点端点 ID
+        :return int: 分布式配对
+        """
         peer_role: EgoBrowserRelayRole = "wrapper" if endpoint.role == "bridge" else "bridge"
         loop = asyncio.get_running_loop()
         next_refresh = loop.time() + _DISTRIBUTED_PRESENCE_TTL_SECONDS / 3
@@ -566,6 +664,12 @@ class EgoBrowserRelayHub:
 
     @staticmethod
     async def _wait_for_shutdown(endpoint: _DistributedEndpoint) -> int:
+        """
+        等待中继关闭信号。
+
+        :param endpoint (_DistributedEndpoint): 端点
+        :return int: 关闭
+        """
         await endpoint.shutdown.wait()
         return endpoint.close_code
 
@@ -574,6 +678,13 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         endpoint: _DistributedEndpoint,
     ) -> bool:
+        """
+        刷新在线状态。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        :return bool: 是否满足校验条件
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -594,6 +705,13 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         endpoint: _DistributedEndpoint,
     ) -> int:
+        """
+        注册在线状态。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        :return int: 在线状态
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -617,6 +735,13 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         peer_role: EgoBrowserRelayRole,
     ) -> tuple[bool, str | None]:
+        """
+        返回分布式对等节点状态。
+
+        :param key (RelayBinding): 键
+        :param peer_role (EgoBrowserRelayRole): 对等节点角色
+        :return tuple[bool, str | None]: 分布式对等节点状态
+        """
         redis = self._redis
         if redis is None:
             raise RuntimeError("distributed relay requires Redis")
@@ -634,6 +759,12 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         endpoint: _DistributedEndpoint,
     ) -> None:
+        """
+        删除在线状态。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        """
         redis = self._redis
         if redis is None:
             return
@@ -648,6 +779,12 @@ class EgoBrowserRelayHub:
         )
 
     async def _remove_local(self, key: RelayBinding, endpoint: _Endpoint) -> None:
+        """
+        删除本机。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_Endpoint): 端点
+        """
         async with self._lock:
             pair = self._pairs.get(key)
             if pair is None or pair.get(endpoint.role) is not endpoint:
@@ -661,6 +798,12 @@ class EgoBrowserRelayHub:
         key: RelayBinding,
         endpoint: _DistributedEndpoint,
     ) -> None:
+        """
+        删除分布式。
+
+        :param key (RelayBinding): 键
+        :param endpoint (_DistributedEndpoint): 端点
+        """
         async with self._lock:
             pair = self._distributed_endpoints.get(key)
             if pair is None or pair.get(endpoint.role) is not endpoint:
@@ -675,6 +818,12 @@ class EgoBrowserRelayHub:
         *,
         transport: str,
     ) -> None:
+        """
+        记录连接建立指标。
+
+        :param endpoint (_Endpoint | _DistributedEndpoint): 端点
+        :param transport (str): 传输类型
+        """
         endpoint.metric_counted = True
         self._active_connections[endpoint.role] += 1
         logger.info(
@@ -696,6 +845,13 @@ class EgoBrowserRelayHub:
         close_code: int,
         transport: str,
     ) -> None:
+        """
+        记录连接关闭指标。
+
+        :param endpoint (_Endpoint | _DistributedEndpoint): 端点
+        :param close_code (int): 关闭代码
+        :param transport (str): 传输类型
+        """
         if not endpoint.metric_counted:
             return
         endpoint.metric_counted = False
@@ -733,6 +889,12 @@ class EgoBrowserRelayHub:
 
     @staticmethod
     def _close_status(close_code: int) -> str:
+        """
+        关闭状态。
+
+        :param close_code (int): 关闭代码
+        :return str: 状态
+        """
         if close_code == 1000:
             return "completed"
         if close_code == 1008:
@@ -743,14 +905,33 @@ class EgoBrowserRelayHub:
 
     @staticmethod
     def _presence_key(key: RelayBinding, role: EgoBrowserRelayRole) -> str:
+        """
+        返回在线状态键。
+
+        :param key (RelayBinding): 键
+        :param role (EgoBrowserRelayRole): 角色
+        :return str: 在线状态键
+        """
         return f"agent-remote:ego-browser:relay-presence:{key.binding_id}:{key.generation}:{role}"
 
     @staticmethod
     def _endpoint_channel(endpoint_id: str) -> str:
+        """
+        返回端点通道。
+
+        :param endpoint_id (str): 端点 ID
+        :return str: 端点通道
+        """
         return f"agent-remote:ego-browser:relay-endpoint:{endpoint_id}"
 
     @staticmethod
     def _decode_endpoint_id(value: object) -> str:
+        """
+        解码端点 ID。
+
+        :param value (object): 值
+        :return str: 端点 ID
+        """
         if isinstance(value, bytes):
             value = value.decode("ascii")
         if not isinstance(value, str):
@@ -773,7 +954,6 @@ def create_ego_browser_relay_hub(
 
     :param settings (Settings): 应用配置
     :param revocation_bus (EgoBrowserRevocationPublisher | None): ego-browser generation 撤销发布器
-
     :return EgoBrowserRelayHub: 按当前部署模式创建的 relay 连接中心
     """
 

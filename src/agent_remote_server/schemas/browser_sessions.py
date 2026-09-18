@@ -1,3 +1,7 @@
+"""
+定义浏览器会话接口模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 

@@ -1,3 +1,7 @@
+"""
+定义审计接口模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 

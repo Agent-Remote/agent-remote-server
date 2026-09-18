@@ -1,3 +1,7 @@
+"""
+提供身份数据访问。
+"""
+
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
@@ -23,6 +27,11 @@ class IdentityRepository:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """
+        初始化身份数据仓库。
+
+        :param session (AsyncSession): 会话
+        """
         self._session = session
 
     async def add_user(self, user: User) -> User:
@@ -30,7 +39,6 @@ class IdentityRepository:
         新增用户
 
         :param user (User): 用户实体
-
         :return User: 用户实体
         """
 
@@ -53,8 +61,7 @@ class IdentityRepository:
         按主键读取用户
 
         :param user_id (UUID): 用户 ID
-
-        :return User: 用户实体
+        :return User | None: 用户实体
         """
 
         return await self._session.get(User, user_id)
@@ -64,8 +71,7 @@ class IdentityRepository:
         按用户名读取用户
 
         :param username (str): 用户名
-
-        :return User: 用户实体
+        :return User | None: 用户实体
         """
 
         return await self._session.scalar(select(User).where(User.username == username))
@@ -74,7 +80,7 @@ class IdentityRepository:
         """
         列出用户
 
-        :return Sequence: 用户列表
+        :return Sequence[User]: 用户列表
         """
 
         result = await self._session.scalars(select(User).order_by(User.created_at))
@@ -85,7 +91,6 @@ class IdentityRepository:
         新增认证令牌
 
         :param token (AuthToken): 令牌实体
-
         :return AuthToken: 令牌实体
         """
 
@@ -98,8 +103,7 @@ class IdentityRepository:
         按哈希读取认证令牌
 
         :param token_hash (str): 令牌哈希
-
-        :return AuthToken: 令牌实体
+        :return AuthToken | None: 令牌实体
         """
 
         return await self._session.scalar(
@@ -111,7 +115,6 @@ class IdentityRepository:
         新增 CLI 登录码
 
         :param code (CliLoginCode): 登录码实体
-
         :return CliLoginCode: 登录码实体
         """
 
@@ -124,8 +127,7 @@ class IdentityRepository:
         按 device_code 哈希读取 CLI 登录码
 
         :param device_code_hash (str): device_code 哈希
-
-        :return CliLoginCode: 登录码实体
+        :return CliLoginCode | None: 登录码实体
         """
 
         return await self._session.scalar(
@@ -137,8 +139,7 @@ class IdentityRepository:
         按 user_code 读取 CLI 登录码
 
         :param user_code (str): 用户确认码
-
-        :return CliLoginCode: 登录码实体
+        :return CliLoginCode | None: 登录码实体
         """
 
         return await self._session.scalar(
@@ -150,7 +151,6 @@ class IdentityRepository:
         新增用户设备
 
         :param device (UserDevice): 设备实体
-
         :return UserDevice: 设备实体
         """
 
@@ -163,8 +163,7 @@ class IdentityRepository:
         按主键读取设备
 
         :param device_id (UUID): 设备 ID
-
-        :return UserDevice: 设备实体
+        :return UserDevice | None: 设备实体
         """
 
         return await self._session.get(UserDevice, device_id)
@@ -174,8 +173,7 @@ class IdentityRepository:
         列出用户设备
 
         :param user_id (UUID): 用户 ID
-
-        :return Sequence: 设备列表
+        :return Sequence[UserDevice]: 设备列表
         """
 
         result = await self._session.scalars(
@@ -212,7 +210,6 @@ class IdentityRepository:
         新增 SSH 公钥
 
         :param ssh_key (SshKey): SSH 公钥实体
-
         :return SshKey: SSH 公钥实体
         """
 
@@ -225,8 +222,7 @@ class IdentityRepository:
         列出设备 SSH 公钥
 
         :param device_id (UUID): 设备 ID
-
-        :return Sequence: SSH 公钥列表
+        :return Sequence[SshKey]: SSH 公钥列表
         """
 
         result = await self._session.scalars(
@@ -239,7 +235,6 @@ class IdentityRepository:
         新增 WireGuard 对端
 
         :param peer (WireGuardPeer): WireGuard peer 实体
-
         :return WireGuardPeer: WireGuard peer 实体
         """
 
@@ -252,8 +247,7 @@ class IdentityRepository:
         列出设备 WireGuard 对端
 
         :param device_id (UUID): 设备 ID
-
-        :return Sequence: WireGuard peer 列表
+        :return Sequence[WireGuardPeer]: WireGuard peer 列表
         """
 
         result = await self._session.scalars(
@@ -274,7 +268,7 @@ class IdentityRepository:
         """
         列出活跃设备的 WireGuard 对等端
 
-        :return Sequence: WireGuard 对等端列表
+        :return Sequence[WireGuardPeer]: WireGuard 对等端列表
         """
 
         result = await self._session.scalars(
@@ -292,8 +286,7 @@ class IdentityRepository:
         列出设备令牌
 
         :param device_id (UUID): 设备 ID
-
-        :return Sequence: 令牌列表
+        :return Sequence[AuthToken]: 令牌列表
         """
 
         result = await self._session.scalars(
@@ -312,8 +305,7 @@ class IdentityRepository:
 
         :param actor_user_id (UUID | None): 操作者用户 ID，None 表示不过滤
         :param limit (int): 最大返回数量
-
-        :return Sequence: 审计日志列表
+        :return Sequence[AuditLog]: 审计日志列表
         """
 
         statement = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
@@ -327,7 +319,6 @@ class IdentityRepository:
         按 ID 读取审计日志
 
         :param audit_log_id (UUID): 审计日志 ID
-
         :return AuditLog | None: 审计日志实体
         """
 
@@ -338,7 +329,6 @@ class IdentityRepository:
         新增审计日志
 
         :param audit_log (AuditLog): 审计日志实体
-
         :return AuditLog: 审计日志实体
         """
 
@@ -352,7 +342,6 @@ class IdentityRepository:
 
         :param cutoff (datetime): 审计创建时间截止点
         :param limit (int): 单次最大删除数量
-
         :return int: 已删除审计数量
         """
 

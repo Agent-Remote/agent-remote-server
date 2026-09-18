@@ -1,3 +1,7 @@
+"""
+导出安全模块接口。
+"""
+
 from agent_remote_server.security.crypto import decrypt_text, encrypt_text
 from agent_remote_server.security.passwords import hash_password, verify_password
 from agent_remote_server.security.tokens import create_opaque_token, hash_token

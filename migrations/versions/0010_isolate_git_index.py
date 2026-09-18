@@ -1,8 +1,5 @@
-"""隔离工作区 Git 索引
-
-Revision ID: 0010_isolate_git_index
-Revises: 0009_windows_device_platform
-Create Date: 2026-07-28 00:00:00.000000
+"""
+隔离工作区 Git 索引
 """
 
 from collections.abc import Sequence
@@ -16,7 +13,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """为既有同步会话追加 Git index 排除规则。"""
+    """
+    为既有同步会话追加 Git index 排除规则。
+    """
 
     op.execute(
         """
@@ -32,7 +31,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """从既有同步会话移除 Git index 排除规则。"""
+    """
+    从既有同步会话移除 Git index 排除规则。
+    """
 
     op.execute(
         """

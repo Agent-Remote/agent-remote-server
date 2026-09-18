@@ -1,3 +1,7 @@
+"""
+实现工具注册表。
+"""
+
 from dataclasses import dataclass
 
 from agent_remote_server.errors import ApiError
@@ -37,9 +41,7 @@ class ToolRegistry:
         读取工具模板
 
         :param tool_type (str): 工具类型
-
         :return ToolRuntimeTemplate: 工具模板
-
         :raises ApiError: 工具类型不受支持
         """
 
@@ -57,7 +59,7 @@ class ToolRegistry:
         """
         列出支持的工具类型
 
-        :return list: 工具类型列表
+        :return list[str]: 工具类型列表
         """
 
         return sorted(cls._templates)

@@ -1,3 +1,7 @@
+"""
+实现设备会话业务逻辑。
+"""
+
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
@@ -84,7 +88,9 @@ class DeviceSessionClaimResult:
 
 @dataclass(frozen=True)
 class DeviceSessionStopResult:
-    """一次批量撤销操作及其需要关闭的旧 relay 绑定。"""
+    """
+    一次批量撤销操作及其需要关闭的旧 relay 绑定。
+    """
 
     device_sessions: tuple[DeviceSession, ...]
     revoked_bindings: tuple[RevokedDeviceBinding, ...]
@@ -125,9 +131,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前用户认证令牌
         :param device_id (UUID): 被控制设备 ID
         :param tool_session_id (UUID): 远端工具 session ID
-
         :return DeviceSession: 新建设备控制会话
-
         :raises ApiError: 部署策略、身份、平台、工具会话、节点或唯一绑定约束不满足
         """
 
@@ -230,9 +234,7 @@ class DeviceSessionService:
         列出当前设备可以主动选择的远端 Claude session
 
         :param token (AuthToken): 当前设备认证令牌
-
         :return list[DeviceSessionCandidateData]: 不含路径、凭据和 relay 材料的候选列表
-
         :raises ApiError: 设备控制未启用或当前设备不可用
         """
 
@@ -296,9 +298,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param tool_session_id (UUID): 待绑定的远端 Claude session ID
         :param device_capabilities (tuple[str, ...]): 本地设备声明的控制能力集合
-
         :return DeviceSessionClaimResult: 新绑定及需要立即关闭的旧 relay
-
         :raises ApiError: 设备能力、身份、候选状态、节点能力或绑定约束不满足
         """
 
@@ -450,7 +450,6 @@ class DeviceSessionService:
         列出当前用户的设备控制会话
 
         :param user (User): 当前用户
-
         :return list[DeviceSession]: 设备控制会话列表
         """
 
@@ -461,9 +460,7 @@ class DeviceSessionService:
         列出管理员可见的全部设备控制会话
 
         :param user (User): 当前管理员用户
-
         :return list[DeviceSession]: 全部设备控制会话列表
-
         :raises ApiError: 当前用户不是管理员
         """
 
@@ -477,7 +474,6 @@ class DeviceSessionService:
 
         :param user (User): 当前用户
         :param device_session_id (UUID): 设备控制会话 ID
-
         :raises ApiError: 会话不属于当前用户或尚未进入终态
         """
 
@@ -506,7 +502,6 @@ class DeviceSessionService:
         删除当前用户可见的全部终态设备控制会话
 
         :param user (User): 当前用户
-
         :return int: 已删除的会话数量
         """
 
@@ -535,9 +530,7 @@ class DeviceSessionService:
         列出当前认证设备可处理的非终态控制会话
 
         :param token (AuthToken): 当前设备认证令牌
-
         :return list[DeviceSession]: 严格绑定当前设备的控制会话列表
-
         :raises ApiError: 当前令牌不是有效的设备令牌
         """
 
@@ -561,9 +554,7 @@ class DeviceSessionService:
 
         :param user (User): 当前用户
         :param device_session_id (UUID): 设备控制会话 ID
-
         :return DeviceSession: 设备控制会话实体
-
         :raises ApiError: 设备控制会话不存在或不属于当前用户
         """
 
@@ -586,9 +577,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
-
         :return DeviceSession: 更新后的设备控制会话
-
         :raises ApiError: 会话状态、授权模式或目标节点能力不允许建立连接
         """
 
@@ -646,9 +635,7 @@ class DeviceSessionService:
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
         :param approvals (list[DeviceApprovalItem]): 本机应用审批摘要列表
-
         :return DeviceSession: 审批后的设备控制会话
-
         :raises ApiError: 授权模式、会话状态或应用审批集合不合法
         """
 
@@ -718,9 +705,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
-
         :return DeviceSession: 已持有机器锁的设备控制会话
-
         :raises ApiError: 其他设备控制会话已经持有机器锁
         """
 
@@ -760,7 +745,6 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 当前连接代次
-
         :return DeviceSession: 已续租的设备控制会话
         """
 
@@ -786,9 +770,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 断线前连接代次
-
         :return DeviceSession: 进入新代次的设备控制会话
-
         :raises ApiError: 当前会话状态不允许重新连接
         """
 
@@ -826,9 +808,7 @@ class DeviceSessionService:
         :param device_session_id (UUID): 设备控制会话 ID
         :param generation (int): 被中止动作所在连接代次
         :param reason (str): 不含敏感内容的中止原因
-
         :return DeviceSession: 等待新代次连接的设备控制会话
-
         :raises ApiError: 当前会话状态不允许中止动作
         """
 
@@ -860,9 +840,7 @@ class DeviceSessionService:
         :param user (User): 当前用户
         :param device_session_id (UUID): 设备控制会话 ID
         :param reason (str): 不含敏感内容的停止原因
-
         :return DeviceSession: 已停止的设备控制会话
-
         :raises ApiError: 设备控制会话不存在或不属于当前用户
         """
 
@@ -882,9 +860,7 @@ class DeviceSessionService:
         :param token (AuthToken): 当前设备认证令牌
         :param device_session_id (UUID): 设备控制会话 ID
         :param reason (str): 不含敏感内容的停止原因
-
         :return DeviceSession: 已停止的设备控制会话
-
         :raises ApiError: 当前令牌不是有效设备令牌，或会话不存在、未绑定到当前设备
         """
 
@@ -900,9 +876,7 @@ class DeviceSessionService:
         :param user (User): 当前管理员用户
         :param device_session_id (UUID): 设备控制会话 ID
         :param reason (str): 不含敏感内容的停止原因
-
         :return DeviceSession: 已停止的设备控制会话
-
         :raises ApiError: 当前用户不是管理员，或设备控制会话不存在
         """
 
@@ -926,17 +900,13 @@ class DeviceSessionService:
         commit: bool = True,
     ) -> DeviceSessionStopResult:
         """
-        结束远端 Claude session 对应的全部 live 设备控制绑定
-
-        该操作只撤销设备控制，不改变远端 session 的状态；调用方可以在同一
-        数据库事务中继续更新工具 session。
+        只结束远端会话的设备控制绑定，不改变会话状态或提交外层事务。
 
         :param tool_session_id (UUID): 远端工具 session ID
         :param reason (str): 不含敏感内容的停止原因
         :param actor_user_id (UUID | None): 操作发起用户 ID，默认取会话所属用户
         :param audit_action (str): 审计动作名称
         :param commit (bool): 是否立即提交事务并关闭被撤销的 relay
-
         :return DeviceSessionStopResult: 被停止的绑定及待关闭的旧 relay 绑定
         """
 
@@ -976,7 +946,6 @@ class DeviceSessionService:
         :param actor_user_id (UUID | None): 操作发起用户 ID，默认取会话所属用户
         :param audit_action (str): 审计动作名称
         :param commit (bool): 是否立即提交事务并关闭被撤销的 relay
-
         :return DeviceSessionStopResult: 被停止的绑定及待关闭的旧 relay 绑定
         """
 
@@ -1040,6 +1009,17 @@ class DeviceSessionService:
         commit: bool = True,
         revoked_bindings: list[RevokedDeviceBinding] | None = None,
     ) -> DeviceSession:
+        """
+        停止当前后台任务。
+
+        :param device_session (DeviceSession): 设备会话
+        :param reason (str): 操作原因
+        :param actor_user_id (UUID | None): actor 用户 ID
+        :param audit_action (str): 审计操作
+        :param commit (bool): 是否立即提交事务
+        :param revoked_bindings (list[RevokedDeviceBinding] | None): 已撤销状态绑定
+        :return DeviceSession: 停止
+        """
         if device_session.status in TERMINAL_DEVICE_STATUSES:
             return device_session
         previous_generation = device_session.generation
@@ -1064,6 +1044,12 @@ class DeviceSessionService:
         return device_session
 
     async def _require_tool_session(self, tool_session_id: UUID) -> Session:
+        """
+        获取并校验工具会话。
+
+        :param tool_session_id (UUID): 工具会话 ID
+        :return Session: 工具会话
+        """
         tool_session = await self._repository.get_tool_session(tool_session_id)
         if tool_session is None:
             raise ApiError(
@@ -1078,7 +1064,6 @@ class DeviceSessionService:
         提取并校验当前设备 token 的设备身份
 
         :param token (AuthToken): 当前认证令牌
-
         :return UUID: token 绑定的设备 ID
         """
 
@@ -1146,6 +1131,12 @@ class DeviceSessionService:
         device_session: DeviceSession,
         tool_session: Session,
     ) -> None:
+        """
+        将其加入队列激活。
+
+        :param device_session (DeviceSession): 设备会话
+        :param tool_session (Session): 工具会话
+        """
         await self._repository.add_task(
             NodeTask(
                 task_id=(
@@ -1175,6 +1166,11 @@ class DeviceSessionService:
         )
 
     async def _enqueue_deactivation(self, device_session: DeviceSession) -> None:
+        """
+        将其加入队列停用。
+
+        :param device_session (DeviceSession): 设备会话
+        """
         await self._repository.add_task(
             NodeTask(
                 task_id=(
@@ -1197,6 +1193,12 @@ class DeviceSessionService:
         *,
         preserve_active_capabilities: bool = False,
     ) -> None:
+        """
+        将其加入队列上下文更新。
+
+        :param device_session (DeviceSession): 设备会话
+        :param preserve_active_capabilities (bool): preserve 活动状态能力
+        """
         if device_session.lease_until is None:
             raise RuntimeError("active device session omitted its lease")
         lease_until = self._aware(device_session.lease_until)
@@ -1234,6 +1236,13 @@ class DeviceSessionService:
         )
 
     async def _require(self, device_session_id: UUID, *, for_update: bool = False) -> DeviceSession:
+        """
+        获取并校验目标记录。
+
+        :param device_session_id (UUID): 设备会话 ID
+        :param for_update (bool): 对应更新
+        :return DeviceSession: 获取并校验
+        """
         device_session = await self._repository.get(device_session_id, for_update=for_update)
         if device_session is None:
             raise ApiError(
@@ -1244,6 +1253,14 @@ class DeviceSessionService:
     async def _require_device(
         self, token: AuthToken, device_session_id: UUID, *, for_update: bool = False
     ) -> DeviceSession:
+        """
+        获取并校验设备。
+
+        :param token (AuthToken): 令牌
+        :param device_session_id (UUID): 设备会话 ID
+        :param for_update (bool): 对应更新
+        :return DeviceSession: 设备
+        """
         device_session = await self._require(device_session_id, for_update=for_update)
         if token.token_type != "device" or token.user_device_id != device_session.device_id:
             raise ApiError(
@@ -1252,6 +1269,12 @@ class DeviceSessionService:
         return device_session
 
     def _require_generation(self, device_session: DeviceSession, generation: int) -> None:
+        """
+        获取并校验代次。
+
+        :param device_session (DeviceSession): 设备会话
+        :param generation (int): 代次
+        """
         if generation != device_session.generation:
             raise ApiError(
                 code="DEVICE_CONTROL_GENERATION_MISMATCH",
@@ -1265,7 +1288,6 @@ class DeviceSessionService:
 
         :param device_session (DeviceSession): 待递增代次的设备控制会话
         :param terminal (bool): 递增后是否立即进入终态
-
         :raises ApiError: 当前代次已没有可用的安全递增空间
         """
 
@@ -1283,6 +1305,12 @@ class DeviceSessionService:
     async def _require_active_generation(
         self, device_session: DeviceSession, generation: int
     ) -> None:
+        """
+        获取并校验活动状态代次。
+
+        :param device_session (DeviceSession): 设备会话
+        :param generation (int): 代次
+        """
         self._require_generation(device_session, generation)
         await self._require_not_expired(device_session)
         if device_session.status != "active":
@@ -1299,6 +1327,11 @@ class DeviceSessionService:
             )
 
     async def _require_not_expired(self, device_session: DeviceSession) -> None:
+        """
+        获取并校验未过期状态。
+
+        :param device_session (DeviceSession): 设备会话
+        """
         await self._expire_if_needed(device_session)
         if device_session.status == "expired":
             raise ApiError(
@@ -1308,6 +1341,11 @@ class DeviceSessionService:
             )
 
     async def _expire_if_needed(self, device_session: DeviceSession) -> None:
+        """
+        按需标记过期记录。
+
+        :param device_session (DeviceSession): 设备会话
+        """
         if (
             device_session.status not in TERMINAL_DEVICE_STATUSES
             and self._aware(device_session.expires_at) <= self._now()
@@ -1322,6 +1360,14 @@ class DeviceSessionService:
         commit: bool = True,
         revoked_bindings: list[RevokedDeviceBinding] | None = None,
     ) -> None:
+        """
+        过期处理绑定。
+
+        :param device_session (DeviceSession): 设备会话
+        :param reason (str): 操作原因
+        :param commit (bool): 是否立即提交事务
+        :param revoked_bindings (list[RevokedDeviceBinding] | None): 已撤销状态绑定
+        """
         if device_session.status in TERMINAL_DEVICE_STATUSES:
             return
         previous_generation = device_session.generation
@@ -1352,6 +1398,14 @@ class DeviceSessionService:
         device_session: DeviceSession,
         details: dict[str, object],
     ) -> None:
+        """
+        读取审计记录。
+
+        :param actor_user_id (UUID): actor 用户 ID
+        :param action (str): 操作
+        :param device_session (DeviceSession): 设备会话
+        :param details (dict[str, object]): 详情
+        """
         await self._identity_repository.add_audit_log(
             AuditLog(
                 actor_user_id=actor_user_id,
@@ -1363,6 +1417,11 @@ class DeviceSessionService:
         )
 
     def _state_conflict(self) -> ApiError:
+        """
+        返回状态冲突。
+
+        :return ApiError: 状态冲突
+        """
         return ApiError(
             code="DEVICE_CONTROL_STATE_CONFLICT",
             message="Device session state does not permit this operation.",
@@ -1376,6 +1435,14 @@ class DeviceSessionService:
         *,
         authorization_mode: AuthorizationMode | None = None,
     ) -> bool:
+        """
+        判断是否设备控制。
+
+        :param runtime_capabilities (dict[str, object]): 运行时能力
+        :param runtime_backend (str): 运行时后端
+        :param authorization_mode (AuthorizationMode | None): 授权模式
+        :return bool: 是否满足校验条件
+        """
         capability = runtime_capabilities.get("device_control")
         if not isinstance(capability, dict) or capability.get("supported") is not True:
             return False
@@ -1407,6 +1474,14 @@ class DeviceSessionService:
         authorization_mode: AuthorizationMode | None = None,
         v2_enabled: bool | None = None,
     ) -> tuple[str, ...]:
+        """
+        返回协商后的 v2 能力。
+
+        :param runtime_capabilities (dict[str, object]): 运行时能力
+        :param authorization_mode (AuthorizationMode | None): 授权模式
+        :param v2_enabled (bool | None): v2 启用状态
+        :return tuple[str, ...]: 协商后的 v2 能力
+        """
         effective_v2_enabled = (
             self._settings.device_control_v2_enabled if v2_enabled is None else v2_enabled
         )
@@ -1441,7 +1516,18 @@ class DeviceSessionService:
         return tuple(item for item in allowed_capabilities if item in values)
 
     def _aware(self, value: datetime) -> datetime:
+        """
+        补全时间值的时区信息。
+
+        :param value (datetime): 值
+        :return datetime: 时区感知
+        """
         return value if value.tzinfo else value.replace(tzinfo=UTC)
 
     def _now(self) -> datetime:
+        """
+        获取当前时间。
+
+        :return datetime: 当前时间
+        """
         return datetime.now(UTC)

@@ -1,4 +1,6 @@
-"""定义与具体业务会话无关的 relay binding 身份。"""
+"""
+定义与具体业务会话无关的 relay binding 身份。
+"""
 
 from dataclasses import dataclass
 from typing import Literal
@@ -9,7 +11,9 @@ RelayBindingKind = Literal["device_control", "ego_browser"]
 
 @dataclass(frozen=True)
 class RelayBinding:
-    """用绑定类型、业务 ID 和代次唯一标识中继。"""
+    """
+    用绑定类型、业务 ID 和代次唯一标识中继。
+    """
 
     kind: RelayBindingKind
     binding_id: UUID

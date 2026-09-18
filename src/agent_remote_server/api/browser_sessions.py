@@ -1,3 +1,7 @@
+"""
+提供浏览器会话 API。
+"""
+
 import asyncio
 import base64
 import ssl
@@ -389,6 +393,11 @@ class _UpstreamEndpoint:
     """
 
     def __init__(self, endpoint: str) -> None:
+        """
+        初始化上游端点。
+
+        :param endpoint (str): 端点
+        """
         parts = urlsplit(endpoint)
         if parts.scheme not in {"http", "https"} or not parts.hostname:
             raise ApiError(
@@ -428,6 +437,13 @@ class _UpstreamEndpoint:
 
 
 async def _proxy_websocket(websocket: WebSocket, upstream_socket: Any) -> None:
+    """
+    代理WebSocket。
+
+    :param websocket (WebSocket): WebSocket 连接
+    :param upstream_socket (Any): 上游套接字
+    """
+
     async def client_to_upstream() -> None:
         """
         转发浏览器 WebSocket 消息到 Kasm 上游
@@ -466,6 +482,13 @@ async def _proxy_websocket(websocket: WebSocket, upstream_socket: Any) -> None:
 
 
 def _stream_token(browser_session_id: UUID, request: Request | WebSocket) -> str:
+    """
+    返回数据流令牌。
+
+    :param browser_session_id (UUID): 浏览器会话 ID
+    :param request (Request | WebSocket): HTTP 请求
+    :return str: 数据流令牌
+    """
     token = request.query_params.get("token") or request.cookies.get(
         _stream_cookie_name(browser_session_id)
     )
@@ -479,6 +502,12 @@ def _stream_token(browser_session_id: UUID, request: Request | WebSocket) -> str
 
 
 def _stream_cookie_name(browser_session_id: UUID) -> str:
+    """
+    返回数据流 Cookie 名称。
+
+    :param browser_session_id (UUID): 浏览器会话 ID
+    :return str: 数据流 Cookie 名称
+    """
     return f"{STREAM_COOKIE_PREFIX}{str(browser_session_id).replace('-', '')[:24]}"
 
 
@@ -489,6 +518,16 @@ def _upstream_http_url(
     request: Request,
     token: str,
 ) -> str:
+    """
+    返回上游 HTTP URL。
+
+    :param upstream (_UpstreamEndpoint): 上游
+    :param browser_session_id (UUID): 浏览器会话 ID
+    :param proxy_path (str): 代理路径
+    :param request (Request): HTTP 请求
+    :param token (str): 令牌
+    :return str: 上游 HTTP URL
+    """
     query_items = [
         (key, value) for key, value in request.query_params.multi_items() if key != "token"
     ]
@@ -515,6 +554,14 @@ def _upstream_websocket_url(
     proxy_path: str,
     websocket: WebSocket,
 ) -> str:
+    """
+    返回上游 WebSocket URL。
+
+    :param upstream (_UpstreamEndpoint): 上游
+    :param proxy_path (str): 代理路径
+    :param websocket (WebSocket): WebSocket 连接
+    :return str: 上游 WebSocket URL
+    """
     query = urlencode(
         [(key, value) for key, value in websocket.query_params.multi_items() if key != "token"],
         doseq=True,
@@ -534,6 +581,14 @@ def _upstream_websocket_url(
 def _browser_connect_query(
     browser_session_id: UUID, upstream: _UpstreamEndpoint, token: str
 ) -> list[tuple[str, str]]:
+    """
+    返回浏览器连接查询。
+
+    :param browser_session_id (UUID): 浏览器会话 ID
+    :param upstream (_UpstreamEndpoint): 上游
+    :param token (str): 令牌
+    :return list[tuple[str, str]]: 浏览器连接查询
+    """
     ws_path = f"api/v1/browser-sessions/{browser_session_id}/stream/websockify?token={token}"
     return [
         ("autoconnect", "1"),
@@ -549,6 +604,15 @@ def _ensure_browser_connect_query(
     upstream: _UpstreamEndpoint,
     token: str,
 ) -> list[tuple[str, str]]:
+    """
+    确保浏览器连接查询。
+
+    :param query_items (list[tuple[str, str]]): 查询 items
+    :param browser_session_id (UUID): 浏览器会话 ID
+    :param upstream (_UpstreamEndpoint): 上游
+    :param token (str): 令牌
+    :return list[tuple[str, str]]: 浏览器连接查询
+    """
     existing_keys = {key for key, _ in query_items}
     for key, value in _browser_connect_query(browser_session_id, upstream, token):
         if key not in existing_keys:
@@ -557,6 +621,12 @@ def _ensure_browser_connect_query(
 
 
 def _websocket_subprotocols(websocket: WebSocket) -> Sequence[Subprotocol] | None:
+    """
+    返回WebSocket 子协议。
+
+    :param websocket (WebSocket): WebSocket 连接
+    :return Sequence[Subprotocol] | None: WebSocket 子协议
+    """
     raw_value = websocket.headers.get("sec-websocket-protocol")
     if raw_value is None:
         return None
@@ -567,6 +637,13 @@ def _websocket_subprotocols(websocket: WebSocket) -> Sequence[Subprotocol] | Non
 
 
 def _join_upstream_path(base_path: str, proxy_path: str) -> str:
+    """
+    返回拼接上游路径。
+
+    :param base_path (str): 基础路径
+    :param proxy_path (str): 代理路径
+    :return str: 拼接上游路径
+    """
     normalized_base = base_path.rstrip("/")
     normalized_proxy = proxy_path.lstrip("/")
     if not normalized_proxy:
@@ -577,6 +654,13 @@ def _join_upstream_path(base_path: str, proxy_path: str) -> str:
 
 
 def _proxy_request_headers(request: Request, authorization: str) -> dict[str, str]:
+    """
+    代理请求请求头。
+
+    :param request (Request): HTTP 请求
+    :param authorization (str): 授权
+    :return dict[str, str]: 请求请求头
+    """
     headers = {
         key: value
         for key, value in request.headers.items()
@@ -587,6 +671,12 @@ def _proxy_request_headers(request: Request, authorization: str) -> dict[str, st
 
 
 def _proxy_response_headers(response: httpx.Response) -> dict[str, str]:
+    """
+    代理响应请求头。
+
+    :param response (httpx.Response): HTTP 响应
+    :return dict[str, str]: 响应请求头
+    """
     return {
         key: value
         for key, value in response.headers.items()

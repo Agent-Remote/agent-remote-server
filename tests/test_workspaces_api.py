@@ -1,3 +1,7 @@
+"""
+验证工作区 API行为。
+"""
+
 import asyncio
 from collections.abc import Iterator
 from typing import cast
@@ -28,6 +32,11 @@ async def create_schema(app: FastAPI) -> None:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
+    """
+    创建测试 API 客户端。
+
+    :return Iterator[TestClient]: 测试 API 客户端
+    """
     settings = Settings(
         secret_key="test-secret",
         log_level="CRITICAL",
@@ -46,8 +55,7 @@ def auth_header(token: str) -> dict[str, str]:
     创建认证请求头
 
     :param token (str): 访问令牌
-
-    :return dict: 请求头
+    :return dict[str, str]: 请求头
     """
 
     return {"Authorization": f"Bearer {token}"}
@@ -58,7 +66,6 @@ def bootstrap(client: TestClient) -> str:
     初始化管理员并返回令牌
 
     :param client (TestClient): 测试客户端
-
     :return str: 管理员令牌
     """
 
@@ -76,8 +83,7 @@ def register_device(client: TestClient, user_token: str) -> tuple[str, str]:
 
     :param client (TestClient): 测试客户端
     :param user_token (str): 用户令牌
-
-    :return tuple: 设备 ID 和设备令牌
+    :return tuple[str, str]: 设备 ID 和设备令牌
     """
 
     response = client.post(
@@ -101,8 +107,7 @@ def create_node(client: TestClient, admin_token: str) -> tuple[str, str]:
 
     :param client (TestClient): 测试客户端
     :param admin_token (str): 管理员令牌
-
-    :return tuple: 节点 ID 和 node token
+    :return tuple[str, str]: 节点 ID 和 node token
     """
 
     create_response = client.post(
@@ -146,8 +151,7 @@ def create_workspace(client: TestClient, *, device_id: str, device_token: str) -
     :param client (TestClient): 测试客户端
     :param device_id (str): 设备 ID
     :param device_token (str): 设备令牌
-
-    :return dict: workspace 数据
+    :return dict[str, object]: 工作区数据
     """
 
     response = client.post(
@@ -165,6 +169,11 @@ def create_workspace(client: TestClient, *, device_id: str, device_token: str) -
 
 
 def test_workspace_create_is_device_bound_and_idempotent(client: TestClient) -> None:
+    """
+    验证工作区创建受设备约束且保持幂等。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     device_id, device_token = register_device(client, admin_token)
 
@@ -200,6 +209,11 @@ def test_workspace_create_is_device_bound_and_idempotent(client: TestClient) -> 
 
 
 def test_workspace_and_inactive_sync_session_can_be_deleted(client: TestClient) -> None:
+    """
+    验证没有活动同步会话的工作区可删除。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, _ = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -222,6 +236,9 @@ def test_workspace_and_inactive_sync_session_can_be_deleted(client: TestClient) 
     assert blocked_sync.status_code == 409
 
     async def pause_sync() -> None:
+        """
+        暂停同步。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             sync = await session.get(SyncSession, UUID(sync_id))
@@ -245,6 +262,11 @@ def test_workspace_and_inactive_sync_session_can_be_deleted(client: TestClient) 
 
 
 def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None:
+    """
+    验证同步会话创建准备工作区任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -294,6 +316,11 @@ def test_sync_session_creates_prepare_workspace_task(client: TestClient) -> None
 
 
 def test_completed_sync_session_resume_and_reset_remain_active(client: TestClient) -> None:
+    """
+    验证已完成同步会话恢复和重置后保持活动状态。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, node_token = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -347,6 +374,11 @@ def test_completed_sync_session_resume_and_reset_remain_active(client: TestClien
 
 
 def test_sync_conflict_blocks_attach(client: TestClient) -> None:
+    """
+    验证同步冲突会阻止连接。
+
+    :param client (TestClient): 测试 API 客户端
+    """
     admin_token = bootstrap(client)
     node_id, _node_token = create_node(client, admin_token)
     device_id, device_token = register_device(client, admin_token)
@@ -360,6 +392,9 @@ def test_sync_conflict_blocks_attach(client: TestClient) -> None:
     session_id = create_tool_session(client, node_id=node_id, workspace_id=str(workspace["id"]))
 
     async def mark_conflicted() -> None:
+        """
+        标记冲突。
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             sync_session = await session.scalar(select(SyncSession))
@@ -383,12 +418,16 @@ def create_tool_session(client: TestClient, *, node_id: str, workspace_id: str) 
 
     :param client (TestClient): 测试客户端
     :param node_id (str): 节点 ID
-    :param workspace_id (str): workspace ID
-
-    :return str: session ID
+    :param workspace_id (str): 工作区 ID
+    :return str: 工具会话
     """
 
     async def create() -> str:
+        """
+        创建测试持久化记录。
+
+        :return str: 测试记录 ID
+        """
         app = cast(FastAPI, client.app)
         async with app.state.session_factory() as session:
             workspace = await session.get(Workspace, UUID(workspace_id))

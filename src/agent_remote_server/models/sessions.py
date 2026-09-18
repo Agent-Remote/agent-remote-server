@@ -1,3 +1,7 @@
+"""
+定义会话持久化模型。
+"""
+
 from datetime import datetime
 from uuid import UUID
 
@@ -233,7 +237,6 @@ class DeviceSession(IdMixin, TimestampMixin, Base):
         返回历史保留后仍稳定的远端工具 session 引用
 
         :return UUID: 稳定的远端工具 session 引用
-
         :raises RuntimeError: 设备会话缺少工具 session 引用时抛出
         """
 

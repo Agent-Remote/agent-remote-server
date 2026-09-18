@@ -1,3 +1,7 @@
+"""
+定义混入模型持久化模型。
+"""
+
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -7,6 +11,11 @@ from sqlalchemy.types import Uuid
 
 
 def _utc_now() -> datetime:
+    """
+    返回utc 当前时间。
+
+    :return datetime: utc 当前时间
+    """
     return datetime.now(UTC)
 
 

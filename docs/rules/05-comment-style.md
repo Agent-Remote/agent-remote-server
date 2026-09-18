@@ -1,8 +1,10 @@
 # 05 Comment Style
 
-## Public Docstrings
+## Docstrings
 
-Every public class, method, and function in `src/` must have a Chinese docstring.
+Every Python module, class, method, and function in `src/`, `migrations/`, `scripts/`, and `tests/`
+must have a concise Chinese multiline docstring. This includes private and nested definitions,
+test functions, fixtures, BaseModel classes, and dataclasses.
 
 Docstring structure:
 
@@ -19,10 +21,14 @@ def example(name: str) -> str:
 
 Rules:
 
-- Use triple-quoted `"""` docstrings.
+- Put the opening and closing triple-double-quote delimiters on standalone lines.
+- Do not use single-line docstrings, including module, BaseModel, dataclass, test, and private
+  function docstrings.
 - The summary and descriptions must be Chinese.
-- Include `:param` entries when parameters are not self-evident.
-- Include `:return` when a value is returned.
+- Repeat the annotated value type and a Chinese description in one `:param` entry for every
+  parameter except `self` and `cls`; for `Annotated`, use its underlying value type.
+- Repeat every return annotation except `None`, `Never`, and `NoReturn`, plus a Chinese
+  description, in one `:return` entry.
 - Include `:raises` when the function intentionally raises a documented exception.
 - Do not include usage examples in docstrings.
 
@@ -51,4 +57,3 @@ Default to no inline comments. Add comments only when the reason is not obvious:
 - A non-obvious failure handling choice.
 
 Do not write comments that merely repeat the code.
-

@@ -1,8 +1,5 @@
-"""排除生成的 Python 状态
-
-Revision ID: 0011_python_sync_excludes
-Revises: 0010_isolate_git_index
-Create Date: 2026-07-28 00:00:00.000000
+"""
+排除生成的 Python 状态
 """
 
 from collections.abc import Sequence
@@ -27,7 +24,9 @@ GENERATED_PYTHON_EXCLUDES = [
 
 
 def upgrade() -> None:
-    """为既有同步会话追加 Python 生成状态排除规则。"""
+    """
+    为既有同步会话追加 Python 生成状态排除规则。
+    """
 
     for pattern in GENERATED_PYTHON_EXCLUDES:
         escaped = pattern.replace("'", "''")
@@ -45,7 +44,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """从既有同步会话移除 Python 生成状态排除规则。"""
+    """
+    从既有同步会话移除 Python 生成状态排除规则。
+    """
 
     values = ", ".join(f"'{pattern}'" for pattern in GENERATED_PYTHON_EXCLUDES)
     op.execute(

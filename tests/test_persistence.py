@@ -1,3 +1,7 @@
+"""
+验证持久化行为。
+"""
+
 import runpy
 from pathlib import Path
 
@@ -24,6 +28,8 @@ EXPECTED_TABLES = {
     "ego_browser_device_credentials",
     "ego_browser_devices",
     "ego_browser_request_ledger",
+    "ego_browser_ensure_requests",
+    "node_join_codes",
     "ego_browser_revocation_outbox",
     "node_heartbeats",
     "node_task_results",
@@ -83,12 +89,18 @@ EXPECTED_INDEXES = {
 
 
 def test_model_metadata_registers_core_tables() -> None:
+    """
+    验证模型元数据注册核心表。
+    """
     table_names = set(Base.metadata.tables)
 
     assert table_names == EXPECTED_TABLES
 
 
 def test_model_metadata_registers_core_indexes() -> None:
+    """
+    验证模型元数据注册核心索引。
+    """
     index_names = {
         index.name
         for table in Base.metadata.tables.values()
@@ -100,6 +112,9 @@ def test_model_metadata_registers_core_indexes() -> None:
 
 
 def test_device_session_authorized_at_is_exactly_bound_to_full_trust() -> None:
+    """
+    验证设备会话已授权时间为精确已绑定到完全信任。
+    """
     table = Base.metadata.tables["device_sessions"]
     constraint = next(
         item
@@ -114,6 +129,9 @@ def test_device_session_authorized_at_is_exactly_bound_to_full_trust() -> None:
 
 
 def test_initial_migration_revision_identity() -> None:
+    """
+    验证初始状态迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0001_core_schema.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -122,6 +140,9 @@ def test_initial_migration_revision_identity() -> None:
 
 
 def test_identity_migration_revision_identity() -> None:
+    """
+    验证身份迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0002_identity_auth.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -130,6 +151,9 @@ def test_identity_migration_revision_identity() -> None:
 
 
 def test_node_control_migration_revision_identity() -> None:
+    """
+    验证节点控制迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0003_node_control.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -138,6 +162,9 @@ def test_node_control_migration_revision_identity() -> None:
 
 
 def test_connection_fields_migration_revision_identity() -> None:
+    """
+    验证连接字段迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0004_connection_fields.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -146,6 +173,9 @@ def test_connection_fields_migration_revision_identity() -> None:
 
 
 def test_windows_device_platform_migration_revision_identity() -> None:
+    """
+    验证Windows 设备平台迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0009_windows_device_platform.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -154,6 +184,9 @@ def test_windows_device_platform_migration_revision_identity() -> None:
 
 
 def test_device_cli_version_migration_revision_identity() -> None:
+    """
+    验证设备 CLI 版本迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0012_device_cli_version.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -162,6 +195,9 @@ def test_device_cli_version_migration_revision_identity() -> None:
 
 
 def test_device_sessions_migration_revision_identity() -> None:
+    """
+    验证设备会话迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0014_device_sessions.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -170,6 +206,9 @@ def test_device_sessions_migration_revision_identity() -> None:
 
 
 def test_session_device_control_migration_revision_identity() -> None:
+    """
+    验证会话设备控制迁移版本身份。
+    """
     migration_path = Path("migrations/versions/0015_session_device_control.py")
     migration_globals = runpy.run_path(str(migration_path))
 
@@ -178,7 +217,9 @@ def test_session_device_control_migration_revision_identity() -> None:
 
 
 def test_device_session_authorization_migration_revision_identity() -> None:
-    """授权元数据迁移必须接在 binding rebind 迁移之后。"""
+    """
+    授权元数据迁移必须接在 binding rebind 迁移之后。
+    """
 
     migration_path = Path("migrations/versions/0017_device_session_authorization.py")
     migration_globals = runpy.run_path(str(migration_path))
@@ -188,10 +229,12 @@ def test_device_session_authorization_migration_revision_identity() -> None:
 
 
 def test_alembic_revision_graph_has_one_resolvable_head() -> None:
-    """全部迁移的 down_revision 必须解析为通向当前唯一 head 的连续图。"""
+    """
+    全部迁移的 down_revision 必须解析为通向当前唯一 head 的连续图。
+    """
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0021_ego_browser_cancel"]
+    assert script.get_heads() == ["0024_ego_origin_retention"]
     revisions = list(script.walk_revisions())
     assert revisions[-1].revision == "0001_core_schema"
     assert len(revisions) == len(list(Path("migrations/versions").glob("*.py")))
@@ -200,7 +243,11 @@ def test_alembic_revision_graph_has_one_resolvable_head() -> None:
 def test_device_session_authorization_migration_updates_and_reverses_all_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """授权迁移必须先回填历史记录，并可完整删除新增字段与约束。"""
+    """
+    授权迁移必须先回填历史记录，并可完整删除新增字段与约束。
+
+    :param monkeypatch (pytest.MonkeyPatch): pytest 补丁工具
+    """
 
     migration_globals = runpy.run_path("migrations/versions/0017_device_session_authorization.py")
     operations: list[tuple[str, str]] = []
@@ -264,6 +311,9 @@ def test_device_session_authorization_migration_updates_and_reverses_all_fields(
 
 
 def test_migration_revision_ids_fit_alembic_version_column() -> None:
+    """
+    验证迁移版本 ID 不超过 Alembic 列长度。
+    """
     for migration_path in Path("migrations/versions").glob("*.py"):
         migration_globals = runpy.run_path(str(migration_path))
         revision = migration_globals["revision"]
@@ -271,6 +321,9 @@ def test_migration_revision_ids_fit_alembic_version_column() -> None:
 
 
 async def test_repository_crud_round_trip() -> None:
+    """
+    验证数据仓库增删改查往返流程。
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
@@ -331,6 +384,9 @@ async def test_repository_crud_round_trip() -> None:
 
 
 async def test_repository_surfaces_unique_constraint_conflict() -> None:
+    """
+    验证数据仓库暴露唯一约束冲突。
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
