@@ -159,6 +159,9 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 
 ## Ego Browser Bridge Bindings
 
+- Explicit same-identity re-enrollment updates release metadata through the canonical enrollment
+  endpoint. Ordinary ensure and initial-request retries reject metadata drift; re-enrollment never
+  substitutes for the separate key-rotation operation.
 - `ego_browser_devices` and `ego_browser_bindings` form an independent identity and authorization
   domain for remote `ego-browser` heredoc execution. They do not reuse `devices`,
   `device_sessions`, GUI-control authorization modes, relay routes, credentials, or generations.

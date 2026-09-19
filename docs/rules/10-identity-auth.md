@@ -60,6 +60,10 @@
 
 ## Ego Browser Devices
 
+- Canonical `ensure` keeps existing keys, generation, and metadata unchanged. Explicit
+  `re_enroll` may update verified release/runtime/policy metadata through the same idempotent
+  endpoint, but must retain the exact signing key, encryption key, and device generation.
+  It retains owner/origin/PoP checks and invalidates live policy generations when policy changes.
 - Ego-browser devices use a separate credential namespace, device table, proof-of-possession key,
   encryption key, token hash, API routes, binding generation, and revocation path. They never use
   a general device token or `device_session` identity.

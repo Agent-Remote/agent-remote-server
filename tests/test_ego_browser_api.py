@@ -496,6 +496,129 @@ def test_canonical_ensure_creates_initial_identity_but_retained_mode_requires_ex
     assert replayed_initial.json()["error"]["code"] == "EGO_BROWSER_DEVICE_CONFLICT"
 
 
+def test_canonical_reenrollment_updates_release_with_signed_retained_identity(
+    pop_client: TestClient,
+) -> None:
+    """
+    验证显式重新登记可更新版本且保留密钥、代次与幂等结果。
+
+    :param pop_client (TestClient): 强制验证设备签名的测试客户端
+    """
+
+    admin_token = bootstrap(pop_client)
+    _, token = create_user(pop_client, admin_token, "browser-upgrade-owner")
+    device_id = str(uuid4())
+    private_key = Ed25519PrivateKey.from_private_bytes(bytes([19]) * 32)
+    payload = ego_browser_device_payload(device_id)
+    payload["public_key"] = (
+        base64.urlsafe_b64encode(
+            private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        )
+        .decode()
+        .rstrip("=")
+    )
+    payload["bridge_version"] = "0.1.14"
+
+    def enroll(value: dict[str, object], key: str) -> dict[str, object]:
+        """
+        使用新挑战提交并验证一次规范登记。
+
+        :param value (dict[str, object]): 待签名登记字段
+        :param key (str): 幂等操作标识
+        :return dict[str, object]: 已登记设备响应
+        """
+
+        challenge = pop_client.post(
+            "/api/v1/ego-browser/proof-challenges",
+            headers=auth_header(token),
+            json={
+                "operation": "register_device",
+                "ego_browser_device_id": device_id,
+                "generation": 1,
+                "binding_id": None,
+            },
+        )
+        assert challenge.status_code == 200, challenge.text
+        signed = signed_pop_payload(
+            private_key=private_key,
+            payload=value,
+            challenge=str(challenge.json()["data"]["challenge"]),
+            operation="register_device",
+            device_id=device_id,
+            device_generation=1,
+            operation_generation=1,
+        )
+        result = pop_client.post(
+            "/api/v1/ego-browser/devices/ensure",
+            headers={**auth_header(token), "Idempotency-Key": key},
+            json=signed,
+        )
+        assert result.status_code == 200, result.text
+        return cast(dict[str, object], result.json()["data"])
+
+    initial = enroll(payload, "upgrade-initial-operation-123456")
+    payload["enrollment_mode"] = "re_enroll"
+    payload["bridge_version"] = "0.1.15"
+    upgraded = enroll(payload, "upgrade-reenroll-operation-123456")
+    assert upgraded["bridge_version"] == "0.1.15"
+    for field in ("id", "user_id", "public_key", "encryption_public_key", "generation"):
+        assert upgraded[field] == initial[field]
+    replayed = enroll(payload, "upgrade-reenroll-operation-123456")
+    replayed_credential = cast(dict[str, object], replayed["credential"])
+    upgraded_credential = cast(dict[str, object], upgraded["credential"])
+    for field in ("id", "access_token", "credential_revision", "credential_expires_at"):
+        assert replayed_credential[field] == upgraded_credential[field]
+
+
+@pytest.mark.parametrize(
+    ("mode", "changed", "code"),
+    [
+        ("ensure", {"bridge_version": "0.1.16"}, "EGO_BROWSER_DEVICE_CONFLICT"),
+        ("initial", {"bridge_version": "0.1.16"}, "EGO_BROWSER_DEVICE_CONFLICT"),
+        ("re_enroll", {"public_key": _ROTATED_SIGNING_PUBLIC_KEY}, "EGO_BROWSER_DEVICE_CONFLICT"),
+        (
+            "re_enroll",
+            {"encryption_public_key": _ROTATED_ENCRYPTION_PUBLIC_KEY},
+            "EGO_BROWSER_DEVICE_CONFLICT",
+        ),
+        ("re_enroll", {"generation": 2}, "EGO_BROWSER_GENERATION_MISMATCH"),
+    ],
+)
+def test_canonical_reenrollment_keeps_identity_and_ordinary_ensure_guards(
+    client: TestClient,
+    mode: str,
+    changed: dict[str, object],
+    code: str,
+) -> None:
+    """
+    验证普通重试拒绝元数据漂移且重新登记不能替代密钥轮换。
+
+    :param client (TestClient): 测试客户端
+    :param mode (str): 登记模式
+    :param changed (dict[str, object]): 不允许改变的字段
+    :param code (str): 预期错误码
+    """
+
+    admin_token = bootstrap(client)
+    _, token = create_user(client, admin_token, "browser-upgrade-guard")
+    payload = ego_browser_device_payload(str(uuid4()))
+    initial = client.post(
+        "/api/v1/ego-browser/devices/register", headers=auth_header(token), json=payload
+    )
+    assert initial.status_code == 200, initial.text
+    response = client.post(
+        "/api/v1/ego-browser/devices/ensure",
+        headers={**auth_header(token), "Idempotency-Key": "guard-reenroll-operation-123456"},
+        json={**payload, **changed, "enrollment_mode": mode},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == code
+    retained = client.get("/api/v1/ego-browser/devices", headers=auth_header(token))
+    assert retained.status_code == 200
+    for field in ("bridge_version", "public_key", "encryption_public_key", "generation"):
+        assert retained.json()["data"]["items"][0][field] == initial.json()["data"][field]
+
+
 def test_ensure_rejects_an_identity_owned_by_another_user(client: TestClient) -> None:
     """
     验证幂等登记拒绝其他用户拥有的身份。
@@ -1922,13 +2045,16 @@ def test_http_lifecycle_preserves_device_only_authorization_and_admin_cleanup(
     assert revoked.json()["data"]["stop_reason"] == "admin_revoke"
 
 
+@pytest.mark.parametrize("policy_endpoint", ["register", "ensure"])
 def test_device_policy_and_key_rotation_revoke_old_credentials_and_generations(
     client: TestClient,
+    policy_endpoint: str,
 ) -> None:
     """
     策略和密钥轮换必须使此前的全部执行权限失效。
 
     :param client (TestClient): 测试 API 客户端
+    :param policy_endpoint (str): 策略重新登记接口
     """
 
     admin_token = bootstrap(client)
@@ -1962,9 +2088,9 @@ def test_device_policy_and_key_rotation_revoke_old_credentials_and_generations(
         }
     )
     policy_update = client.post(
-        "/api/v1/ego-browser/devices/register",
-        headers=auth_header(owner_token),
-        json=policy_payload,
+        f"/api/v1/ego-browser/devices/{policy_endpoint}",
+        headers={**auth_header(owner_token), "Idempotency-Key": "policy-reenroll-operation-123456"},
+        json={**policy_payload, "enrollment_mode": "re_enroll"},
     )
     assert policy_update.status_code == 200, policy_update.text
     second_device_token = str(policy_update.json()["data"]["credential"]["access_token"])

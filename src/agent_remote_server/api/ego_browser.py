@@ -563,7 +563,7 @@ async def register_ego_browser_device(
             status_code=422,
         )
 
-    # 初次登记可创建设备；重试不得修改现有身份，ensure 模式则要求记录已存在。
+    # 规范入口始终保留密钥与代次，仅显式重新登记可更新发布元数据。
     strict_identity = is_canonical_ensure or payload.enrollment_mode == "ensure"
     service = EgoBrowserService(
         session,

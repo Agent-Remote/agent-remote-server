@@ -384,7 +384,7 @@ class _EgoBrowserDeviceOperations(_EgoBrowserServiceBase):
             signing_key_changed = existing.public_key != canonical_public_key
             encryption_key_changed = existing.encryption_public_key != canonical_encryption_key
             if strict_identity:
-                # ensure 只能刷新短期凭据，不能静默改变身份、发布、运行时或策略元数据。
+                # 显式重新登记可更新发布元数据，但身份与密钥仍必须完全一致。
                 if payload.generation != existing.generation:
                     self._error(
                         "EGO_BROWSER_GENERATION_MISMATCH",
@@ -413,19 +413,20 @@ class _EgoBrowserDeviceOperations(_EgoBrowserServiceBase):
                     and existing.allowlist_roots_digest == payload.allowlist_roots_digest
                     and existing.learning_bundle_digest == payload.learning_bundle_digest
                 )
-                if not metadata_matches:
+                if not metadata_matches and payload.enrollment_mode != "re_enroll":
                     self._error(
                         "EGO_BROWSER_DEVICE_CONFLICT",
                         "The ensure payload does not match the retained device metadata.",
                         409,
                     )
-                self._bind_legacy_device_origin(existing)
-                existing.status = "active"
-                existing.revoked_at = None
-                existing.last_seen_at = self._now()
-                if commit:
-                    await self._session.commit()
-                return existing
+                if metadata_matches:
+                    self._bind_legacy_device_origin(existing)
+                    existing.status = "active"
+                    existing.revoked_at = None
+                    existing.last_seen_at = self._now()
+                    if commit:
+                        await self._session.commit()
+                    return existing
 
             if require_rotation and not (signing_key_changed or encryption_key_changed):
                 self._error(
