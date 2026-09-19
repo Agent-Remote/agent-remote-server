@@ -10,6 +10,7 @@ classifiers = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "alembic>=1.14,<2",
+    "anyio>=4.14.2,<4.15",
     "argon2-cffi>=23.1,<26",
     "asyncpg>=0.30,<1",
     "cryptography>=50,<51",
