@@ -6,6 +6,12 @@ Business tables require an explicit schema design and migration plan. ORM models
 
 ## Database
 
+- Migration `0025_cli_login_sessions` adds `cli_login_sessions`: UUID, user ID, unique
+  current access-token ID, unique keyed refresh-token hash, absolute expiry and timestamps.
+  Both foreign keys cascade on deletion; access-token history retains a nullable session
+  reference so logout racing with rotation revokes the same session. No plaintext credential
+  is stored. Downgrade
+  removes remembered sessions; existing access tokens retain their short expiry.
 - PostgreSQL is the control-plane database.
 - SQLAlchemy async engine is required.
 - Alembic owns schema migrations.

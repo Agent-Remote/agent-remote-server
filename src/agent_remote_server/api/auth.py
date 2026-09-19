@@ -27,12 +27,15 @@ from agent_remote_server.schemas.auth import (
     CliLoginCompleteRequest,
     CliLoginStartData,
     CliLoginStartResponse,
+    CliSessionRefreshRequest,
+    CliSessionTokenResponse,
     EmptyResponse,
     LoginRequest,
     TotpSetupData,
     TotpSetupResponse,
     TotpVerifyRequest,
 )
+from agent_remote_server.services.cli_login_sessions import CliLoginSessionService
 from agent_remote_server.services.identity import IdentityService, TokenIssue
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -154,6 +157,44 @@ async def refresh(
 
     token_issue = await IdentityService(session, settings).refresh_token(token)
     return AuthTokenResponse(data=_token_data(token_issue), request_id=get_request_id())
+
+
+@router.post("/cli/session", response_model=CliSessionTokenResponse)
+async def create_cli_session(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    token: Annotated[AuthToken, Depends(get_current_token)],
+) -> CliSessionTokenResponse:
+    """
+    将已认证的用户登录升级为可续期 CLI 会话。
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param token (AuthToken): 当前令牌
+    :return CliSessionTokenResponse: 新凭据对
+    """
+    data = await CliLoginSessionService(session, settings).create(token)
+    return CliSessionTokenResponse(data=data, request_id=get_request_id())
+
+
+@router.post("/cli/refresh", response_model=CliSessionTokenResponse)
+async def refresh_cli_session(
+    payload: CliSessionRefreshRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CliSessionTokenResponse:
+    """
+    只通过刷新凭据续期 CLI 登录。
+
+    :param payload (CliSessionRefreshRequest): 刷新凭据
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :return CliSessionTokenResponse: 新凭据对
+    """
+    data = await CliLoginSessionService(session, settings).refresh(
+        payload.refresh_token.get_secret_value()
+    )
+    return CliSessionTokenResponse(data=data, request_id=get_request_id())
 
 
 @router.post("/cli/start", response_model=CliLoginStartResponse)

@@ -32,10 +32,40 @@ class AuthToken(IdMixin, TimestampMixin, Base):
         nullable=True,
     )
     token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    cli_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "cli_login_sessions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="auth_tokens_cli_session_fk",
+        ),
+        nullable=True,
+    )
     token_type: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CliLoginSession(IdMixin, TimestampMixin, Base):
+    """
+    绑定当前访问令牌的 CLI 刷新会话。
+    """
+
+    __tablename__ = "cli_login_sessions"
+    __table_args__ = (
+        Index("cli_login_sessions_access_uidx", "access_token_id", unique=True),
+        Index("cli_login_sessions_refresh_uidx", "refresh_token_hash", unique=True),
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    access_token_id: Mapped[UUID] = mapped_column(
+        ForeignKey("auth_tokens.id", ondelete="CASCADE"), nullable=False
+    )
+    refresh_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class CliLoginCode(IdMixin, TimestampMixin, Base):

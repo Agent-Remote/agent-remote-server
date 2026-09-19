@@ -18,6 +18,17 @@
 
 ## CLI Login
 
+- CLI user credentials can exchange a still-valid user access token at `/auth/cli/session`
+  for a one-hour access token and a rotating refresh credential. A refresh credential is
+  accepted only at `/auth/cli/refresh`, never as API authorization. Sessions expire after
+  30 days by default without extending their absolute lifetime on refresh.
+- The session points to its current access token. Refresh locks and rechecks both records,
+  rejects expired sessions, disabled users and revoked access tokens, rotates the refresh
+  hash, and revokes the previous access token atomically. Logout revocation therefore also
+  prevents refresh. Generic `/auth/refresh` cannot rotate session-owned access tokens.
+- Existing user tokens can migrate only while valid. CLI stores the complete credential
+  pair atomically in its credential store and serializes refresh across local processes.
+  Lost refresh responses fail closed; business mutations are never replayed automatically.
 - CLI device-code login must store only a hashed `device_code`.
 - The `user_code` is short-lived and must expire.
 - Completing CLI login before approval must fail.

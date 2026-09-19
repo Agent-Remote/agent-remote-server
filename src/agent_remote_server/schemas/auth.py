@@ -2,7 +2,7 @@
 定义认证接口模型。
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class BootstrapAdminRequest(BaseModel):
@@ -47,7 +47,7 @@ class AuthTokenData(BaseModel):
     认证令牌响应数据
     """
 
-    access_token: str = Field(..., description="访问令牌")
+    access_token: str = Field(..., repr=False, description="访问令牌")
     token_type: str = Field(default="bearer", description="令牌类型")
     expires_in: int = Field(..., description="有效秒数")
 
@@ -67,6 +67,32 @@ class EmptyResponse(BaseModel):
     """
 
     data: dict[str, object] = Field(default_factory=dict, description="空数据")
+    request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class CliSessionRefreshRequest(BaseModel):
+    """
+    只供专用续期接口使用的刷新凭据。
+    """
+
+    refresh_token: SecretStr = Field(..., min_length=1, max_length=1024, description="刷新凭据")
+
+
+class CliSessionTokenData(AuthTokenData):
+    """
+    原子替换的访问和刷新凭据对。
+    """
+
+    refresh_token: str = Field(..., repr=False, description="轮换后的刷新凭据")
+    refresh_expires_in: int = Field(..., description="登录会话剩余有效秒数")
+
+
+class CliSessionTokenResponse(BaseModel):
+    """
+    CLI 登录会话响应。
+    """
+
+    data: CliSessionTokenData = Field(..., description="凭据对")
     request_id: str | None = Field(default=None, description="请求 ID")
 
 

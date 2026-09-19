@@ -3,7 +3,7 @@
 """
 
 from agent_remote_server.models.audit import AuditLog
-from agent_remote_server.models.auth import AuthToken, CliLoginCode
+from agent_remote_server.models.auth import AuthToken, CliLoginCode, CliLoginSession
 from agent_remote_server.models.ego_browser import (
     EgoBrowserBinding,
     EgoBrowserDevice,
@@ -42,6 +42,7 @@ __all__ = [
     "AuthToken",
     "BrowserSession",
     "CliLoginCode",
+    "CliLoginSession",
     "DeveloperCredentialProfile",
     "EgoBrowserBinding",
     "EgoBrowserDevice",

@@ -60,6 +60,12 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
 - SSH agent forwarding is authorized only for active developer credential profiles that explicitly select `agent_forwarding`; both the client attach response and the node forced-command verification carry that decision.
 
+## CLI Remembered Login
+
+CLI remembered login uses `services/cli_login_sessions.py` and an independent refresh
+endpoint. It does not extend ordinary user-token expiry, device identity, browser bindings,
+or full-trust authorization. See the identity and persistence rules for rotation and revocation.
+
 ## Device WireGuard Enrollment
 
 - A device-scoped token may create or update only its own active WireGuard peer.

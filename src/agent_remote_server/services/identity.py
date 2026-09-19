@@ -26,6 +26,7 @@ from agent_remote_server.models import (
     WireGuardPeer,
 )
 from agent_remote_server.repositories import IdentityRepository, NodeRepository
+from agent_remote_server.repositories.cli_login_sessions import CliLoginSessionRepository
 from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
 from agent_remote_server.security import (
     create_opaque_token,
@@ -37,6 +38,7 @@ from agent_remote_server.security import (
     verify_password,
     verify_totp_code,
 )
+from agent_remote_server.services.cli_login_sessions import CliLoginSessionService
 from agent_remote_server.services.device_sessions import DeviceSessionService
 from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
@@ -228,7 +230,10 @@ class IdentityService:
         :param token (AuthToken): 当前令牌
         """
 
-        self._revoke_token(token)
+        await CliLoginSessionService(self._session, self._settings).revoke(token)
+        locked = await CliLoginSessionRepository(self._session).lock_token(token.id)
+        if locked is not None:
+            self._revoke_token(locked)
         await self._audit(
             actor_user_id=token.user_id,
             action="auth.logout",
@@ -246,6 +251,18 @@ class IdentityService:
         :return TokenIssue: 新令牌
         """
 
+        repository = CliLoginSessionRepository(self._session)
+        locked = await repository.lock_token(token.id)
+        if locked is None or locked.status != "active":
+            raise ApiError(
+                code="AUTH_TOKEN_REVOKED", message="Token has been revoked.", status_code=401
+            )
+        if locked.cli_session_id is not None:
+            raise ApiError(
+                code="AUTH_CLI_REFRESH_REQUIRED",
+                message="Use the CLI session refresh credential.",
+                status_code=401,
+            )
         user = await self._require_user(token.user_id)
         device = (
             await self._repository.get_device(token.user_device_id)

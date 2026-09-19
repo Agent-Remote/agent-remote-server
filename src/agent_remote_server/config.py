@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     request_id_header: str = Field(default="x-request-id", description="请求 ID 头名称")
     dependency_check_timeout_seconds: float = Field(default=2.0, description="依赖检查超时时间")
     access_token_ttl_seconds: int = Field(default=3600, description="访问令牌有效秒数")
+    cli_session_ttl_seconds: int = Field(
+        default=2_592_000, ge=60, le=31_536_000, description="CLI 登录会话绝对有效秒数"
+    )
     device_token_ttl_seconds: int = Field(
         default=2_592_000,
         description="设备令牌有效秒数",

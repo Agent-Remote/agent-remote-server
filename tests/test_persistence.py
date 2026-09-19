@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "auth_tokens",
     "browser_sessions",
     "cli_login_codes",
+    "cli_login_sessions",
     "developer_credential_profiles",
     "device_session_approvals",
     "device_sessions",
@@ -59,6 +60,8 @@ EXPECTED_INDEXES = {
     "cli_login_codes_device_hash_uidx",
     "cli_login_codes_status_idx",
     "cli_login_codes_user_code_uidx",
+    "cli_login_sessions_access_uidx",
+    "cli_login_sessions_refresh_uidx",
     "developer_credential_profiles_user_idx",
     "device_session_approvals_session_app_uidx",
     "device_sessions_device_status_idx",
@@ -234,7 +237,7 @@ def test_alembic_revision_graph_has_one_resolvable_head() -> None:
     """
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0024_ego_origin_retention"]
+    assert script.get_heads() == ["0025_cli_login_sessions"]
     revisions = list(script.walk_revisions())
     assert revisions[-1].revision == "0001_core_schema"
     assert len(revisions) == len(list(Path("migrations/versions").glob("*.py")))
