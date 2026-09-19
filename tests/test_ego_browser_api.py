@@ -558,9 +558,9 @@ def test_canonical_reenrollment_updates_release_with_signed_retained_identity(
 
     initial = enroll(payload, "upgrade-initial-operation-123456")
     payload["enrollment_mode"] = "re_enroll"
-    payload["bridge_version"] = "0.1.15"
+    payload["bridge_version"] = EGO_BROWSER_WRAPPER_VERSION
     upgraded = enroll(payload, "upgrade-reenroll-operation-123456")
-    assert upgraded["bridge_version"] == "0.1.15"
+    assert upgraded["bridge_version"] == EGO_BROWSER_WRAPPER_VERSION
     for field in ("id", "user_id", "public_key", "encryption_public_key", "generation"):
         assert upgraded[field] == initial[field]
     replayed = enroll(payload, "upgrade-reenroll-operation-123456")
@@ -573,8 +573,8 @@ def test_canonical_reenrollment_updates_release_with_signed_retained_identity(
 @pytest.mark.parametrize(
     ("mode", "changed", "code"),
     [
-        ("ensure", {"bridge_version": "0.1.16"}, "EGO_BROWSER_DEVICE_CONFLICT"),
-        ("initial", {"bridge_version": "0.1.16"}, "EGO_BROWSER_DEVICE_CONFLICT"),
+        ("ensure", {"bridge_version": "0.0.0"}, "EGO_BROWSER_DEVICE_CONFLICT"),
+        ("initial", {"bridge_version": "0.0.0"}, "EGO_BROWSER_DEVICE_CONFLICT"),
         ("re_enroll", {"public_key": _ROTATED_SIGNING_PUBLIC_KEY}, "EGO_BROWSER_DEVICE_CONFLICT"),
         (
             "re_enroll",
