@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.22 - 2026-09-19
+
+- fix(ego-browser): accept bridge v0.1.16 profile (53fffc2)
+- fix(ego-browser): allow explicit same-identity release re-enrollment (72f1581)
+
 ## v0.2.21 - 2026-09-19
 
 - fix(ego-browser): accept bridge v0.1.15 profile (4f2f9c2)
