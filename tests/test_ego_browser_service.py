@@ -19,6 +19,7 @@ from agent_remote_server.ego_browser.relay import (
     EgoBrowserRelayBinding,
     EgoBrowserRelayTicketClaims,
 )
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_WRAPPER_VERSION
 from agent_remote_server.errors import ApiError
 from agent_remote_server.logging import JsonFormatter
 from agent_remote_server.models import (
@@ -57,7 +58,7 @@ def _node_runtime_capabilities() -> dict[str, object]:
             "supported": True,
             "protocol_versions": ["ego-browser-bridge-v1"],
             "backends": ["native", "docker_sandbox"],
-            "wrapper_version": "0.1.13",
+            "wrapper_version": EGO_BROWSER_WRAPPER_VERSION,
             "skill_version": "2.0.0",
             "skill_tree_sha256": (
                 "a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741"
@@ -151,7 +152,7 @@ def test_node_capability_pins_wrapper_and_official_skill_artifacts() -> None:
         "supported": True,
         "protocol_versions": ["ego-browser-bridge-v1"],
         "backends": ["native", "docker_sandbox"],
-        "wrapper_version": "0.1.13",
+        "wrapper_version": EGO_BROWSER_WRAPPER_VERSION,
         "skill_version": "2.0.0",
         "skill_tree_sha256": ("a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741"),
         "remote_platform": "linux",

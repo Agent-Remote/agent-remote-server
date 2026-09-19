@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from agent_remote_server.config import Settings
 from agent_remote_server.db import Base
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_WRAPPER_VERSION
 from agent_remote_server.main import create_app
 from agent_remote_server.models import AuditLog, DeviceSession, Node, NodeTask, NodeTaskResult
 from agent_remote_server.services.nodes import NodeService
@@ -216,7 +217,7 @@ def test_node_join_code_http_contract_is_admin_only_and_secret_free(
             "version": "0.2.16",
             "join_code": consumed_code,
             "exchange_id": consumed_exchange,
-            "wrapper_version": "0.1.13",
+            "wrapper_version": EGO_BROWSER_WRAPPER_VERSION,
             "skill_version": "2.0.0",
             "artifact_digest": (
                 "sha256:a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741"

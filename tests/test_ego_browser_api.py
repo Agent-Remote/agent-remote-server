@@ -32,6 +32,7 @@ from agent_remote_server.ego_browser.relay import (
     EgoBrowserRelayTicketClaims,
     InMemoryEgoBrowserRelayStore,
 )
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_WRAPPER_VERSION
 from agent_remote_server.main import create_app
 from agent_remote_server.models import (
     AuditLog,
@@ -200,7 +201,7 @@ def create_running_session(
                     "supported": True,
                     "protocol_versions": ["ego-browser-bridge-v1"],
                     "backends": ["native", "docker_sandbox"],
-                    "wrapper_version": "0.1.13",
+                    "wrapper_version": EGO_BROWSER_WRAPPER_VERSION,
                     "skill_version": "2.0.0",
                     "skill_tree_sha256": (
                         "a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741"
@@ -234,7 +235,7 @@ def ego_browser_device_payload(device_id: str) -> dict[str, object]:
         "credential_profile": "community_file",
         "platform": "macos",
         "bridge_protocol_version": "ego-browser-bridge-v1",
-        "bridge_version": "0.1.13",
+        "bridge_version": EGO_BROWSER_WRAPPER_VERSION,
         "local_ego_browser_runtime_version": "0.5.0.32",
         "ego_lite_runtime_version": "0.5.0.32",
         "skill_version": "2.0.0",
@@ -720,7 +721,7 @@ def connect_binding(
             "generation": generation,
             "encryption_public_key": _ENCRYPTION_PUBLIC_KEY,
             "bridge_protocol_version": "ego-browser-bridge-v1",
-            "bridge_version": "0.1.13",
+            "bridge_version": EGO_BROWSER_WRAPPER_VERSION,
             "local_ego_browser_runtime_version": "0.5.0.32",
             "ego_lite_runtime_version": "0.5.0.32",
             "skill_version": "2.0.0",

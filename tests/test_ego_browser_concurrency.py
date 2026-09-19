@@ -18,6 +18,7 @@ from agent_remote_server.ego_browser.relay import (
     EgoBrowserRelayBinding,
     EgoBrowserRelayTicketClaims,
 )
+from agent_remote_server.ego_browser.release_policy import EGO_BROWSER_WRAPPER_VERSION
 from agent_remote_server.errors import ApiError
 from agent_remote_server.models import (
     AuditLog,
@@ -85,7 +86,7 @@ def test_concurrent_first_ensure_creates_one_device_and_replays_one_credential(
                 credential_profile="community_file",
                 platform="macos",
                 bridge_protocol_version="ego-browser-bridge-v1",
-                bridge_version="0.1.13",
+                bridge_version=EGO_BROWSER_WRAPPER_VERSION,
                 local_ego_browser_runtime_version="0.5.0.32",
                 ego_lite_runtime_version="0.5.0.32",
                 skill_version="2.0.0",
