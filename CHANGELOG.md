@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.21 - 2026-09-19
+
+- fix(ego-browser): accept bridge v0.1.15 profile (4f2f9c2)
+- fix(ego-browser): release database locks before relay pairing (2a259a5)
+
 ## v0.2.20 - 2026-09-19
 
 - fix(deps): constrain anyio to secure compatible release (5cb5672)
