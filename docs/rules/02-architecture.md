@@ -179,6 +179,9 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - The local Bridge is outbound-only. The browser relay validates a strict authenticated outer
   envelope and forwards opaque ciphertext; scripts, browser data, output, artifacts, URLs, and
   local paths are never parsed, persisted, audited, or logged by the control plane.
+- Relay handshake validation and each frame admission use separate short database sessions.
+  Close the handshake session before pairing or waiting on the network so device row locks
+  cannot block the opposite role, lease renewal, or revocation.
 - Relay tickets and Device proof challenges are one-time, role-bound where applicable, and consumed
   atomically from an independent Redis namespace. Production PostgreSQL deployments always use
   Redis-backed pairing: each worker publishes encrypted frames to an endpoint-specific channel and

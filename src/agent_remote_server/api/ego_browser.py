@@ -1528,27 +1528,32 @@ async def ego_browser_relay(binding_id: UUID, websocket: WebSocket) -> None:
     session_factory = websocket.app.state.session_factory
     async with session_factory() as session:
         service = EgoBrowserService(session, settings)
-        if not await service.relay_claims_are_current(claims):
-            await websocket.close(code=1008)
-            return
-        hub: EgoBrowserRelayHub = websocket.app.state.ego_browser_relay_hub
+        claims_are_current = await service.relay_claims_are_current(claims)
+    if not claims_are_current:
+        await websocket.close(code=1008)
+        return
+    hub: EgoBrowserRelayHub = websocket.app.state.ego_browser_relay_hub
 
-        async def validate(
-            current_claims: EgoBrowserRelayTicketClaims,
-            _raw: bytes,
-            envelope: dict[str, object],
-        ) -> None:
-            """
-            校验单个 outer frame 的 binding、租约和重放状态。
+    async def validate(
+        current_claims: EgoBrowserRelayTicketClaims,
+        _raw: bytes,
+        envelope: dict[str, object],
+    ) -> None:
+        """
+        在独立短事务中校验每帧的绑定、租约和重放状态。
 
-            :param current_claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
-            :param _raw (bytes): 原始外层信封字节；该回调只校验解析后的信封
-            :param envelope (dict[str, object]): 已解析的外层信封元数据
-            """
+        :param current_claims (EgoBrowserRelayTicketClaims): 一次性 relay 票据声明
+        :param _raw (bytes): 原始外层信封字节；该回调只校验解析后的信封
+        :param envelope (dict[str, object]): 已解析的外层信封元数据
+        """
 
-            await service.admit_outer_envelope(claims=current_claims, envelope=envelope)
+        async with session_factory() as frame_session:
+            await EgoBrowserService(frame_session, settings).admit_outer_envelope(
+                claims=current_claims, envelope=envelope
+            )
 
-        await hub.connect(claims, websocket, validate)
+    # 配对和网络等待期间不能持有设备行锁，否则另一端无法完成准入。
+    await hub.connect(claims, websocket, validate)
 
 
 def _hash_ticket(settings: Settings, ticket: str) -> str:
