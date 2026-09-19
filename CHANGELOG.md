@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.23 - 2026-09-19
+
+- fix(auth): add revocable cli refresh sessions (9226cde)
+
 ## v0.2.22 - 2026-09-19
 
 - fix(ego-browser): accept bridge v0.1.16 profile (53fffc2)
