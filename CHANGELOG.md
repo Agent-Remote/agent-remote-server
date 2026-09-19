@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.20 - 2026-09-19
+
+- fix(deps): constrain anyio to secure compatible release (5cb5672)
+- fix(ego-browser): accept bridge v0.1.14 profile (b6dda90)
+
 ## v0.2.18 - 2026-09-18
 
 - feat(ego-browser): accept the Bridge 0.1.13, Skill 2.0.0, and runtime 0.5.0.32 profile.
