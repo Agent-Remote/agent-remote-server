@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.26 - 2026-09-20
+
+- chore(ego-browser): accept wrapper 0.1.19 (16c4759)
+
 ## v0.2.25 - 2026-09-20
 
 - chore(ego-browser): accept wrapper 0.1.18 (c3d25c1)
