@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.24 - 2026-09-20
+
+- chore(release): admit ego-browser 0.1.17 compatibility (018daca)
+
 ## v0.2.23 - 2026-09-19
 
 - fix(auth): add revocable cli refresh sessions (9226cde)

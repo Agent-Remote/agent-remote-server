@@ -1,6 +1,6 @@
 [project]
 name = "agent-remote-server"
-version = "0.2.23"
+version = "0.2.24"
 description = "Control-plane API for agent-remote."
 readme = "README.md"
 license = { file = "LICENSE" }
