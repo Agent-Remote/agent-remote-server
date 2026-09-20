@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.25 - 2026-09-20
+
+- chore(ego-browser): accept wrapper 0.1.18 (c3d25c1)
+
 ## v0.2.24 - 2026-09-20
 
 - chore(release): admit ego-browser 0.1.17 compatibility (018daca)
