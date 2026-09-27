@@ -15,6 +15,9 @@ from agent_remote_server.repositories.skill_deployment import SkillDeploymentRep
 from agent_remote_server.repositories.skill_deployment_attempts import (
     SkillDeploymentAttemptRepository,
 )
+from agent_remote_server.repositories.skill_deployment_lifecycle import (
+    SkillDeploymentLifecycleRepository,
+)
 from agent_remote_server.repositories.skill_deployment_tasks import SkillDeploymentTaskRepository
 from agent_remote_server.repositories.skill_library import SkillLibraryRepository
 from agent_remote_server.repositories.skill_preparation import SkillPreparationRepository
@@ -60,6 +63,7 @@ from agent_remote_server.services.skills.library_context import LibraryChange, L
 from agent_remote_server.services.skills.library_install import add_skills
 from agent_remote_server.services.skills.library_local import local_view
 from agent_remote_server.services.skills.library_rules import change_rules
+from agent_remote_server.services.skills.library_selection import Selection, account_selections
 from agent_remote_server.services.skills.library_versions import (
     remove_skill,
     rollback_skill,
@@ -124,6 +128,7 @@ class SkillLibraryService:
                     },
                 )
             context = LibraryContext(self._repository, self._store, user_id, library.generation)
+            previous_selections = await account_selections(self._repository, user_id)
             change = await _dispatch(context, request)
             if change.changed:
                 library.generation += 1
@@ -135,7 +140,7 @@ class SkillLibraryService:
                 )
                 for item in change.skills:
                     await lifecycle.library_changed(item)
-            targets = await self._targets(user_id, change)
+            targets = await self._targets(user_id, change, previous_selections)
             data = SkillMutationData(
                 generation=library.generation,
                 skill_ids=[item.id for item in change.skills]
@@ -362,21 +367,41 @@ class SkillLibraryService:
             effective=effective,
         )
 
-    async def _targets(self, user_id: UUID, change: LibraryChange) -> list[SkillOperationTarget]:
+    async def _targets(
+        self, user_id: UUID, change: LibraryChange, previous: dict[UUID, Selection]
+    ) -> list[SkillOperationTarget]:
         """
         固定目标并按显式策略受理兼容节点，离线等待不代表已经执行。
 
         :param user_id (UUID): 认证用户标识
         :param change (LibraryChange): 已验证的实际命令变更
+        :param previous (dict[UUID, Selection]): 变更前账户的实际启用选择
         :return list[SkillOperationTarget]: 各账户存储或部署状态
         """
         if not change.deploy:
             return []
+        current = await account_selections(self._repository, user_id)
+        sources = {item.id for item in change.skills} | {item.id for item in change.local_skills}
+        unfinished = await SkillDeploymentLifecycleRepository(self._session).unfinished_accounts(
+            user_id,
+            tuple(item.id for item in change.skills)
+            + tuple(item.id for item in change.local_skills),
+        )
         targets = []
         for account in await self._repository.accounts(user_id):
             if change.scope.account_id is not None and account.id != change.scope.account_id:
                 continue
             if change.scope.tools and account.tool_type not in change.scope.tools:
+                continue
+            if (
+                change.scope.account_id is None
+                and account.id not in unfinished
+                and previous.get(account.id, frozenset()) == current[account.id]
+                and not (
+                    not change.changed
+                    and any(source_id in sources for _, source_id, _, _ in current[account.id])
+                )
+            ):
                 continue
             bound = account.affinity_node_id is not None
             node = (

@@ -28,6 +28,7 @@ from agent_remote_server.schemas.skill_results import SkillOperationTarget
 from agent_remote_server.services.skills.content import SkillContentError
 from agent_remote_server.services.skills.library import SkillLibraryService
 from agent_remote_server.services.skills.library_context import LibraryChange
+from agent_remote_server.services.skills.library_selection import Selection
 from agent_remote_server.services.skills.migration_resolution import SkillMigrationResolutionService
 from agent_remote_server.skill_manager.storage.objects import PrivateObjectStore
 from agent_remote_server.skill_manager.storage.policy import SkillStoragePolicy
@@ -53,16 +54,20 @@ async def test_library_late_failure_rolls_back_removal_and_proactive_supersessio
     targets = SkillLibraryService._targets
 
     async def fail(
-        self: SkillLibraryService, user_id: UUID, change: LibraryChange
+        self: SkillLibraryService,
+        user_id: UUID,
+        change: LibraryChange,
+        previous: dict[UUID, Selection],
     ) -> list[SkillOperationTarget]:
         """
         主动失效之后模拟受理响应构造失败。
 
         :param user_id (UUID): 当前用户
         :param change (LibraryChange): 已变更安装
+        :param previous (dict[UUID, Selection]): 变更前的有效选择
         :return list[SkillOperationTarget]: 故障注入不会返回
         """
-        await targets(self, user_id, change)
+        await targets(self, user_id, change, previous)
         raise SkillContentError("INJECTED_FAILURE", "late library failure")
 
     with monkeypatch.context() as patch:

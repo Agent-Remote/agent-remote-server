@@ -106,7 +106,7 @@ async def skill_error_handler(request: Request, error: Exception) -> JSONRespons
         status = 404
     elif code == "USER_TOKEN_REQUIRED":
         status = 403
-    elif code == "SKILL_MANAGER_DISABLED":
+    elif code in {"SKILL_MANAGER_DISABLED", "CONTENT_STORAGE_UNAVAILABLE"}:
         status = 503
     elif code == "QUOTA_EXCEEDED" or code == "CONTENT_TOO_LARGE":
         status = 413

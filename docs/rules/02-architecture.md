@@ -1,5 +1,11 @@
 # 02 Architecture
 
+Skill library target selection compares enabled sources before and after global/tool mutations,
+while preserving explicit account requests and unfinished attempts for affected sources. See
+`../skill-deployment-plans.md`; disabling/removing an enabled source still requires deployment.
+Content upload filesystem errors return HTTP 503 `CONTENT_STORAGE_UNAVAILABLE` with a sanitized
+volume/permission hint, preserving the original upload lease for recovery after storage repair.
+
 Backend account migration results are serialized with account writer admission under the user
 content lock. Only the original task/user/account/node/source/target binding may publish a result;
 exact terminal result replay cannot mutate a newer migration. Conflicting or malformed completion

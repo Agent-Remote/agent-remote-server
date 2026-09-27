@@ -5,6 +5,15 @@ targets. These are deployment inputs, not runtime snapshots or evidence of readi
 runs under the existing user storage lock and the same savepoint as configuration acceptance.
 Idempotent replay returns the saved operation and never rebuilds its targets.
 
+Global/tool-scoped mutations compare immutable before/after enabled source, epoch and revision
+selections under the user lock. Unchanged accounts (including excluded sources and unaffected pins)
+are omitted. Disable/remove still include previously enabled selections. Explicit account-scoped
+commands retain their requested target, including reapplication. A no-op command may reapply its already-enabled sources
+to expose pending migration conflicts; it never enrolls an account where that source is disabled.
+Unfinished attempts for affected sources remain selected even while disabled, so new plans can supersede them
+without dropping retained inputs. Full saved plans still include disabled sources; this filtering
+does not rewrite historical receipts or change plan digests.
+
 `skill_operations.plan_version` is nullable: historical operations have no reconstructable plan.
 New operations use version 1, including operations with no targets. Each
 `skill_deployment_targets` row records the original account, node, tool, backend and a digest of

@@ -199,7 +199,13 @@ class SkillContentService:
         _validate_stored({digest: entry}, stored)
         if digest in stored:
             return False
-        return await self._store.put_file(user_id, entry, source)
+        try:
+            return await self._store.put_file(user_id, entry, source)
+        except OSError as error:
+            raise SkillContentError(
+                "CONTENT_STORAGE_UNAVAILABLE",
+                "skill content storage is unavailable; check the persistent volume and permissions",
+            ) from error
 
     async def complete(self, user_id: UUID, upload_id: UUID) -> SkillStoredTree:
         """
