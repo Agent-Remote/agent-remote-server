@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.29 - 2026-09-27
+
+- fix: enable skill management by default (54087af)
+- test: isolate database schemas and synchronize concurrent fixtures (0f536f4)
+
 ## v0.2.28 - 2026-09-27
 
 - test(skills): accept explicit empty node capability reports (f02ffaa)
