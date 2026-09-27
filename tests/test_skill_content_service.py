@@ -5,6 +5,7 @@
 import asyncio
 import io
 import os
+import shutil
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,14 +36,20 @@ from agent_remote_server.skill_manager.storage.policy import SkillStoragePolicy
 
 
 @pytest.fixture
-async def database(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+async def database(
+    tmp_path: Path, request: pytest.FixtureRequest
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """
     使用真实外键的文件数据库，可指向独立 PostgreSQL 验证生产事务语义。
 
     :param tmp_path (Path): 临时数据库目录
+    :param request (pytest.FixtureRequest): 延迟获取空数据库模板
     :return AsyncIterator[async_sessionmaker[AsyncSession]]: 独立事务工厂
     """
-    url = os.environ.get("SKILL_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/database.db")
+    external_url = os.environ.get("SKILL_TEST_DATABASE_URL")
+    if external_url is None:
+        shutil.copyfile(request.getfixturevalue("sqlite_schema"), tmp_path / "database.db")
+    url = external_url or f"sqlite+aiosqlite:///{tmp_path}/database.db"
     engine = create_async_engine(url)
     if engine.dialect.name == "sqlite":
 
@@ -58,8 +65,9 @@ async def database(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSess
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    if external_url is not None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
