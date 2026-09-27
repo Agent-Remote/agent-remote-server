@@ -48,7 +48,7 @@ class LifecycleCapabilityMiddleware:
                 break
         payload = json.loads(body)
         original = payload["runtime"]["runtime_capabilities"]
-        assert "skill_manager" not in original, "production advertisement changed"
+        assert original.get("skill_manager", {}) == {}, "production advertisement changed"
         original["skill_manager"] = {"native": capability() | {"deployment_protocol_version": 1}}
         encoded = json.dumps(payload).encode()
         forwarded = False

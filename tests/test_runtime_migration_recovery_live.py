@@ -257,7 +257,8 @@ async def test_runtime_recovery_cli_and_production_daemons(
                 assert authority["lease_attempt"] == task.retry_count
             node_record = await session.get(Node, takeover.node)
             assert (
-                node_record is not None and "skill_manager" not in node_record.runtime_capabilities
+                node_record is not None
+                and node_record.runtime_capabilities.get("skill_manager", {}) == {}
             )
     assert reports.routes.get(
         "GET /node-api/tasks/{task_id}/runtime-migration-recovery-authorization 200", 0

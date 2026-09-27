@@ -5,6 +5,7 @@
 import asyncio
 from pathlib import Path
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from skill_lifecycle_live_support import LifecycleReports, lifecycle_app
 from skill_takeover_support import TakeoverHarness
@@ -16,14 +17,16 @@ from test_skill_lifecycle_live import prepare_fixture
 from agent_remote_server.models import Node
 
 
+@pytest.mark.parametrize("empty_report", [False, True])
 async def test_lifecycle_heartbeat_is_atomic_and_independent_of_slow_routes(
-    takeover: TakeoverHarness, tmp_path: Path
+    takeover: TakeoverHarness, tmp_path: Path, empty_report: bool
 ) -> None:
     """
     并行慢请求不能阻断原生产心跳，测试补充能力不能伪造后端或绕过认证。
 
     :param takeover (TakeoverHarness): 隔离原账户和数据库
     :param tmp_path (Path): 私有临时配置目录
+    :param empty_report (bool): 新版节点显式上报空能力表
     """
     values = await prepare_fixture(takeover, tmp_path)
     reports = LifecycleReports()
@@ -60,7 +63,10 @@ async def test_lifecycle_heartbeat_is_atomic_and_independent_of_slow_routes(
                     "runtime": {
                         "docker_ok": False,
                         "tmux_ok": bool(backends),
-                        "runtime_capabilities": {"backends": backends},
+                        "runtime_capabilities": {
+                            "backends": backends,
+                            **({"skill_manager": {}} if empty_report else {}),
+                        },
                     },
                 }
                 response = await asyncio.wait_for(
