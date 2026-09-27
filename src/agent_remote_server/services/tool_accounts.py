@@ -4,6 +4,7 @@
 
 import base64
 import binascii
+import json
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -30,6 +31,9 @@ from agent_remote_server.schemas.tool_accounts import (
     ToolAccountConfigImportStatusData,
 )
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
+from agent_remote_server.services.skills.account_lifecycle import forget_account_overrides
+from agent_remote_server.services.skills.config_import import SkillConfigImportGuard
+from agent_remote_server.services.skills.legacy_writers import require_legacy_account_writer
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
@@ -66,6 +70,7 @@ DENIED_CONFIG_IMPORT_PATHS = {
 }
 CONFIG_IMPORT_MAX_FILE_BYTES = 1024 * 1024
 CONFIG_IMPORT_MAX_TOTAL_BYTES = 8 * 1024 * 1024
+CONFIG_IMPORT_MAX_ENCODED_BYTES = 12 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -301,6 +306,7 @@ class ToolAccountService:
             target_id=str(account.id),
             details={"tool_type": account.tool_type},
         )
+        await forget_account_overrides(self._session, user.id, account.id)
         await self._repository.delete_account(account)
         await self._session.commit()
 
@@ -322,6 +328,7 @@ class ToolAccountService:
             raise ApiError(
                 code="COMMON_NOT_FOUND", message="Tool account was not found.", status_code=404
             )
+        await require_legacy_account_writer(self._session, account.user_id, account.id)
         source_backend = account.runtime_backend
         if source_backend not in {"docker_sandbox", "native"}:
             raise ApiError(
@@ -444,6 +451,9 @@ class ToolAccountService:
                 message="Tool type does not match tool account.",
                 status_code=422,
             )
+        await SkillConfigImportGuard(self._session).plan(
+            user.id, account.id, [*include, *(file.path for file in files)]
+        )
         excluded = set(exclude)
         accepted, rejected, warnings = self._classify_config_import_paths(
             include=include,
@@ -762,6 +772,15 @@ class ToolAccountService:
                     "mode": file.mode,
                 }
             )
+        encoded = json.dumps(accepted_files, ensure_ascii=True, separators=(",", ":"))
+        for character, escaped in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026")):
+            encoded = encoded.replace(character, escaped)
+        if len(encoded) > CONFIG_IMPORT_MAX_ENCODED_BYTES:
+            raise ApiError(
+                code="CONFIG_IMPORT_TOO_LARGE",
+                message="Config import file list exceeds the encoded transport limit.",
+                status_code=413,
+            )
         return accepted_files
 
     def _config_file_allowed(self, path: str, accepted_roots: list[str]) -> bool:
@@ -806,6 +825,7 @@ class ToolAccountService:
         """
 
         account = await self._require_account(user=user, account_id=account_id)
+        await require_legacy_account_writer(self._session, account.user_id, account.id)
         template = self._require_template(account.tool_type)
         node = await self._choose_binding_node(account)
         if account.runtime_backend is None:

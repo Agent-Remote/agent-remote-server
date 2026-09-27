@@ -389,6 +389,8 @@ def test_node_task_lease_and_idempotent_completion(client: TestClient) -> None:
     tasks = poll_response.json()["data"]["tasks"]
     assert len(tasks) == 1
     assert tasks[0]["task_id"] == "task_test"
+    assert UUID(tasks[0]["task_record_id"])
+    assert tasks[0]["lease_attempt"] == 1
     assert tasks[0]["lease_until"]
 
     start_response = client.post(
@@ -540,6 +542,10 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
         "task_expired_running"
     ]
 
+    first_task = first_poll.json()["data"]["tasks"][0]
+    assert first_task["lease_attempt"] == 1
+    assert UUID(first_task["task_record_id"])
+
     start_response = client.post(
         "/api/v1/node-api/tasks/task_expired_running/start",
         headers=auth_header(node_token),
@@ -566,6 +572,8 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
     assert second_poll.status_code == 200
     tasks = second_poll.json()["data"]["tasks"]
     assert [task["task_id"] for task in tasks] == ["task_expired_running"]
+    assert tasks[0]["task_record_id"] == first_task["task_record_id"]
+    assert tasks[0]["lease_attempt"] == 2
 
     async def assert_released() -> None:
         """
@@ -579,6 +587,7 @@ def test_expired_running_node_task_is_released(client: TestClient) -> None:
             assert task is not None
             assert task.status == "leased"
             assert task.retry_count == 2
+            assert str(task.id) == tasks[0]["task_record_id"]
 
     asyncio.run(assert_released())
 

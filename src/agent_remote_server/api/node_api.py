@@ -53,8 +53,21 @@ from agent_remote_server.schemas.nodes import (
     ReconcileRequest,
     task_expires_at,
 )
+from agent_remote_server.schemas.runtime_recovery import (
+    RuntimeRecoveryAuthorization,
+    RuntimeRecoveryAuthorizationResponse,
+    RuntimeRecoveryLeaseResponse,
+)
+from agent_remote_server.schemas.skill_results import SkillResult
+from agent_remote_server.schemas.skill_start_result import (
+    ManagedStartObservation,
+    ManagedStartReady,
+    ManagedStartStopped,
+)
 from agent_remote_server.services.connections import ConnectionService
 from agent_remote_server.services.nodes import NodeService
+from agent_remote_server.services.runtime_recovery import RuntimeRecoveryService
+from agent_remote_server.services.skills.content import SkillContentError
 
 router = APIRouter(prefix="/node-api", tags=["node-api"])
 
@@ -219,6 +232,8 @@ async def poll_tasks(
             tasks=[
                 NodeTaskEnvelope(
                     task_id=task.task_id,
+                    task_record_id=task.id,
+                    lease_attempt=task.retry_count,
                     node_id=task.node_id,
                     task_type=task.task_type,
                     idempotency_key=task.task_id,
@@ -254,6 +269,66 @@ async def start_task(
 
     await NodeService(session, settings).start_task(node=node, task_id=task_id)
     return EmptyResponse(request_id=get_request_id())
+
+
+@router.post("/tasks/{task_id}/managed-start-result/inspect")
+async def inspect_managed_start(
+    task_id: str,
+    payload: ManagedStartReady | ManagedStartStopped,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    node: Annotated[Node, Depends(get_current_node)],
+) -> SkillResult[ManagedStartObservation]:
+    """
+    返回精确候选结果的提交观察，不授予执行或续期权限。
+
+    :param task_id (str): 原始逻辑任务身份
+    :param payload (ManagedStartReady | ManagedStartStopped): 待查询的原始结果
+    :param settings (Settings): 发布配置
+    :param session (AsyncSession): 请求事务
+    :param node (Node): 认证节点
+    :return SkillResult[ManagedStartObservation]: 有界只读观察
+    """
+    if not settings.skill_manager_enabled:
+        raise SkillContentError("SKILL_MANAGER_DISABLED", "skill management API is not enabled")
+    observation = await NodeService(session, settings).inspect_managed_start(
+        node=node, task_id=task_id, outcome=payload
+    )
+    return SkillResult(
+        status="completed" if observation.accepted else "unconfirmed",
+        committed=observation.accepted,
+        data=observation,
+    )
+
+
+@router.post("/tasks/{task_id}/managed-start-result")
+async def confirm_managed_start(
+    task_id: str,
+    payload: ManagedStartReady | ManagedStartStopped,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    node: Annotated[Node, Depends(get_current_node)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
+) -> SkillResult[ManagedStartReady | ManagedStartStopped]:
+    """
+    提交后回显精确原始结果，供节点区别已接收收据与不确定网络失败。
+
+    :param task_id (str): 原始逻辑任务身份
+    :param payload (ManagedStartReady | ManagedStartStopped): 有界就绪或停止结果
+    :param settings (Settings): 发布配置
+    :param session (AsyncSession): 请求事务
+    :param node (Node): 认证节点
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销发布器
+    :return SkillResult[ManagedStartReady | ManagedStartStopped]: 完整提交的原始收据
+    """
+    if not settings.skill_manager_enabled:
+        raise SkillContentError("SKILL_MANAGER_DISABLED", "skill management API is not enabled")
+    await NodeService(
+        session, settings, ego_browser_revocation_publisher=ego_browser_revocation_bus
+    ).confirm_managed_start(node=node, task_id=task_id, outcome=payload)
+    return SkillResult(status="completed", committed=True, data=payload)
 
 
 @router.post("/tasks/{task_id}/complete", response_model=EmptyResponse)
@@ -441,3 +516,53 @@ async def verify_binding_attach(
         ),
         request_id=get_request_id(),
     )
+
+
+@router.get(
+    "/tasks/{task_id}/runtime-migration-recovery-authorization",
+    response_model=RuntimeRecoveryAuthorizationResponse,
+)
+async def authorize_runtime_recovery(
+    task_id: str,
+    node: Annotated[Node, Depends(get_current_node)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RuntimeRecoveryAuthorizationResponse:
+    """
+    原节点即时校验当前恢复租约和原账户归属。
+
+    :param task_id (str): 精确恢复任务
+    :param node (Node): 认证节点
+    :param session (AsyncSession): 请求事务
+    :return RuntimeRecoveryAuthorizationResponse: 即时租约授权
+    """
+    data = await RuntimeRecoveryService(session).authorize(node.id, task_id)
+    await session.commit()
+    return RuntimeRecoveryAuthorizationResponse(data=data, request_id=get_request_id())
+
+
+@router.post(
+    "/tasks/{task_id}/runtime-migration-recovery-lease",
+    response_model=RuntimeRecoveryLeaseResponse,
+)
+async def renew_runtime_recovery(
+    task_id: str,
+    payload: RuntimeRecoveryAuthorization,
+    node: Annotated[Node, Depends(get_current_node)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RuntimeRecoveryLeaseResponse:
+    """
+    原节点延长当前恢复轮次，失效或变化的绑定不能重新取得授权。
+
+    :param task_id (str): 原恢复逻辑任务
+    :param payload (RuntimeRecoveryAuthorization): 原始完整授权
+    :param node (Node): 认证节点
+    :param session (AsyncSession): 持锁请求事务
+    :param settings (Settings): 配置的租约时长
+    :return RuntimeRecoveryLeaseResponse: 有限时长的精确授权
+    """
+    data = await RuntimeRecoveryService(session).renew(
+        node.id, task_id, payload, settings.node_task_lease_seconds
+    )
+    await session.commit()
+    return RuntimeRecoveryLeaseResponse(data=data, request_id=get_request_id())

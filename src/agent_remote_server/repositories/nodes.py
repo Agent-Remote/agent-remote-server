@@ -20,6 +20,7 @@ from agent_remote_server.models import (
     SyncSession,
     ToolAccount,
 )
+from agent_remote_server.models.skill_snapshots import SessionSkillSnapshot
 
 
 class NodeRepository:
@@ -106,18 +107,23 @@ class NodeRepository:
 
         await self._session.delete(node)
 
-    async def list_active_sessions_for_node(self, node_id: UUID) -> Sequence[Session]:
+    async def list_legacy_active_sessions_for_node(self, node_id: UUID) -> Sequence[Session]:
         """
-        列出节点上控制面认为仍活跃的工具会话
+        只返回不受精确技能快照保护的活跃会话，避免通用清单抢先终止受管启动。
 
         :param node_id (UUID): 节点 ID
-        :return Sequence[Session]: 活跃工具会话列表
+        :return Sequence[Session]: 可由通用对账处理的旧会话列表
         """
 
         result = await self._session.scalars(
             select(Session)
             .where(Session.node_id == node_id)
             .where(Session.status.in_(["starting", "running", "active"]))
+            .where(
+                ~select(SessionSkillSnapshot.id)
+                .where(SessionSkillSnapshot.session_reference_id == Session.id)
+                .exists()
+            )
             .order_by(Session.created_at)
         )
         return result.all()
@@ -205,6 +211,7 @@ class NodeRepository:
             )
             .order_by(NodeTask.created_at)
             .limit(limit)
+            .with_for_update(skip_locked=True)
         )
         return result.all()
 

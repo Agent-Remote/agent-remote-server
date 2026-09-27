@@ -34,6 +34,11 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.ego_browser import EgoBrowserRepository
 from agent_remote_server.repositories.identity import IdentityRepository
+from agent_remote_server.schemas.skill_start_result import (
+    ManagedStartObservation,
+    ManagedStartReady,
+    ManagedStartStopped,
+)
 from agent_remote_server.security import create_opaque_token, decrypt_text, encrypt_text, hash_token
 from agent_remote_server.services.device_sessions import (
     DeviceSessionService,
@@ -42,6 +47,24 @@ from agent_remote_server.services.device_sessions import (
 from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.ego_browser.helpers import _as_utc
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
+from agent_remote_server.services.runtime_migrations import RuntimeMigrationResultGuard
+from agent_remote_server.services.runtime_recovery import RuntimeRecoveryService
+from agent_remote_server.services.skills.config_import import SkillConfigImportGuard
+from agent_remote_server.services.skills.deployment_authorization import (
+    reject_generic_deployment_result,
+)
+from agent_remote_server.services.skills.deployment_scheduling import schedule_deployments
+from agent_remote_server.services.skills.retention.lifecycle import (
+    existing_history_mutations,
+    session_history_mutation,
+)
+from agent_remote_server.services.skills.runtime_capability import normalize_skill_capabilities
+from agent_remote_server.services.skills.start_results import (
+    ManagedStartResultGuard,
+    managed_start_task,
+)
+from agent_remote_server.services.skills.stop_results import ManagedStopResultGuard
+from agent_remote_server.services.skills.takeover_results import TakeoverResultGuard
 
 RUNTIME_BACKENDS = {"docker_sandbox", "native"}
 _EGO_BROWSER_CANCEL_RESULT_KEYS = {
@@ -1179,6 +1202,8 @@ class NodeService:
         if not isinstance(value, dict):
             return {}
         normalized = dict(value)
+        if "skill_manager" in normalized:
+            normalized["skill_manager"] = normalize_skill_capabilities(normalized["skill_manager"])
         raw_bridge = normalized.get("ego_browser_bridge")
         if isinstance(raw_bridge, dict):
             bridge = dict(raw_bridge)
@@ -1568,6 +1593,7 @@ class NodeService:
         :return list[NodeTask]: 节点任务列表
         """
 
+        await schedule_deployments(self._session, self._settings, node.id)
         now = self._now()
         lease_until = now + timedelta(seconds=self._settings.node_task_lease_seconds)
         tasks = list(
@@ -1595,8 +1621,51 @@ class NodeService:
             raise ApiError(
                 code="COMMON_CONFLICT", message="Task is already terminal.", status_code=409
             )
+        if task.task_type == "import_tool_account_config":
+            await SkillConfigImportGuard(self._session).authorize(node.id, task_id)
+        if task.task_type == "recover_tool_account_runtime":
+            await RuntimeRecoveryService(self._session).authorize(node.id, task_id)
         task.status = "running"
         await self._session.commit()
+
+    async def inspect_managed_start(
+        self, *, node: Node, task_id: str, outcome: ManagedStartReady | ManagedStartStopped
+    ) -> ManagedStartObservation:
+        """
+        只读检查原始启动确认并释放观察锁，不恢复或续期任务。
+
+        :param node (Node): 认证节点
+        :param task_id (str): 原始逻辑任务身份
+        :param outcome (ManagedStartReady | ManagedStartStopped): 原始待确认结果
+        :return ManagedStartObservation: 固定身份及原始收据观察
+        """
+        task = await self._require_node_task(node=node, task_id=task_id)
+        observation = await ManagedStartResultGuard(self._session).inspect(task, outcome)
+        await self._session.commit()
+        return observation
+
+    async def confirm_managed_start(
+        self, *, node: Node, task_id: str, outcome: ManagedStartReady | ManagedStartStopped
+    ) -> None:
+        """
+        专用确认入口不能将旧任务升级为受管完成收据。
+
+        :param node (Node): 认证节点
+        :param task_id (str): 原始逻辑任务身份
+        :param outcome (ManagedStartReady | ManagedStartStopped): 有界原始启动结果
+        """
+        task = await self._require_node_task(node=node, task_id=task_id)
+        if not managed_start_task(task):
+            raise ApiError(
+                code="SKILL_START_RESULT_INVALID",
+                message="Managed startup task is required.",
+                status_code=409,
+            )
+        data = outcome.model_dump(mode="json")
+        if isinstance(outcome, ManagedStartReady):
+            await self.complete_task(node=node, task_id=task_id, result=data)
+        else:
+            await self.fail_task(node=node, task_id=task_id, error=data)
 
     async def complete_task(self, *, node: Node, task_id: str, result: dict[str, object]) -> None:
         """
@@ -1608,27 +1677,53 @@ class NodeService:
         """
 
         task = await self._require_node_task(node=node, task_id=task_id)
+        await reject_generic_deployment_result(self._session, task)
         result = _content_safe_task_completion(task, result)
-        if await self._repository.get_task_result(task_id) is None:
-            await self._repository.add_task_result(
-                NodeTaskResult(
-                    node_task_id=task.id,
-                    task_id=task.task_id,
-                    status="succeeded",
-                    result=result,
-                    error=None,
-                    started_at=None,
-                    finished_at=self._now(),
-                )
+        ego_browser_service: EgoBrowserService | None = None
+        async with session_history_mutation(self._session, self._task_session_id(task, result)):
+            replay = await ManagedStartResultGuard(self._session).authorize(
+                task, result, "succeeded"
             )
-        task.status = "succeeded"
-        await self._apply_tool_account_task_result(task, result)
-        await self._apply_tool_session_task_result(task, result)
-        await self._apply_sync_session_task_result(task, result)
-        await self._apply_browser_session_task_result(task, result)
-        ego_browser_service = await self._revoke_ego_browser_for_task(task, result)
+            replay = (
+                await ManagedStopResultGuard(self._session).authorize(task, result, "succeeded")
+                or replay
+            )
+            replay = (
+                await TakeoverResultGuard(self._session).authorize(task, result, "succeeded")
+                or replay
+            )
+            replay = (
+                await RuntimeMigrationResultGuard(self._session).authorize(
+                    task, result, "succeeded"
+                )
+                or replay
+            )
+            replay = (
+                await RuntimeRecoveryService(self._session).result(task, result, "succeeded")
+                or replay
+            )
+            if not replay:
+                if await self._repository.get_task_result(task_id) is None:
+                    await self._repository.add_task_result(
+                        NodeTaskResult(
+                            node_task_id=task.id,
+                            task_id=task.task_id,
+                            status="succeeded",
+                            result=result,
+                            error=None,
+                            started_at=None,
+                            finished_at=self._now(),
+                        )
+                    )
+                task.status = "succeeded"
+                await self._apply_tool_account_task_result(task, result)
+                await self._apply_tool_session_task_result(task, result)
+                await self._apply_sync_session_task_result(task, result)
+                await self._apply_browser_session_task_result(task, result)
+                ego_browser_service = await self._revoke_ego_browser_for_task(task, result)
         await self._session.commit()
-        await ego_browser_service.publish_pending_revocations()
+        if ego_browser_service is not None:
+            await ego_browser_service.publish_pending_revocations()
 
     async def fail_task(self, *, node: Node, task_id: str, error: dict[str, object]) -> None:
         """
@@ -1640,27 +1735,47 @@ class NodeService:
         """
 
         task = await self._require_node_task(node=node, task_id=task_id)
+        await reject_generic_deployment_result(self._session, task)
         error = _content_safe_task_failure(task, error)
-        if await self._repository.get_task_result(task_id) is None:
-            await self._repository.add_task_result(
-                NodeTaskResult(
-                    node_task_id=task.id,
-                    task_id=task.task_id,
-                    status="failed",
-                    result=None,
-                    error=error,
-                    started_at=None,
-                    finished_at=self._now(),
-                )
+        ego_browser_service: EgoBrowserService | None = None
+        async with session_history_mutation(self._session, self._task_session_id(task, error)):
+            replay = await ManagedStartResultGuard(self._session).authorize(task, error, "failed")
+            replay = (
+                await ManagedStopResultGuard(self._session).authorize(task, error, "failed")
+                or replay
             )
-        task.status = "failed"
-        await self._apply_tool_account_task_failure(task, error)
-        await self._apply_tool_session_task_failure(task, error)
-        await self._apply_sync_session_task_failure(task)
-        await self._apply_browser_session_task_failure(task, error)
-        ego_browser_service = await self._revoke_ego_browser_for_task(task, error)
+            replay = (
+                await TakeoverResultGuard(self._session).authorize(task, error, "failed") or replay
+            )
+            replay = (
+                await RuntimeMigrationResultGuard(self._session).authorize(task, error, "failed")
+                or replay
+            )
+            replay = (
+                await RuntimeRecoveryService(self._session).result(task, error, "failed") or replay
+            )
+            if not replay:
+                if await self._repository.get_task_result(task_id) is None:
+                    await self._repository.add_task_result(
+                        NodeTaskResult(
+                            node_task_id=task.id,
+                            task_id=task.task_id,
+                            status="failed",
+                            result=None,
+                            error=error,
+                            started_at=None,
+                            finished_at=self._now(),
+                        )
+                    )
+                task.status = "failed"
+                await self._apply_tool_account_task_failure(task, error)
+                await self._apply_tool_session_task_failure(task, error)
+                await self._apply_sync_session_task_failure(task)
+                await self._apply_browser_session_task_failure(task, error)
+                ego_browser_service = await self._revoke_ego_browser_for_task(task, error)
         await self._session.commit()
-        await ego_browser_service.publish_pending_revocations()
+        if ego_browser_service is not None:
+            await ego_browser_service.publish_pending_revocations()
 
     async def reconcile(
         self, *, node: Node, node_id: UUID, sections: list[str], snapshot: dict[str, object]
@@ -1686,41 +1801,44 @@ class NodeService:
         revoked_bindings: list[RevokedDeviceBinding] = []
         if "runtime_sessions" in sections:
             reported = self._reported_runtime_sessions(snapshot)
-            active_sessions = await self._repository.list_active_sessions_for_node(node.id)
-            for tool_session in active_sessions:
-                if tool_session.runtime_backend not in {"native", "docker_sandbox"}:
-                    continue
-                runtime = reported.get(str(tool_session.id))
-                if runtime is None and tool_session.runtime_backend == "docker_sandbox":
-                    continue
-                if runtime is not None and runtime.get("active") is True:
-                    continue
-                device_stop = await DeviceSessionService(
-                    self._session, self._settings, self._relay_hub
-                ).stop_for_tool_session(
-                    tool_session_id=tool_session.id,
-                    reason="node_reconcile",
-                    audit_action="device_session.node_reconcile",
-                    commit=False,
-                )
-                revoked_bindings.extend(device_stop.revoked_bindings)
-                ego_service = EgoBrowserService(
-                    self._session,
-                    self._settings,
-                    revocation_publisher=self._ego_browser_revocation_publisher,
-                )
-                await ego_service.revoke_for_tool_session(
-                    tool_session_id=tool_session.id,
-                    reason="node_reconcile",
-                    commit=False,
-                    publish=False,
-                )
-                if runtime is not None and runtime.get("exit_reason") == "process_exited":
-                    await self._enqueue_reconciled_session_cleanup(tool_session)
-                    cleanup_count += 1
-                else:
-                    tool_session.status = "interrupted"
-                interrupted_count += 1
+            active_sessions = await self._repository.list_legacy_active_sessions_for_node(node.id)
+            async with existing_history_mutations(
+                self._session, {item.user_id for item in active_sessions}
+            ):
+                for tool_session in active_sessions:
+                    if tool_session.runtime_backend not in {"native", "docker_sandbox"}:
+                        continue
+                    runtime = reported.get(str(tool_session.id))
+                    if runtime is None and tool_session.runtime_backend == "docker_sandbox":
+                        continue
+                    if runtime is not None and runtime.get("active") is True:
+                        continue
+                    device_stop = await DeviceSessionService(
+                        self._session, self._settings, self._relay_hub
+                    ).stop_for_tool_session(
+                        tool_session_id=tool_session.id,
+                        reason="node_reconcile",
+                        audit_action="device_session.node_reconcile",
+                        commit=False,
+                    )
+                    revoked_bindings.extend(device_stop.revoked_bindings)
+                    ego_service = EgoBrowserService(
+                        self._session,
+                        self._settings,
+                        revocation_publisher=self._ego_browser_revocation_publisher,
+                    )
+                    await ego_service.revoke_for_tool_session(
+                        tool_session_id=tool_session.id,
+                        reason="node_reconcile",
+                        commit=False,
+                        publish=False,
+                    )
+                    if runtime is not None and runtime.get("exit_reason") == "process_exited":
+                        await self._enqueue_reconciled_session_cleanup(tool_session)
+                        cleanup_count += 1
+                    else:
+                        tool_session.status = "interrupted"
+                    interrupted_count += 1
         await self._audit(
             actor_user_id=None,
             action="node_api.reconcile",
@@ -1881,7 +1999,6 @@ class NodeService:
             return
         profile = await self._tool_account_profile(account)
         if task.task_type == "migrate_tool_account_runtime":
-            source = task.payload.get("source_runtime_backend")
             target = task.payload.get("target_runtime_backend")
             migration = profile.profile_json.get("runtime_migration")
             previous_status = (
@@ -1893,7 +2010,10 @@ class NodeService:
                 and self._text_result(result, "runtime_backend") == target
             ):
                 account.runtime_backend = target
-                account.status = previous_status if isinstance(previous_status, str) else "active"
+                if account.status == "migrating":
+                    account.status = (
+                        previous_status if isinstance(previous_status, str) else "active"
+                    )
                 profile.profile_json = {
                     **profile.profile_json,
                     "runtime_migration": {
@@ -1903,10 +2023,11 @@ class NodeService:
                     },
                 }
                 return
-            if isinstance(source, str):
-                account.runtime_backend = source
-            account.status = previous_status if isinstance(previous_status, str) else "failed"
-            return
+            raise ApiError(
+                code="RUNTIME_MIGRATION_RESULT_CONFLICT",
+                message="Backend migration completion does not prove target readiness.",
+                status_code=409,
+            )
         if task.task_type == "create_binding_session":
             if profile.profile_json.get("binding_task_id") != task.task_id:
                 return
@@ -1987,18 +2108,16 @@ class NodeService:
             return
         if task.task_type == "migrate_tool_account_runtime":
             migration = profile.profile_json.get("runtime_migration")
-            previous_status = (
-                migration.get("previous_status") if isinstance(migration, dict) else None
-            )
             source = task.payload.get("source_runtime_backend")
             if isinstance(source, str):
                 account.runtime_backend = source
-            account.status = previous_status if isinstance(previous_status, str) else "failed"
+            if account.status != "disabled":
+                account.status = "migrating"
             profile.profile_json = {
                 **profile.profile_json,
                 "runtime_migration": {
                     **(migration if isinstance(migration, dict) else {}),
-                    "status": "failed",
+                    "status": "recovery_required",
                     "error": self._text_result(error, "message")
                     or self._text_result(error, "error"),
                 },
@@ -2046,7 +2165,10 @@ class NodeService:
             tool_session.status = "failed"
             return
         if task.task_type == "stop_tool_session":
-            if task.payload.get("preserve_interrupted_status") is True:
+            if (
+                task.payload.get("preserve_interrupted_status") is True
+                or result.get("unclean") is True
+            ):
                 tool_session.status = "interrupted"
                 return
             tool_session.status = "stopped"

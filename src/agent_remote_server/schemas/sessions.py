@@ -30,6 +30,9 @@ class SessionData(BaseModel):
     replaces_session_id: UUID | None = Field(default=None, description="被替代的会话标识")
     create_task_id: str | None = Field(default=None, description="创建任务 ID")
     stop_task_id: str | None = Field(default=None, description="停止任务 ID")
+    skill_finalization_operation_id: UUID | None = Field(
+        default=None, description="受管会话收尾操作标识，即原始快照标识"
+    )
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 

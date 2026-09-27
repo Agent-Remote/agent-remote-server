@@ -5,6 +5,7 @@
 import ipaddress
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,6 +20,7 @@ from agent_remote_server.ego_browser.release_policy import (
     EGO_BROWSER_SKILL_VERSION,
     EGO_BROWSER_WRAPPER_VERSION,
 )
+from agent_remote_server.skill_manager.storage.policy import SkillStoragePolicy
 
 _DEFAULT_PUBLIC_BASE_URL = "http://localhost:8000"
 _LOOPBACK_ENVIRONMENTS = frozenset(
@@ -161,6 +163,36 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+    )
+
+    skill_manager_enabled: bool = Field(
+        default=False,
+        validation_alias="SKILL_MANAGER_ENABLED",
+        description="是否启用技能 API 和已授权删除任务，账户模式仍需独立迁移",
+    )
+    skill_storage_root: Path = Field(
+        default=Path("/var/lib/agent-remote/skill-content"),
+        validation_alias="SKILL_STORAGE_ROOT",
+        description="技能私有内容持久化目录，父目录须由部署创建",
+    )
+    skill_storage_policy: SkillStoragePolicy = Field(
+        default_factory=SkillStoragePolicy,
+        validation_alias="SKILL_STORAGE_POLICY",
+        description="技能内容配额与保留配置，环境变量使用 JSON 对象",
+    )
+    skill_deletion_interval_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        validation_alias="SKILL_DELETION_INTERVAL_SECONDS",
+        description="已提交技能物理删除任务的轮询间隔秒数",
+    )
+    skill_deletion_batch_size: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        validation_alias="SKILL_DELETION_BATCH_SIZE",
+        description="每轮最多处理的已授权物理删除任务数",
     )
 
     app_name: str = Field(default="agent-remote-server", description="应用名称")

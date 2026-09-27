@@ -5,7 +5,7 @@
 from uuid import UUID
 
 from sqlalchemy import JSON as JsonType
-from sqlalchemy import ForeignKey, Index, LargeBinary, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -19,7 +19,14 @@ class ToolAccount(IdMixin, TimestampMixin, Base):
 
     __tablename__ = "tool_accounts"
     __table_args__ = (
+        CheckConstraint(
+            "status in ('binding_requested', 'binding_session_starting', "
+            "'binding_waiting_user_login', 'binding_verifying', 'active', 'expired', "
+            "'disabled', 'failed', 'node_unavailable', 'migrating')",
+            name="tool_accounts_status_ck",
+        ),
         Index("tool_accounts_user_tool_idx", "user_id", "tool_type"),
+        UniqueConstraint("user_id", "id", "tool_type", name="tool_accounts_owner_tool_uq"),
         Index("tool_accounts_affinity_node_idx", "affinity_node_id"),
     )
 

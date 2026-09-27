@@ -16,6 +16,20 @@
 - Logout, refresh, device revoke, and device token rotation must update persisted token status.
 - Device tokens use a separate long-lived TTL and clients must refresh them before expiry.
 
+## Skill Manager Identity
+
+Node-only frozen export uses the short-lived, original-user-token-bound grant specified in
+`docs/skill-node-export.md`. The forced-command device/SSH key cannot replace user authorization;
+each Node verification checks all identities and current revocation. Grants are never logged,
+stored in command journals or passed in process arguments.
+
+The user skill library and installation content endpoints require a live user token. Device,
+Node and remote tool-session credentials cannot use them. The API derives user ID solely from
+that token; requests contain no owner override. Node content access will use separate exact
+session/snapshot bindings, not these user routes. Account IDs and all revision, upload and
+operation references are re-authorized within the user's namespace. Skill contents and source
+credentials are never included in audit/log payloads.
+
 ## CLI Login
 
 - CLI user credentials can exchange a still-valid user access token at `/auth/cli/session`
@@ -116,3 +130,39 @@ Audit logs must not include:
 - Browser cookies or browser profiles.
 - Device-control application identifiers or digests, screenshots, input, clipboard data,
   window titles, coordinates, images, certificates, or connection secrets.
+
+Skill conflict inspection, diff and resolution require the current active user's user token through
+`get_skill_context`. Node and device tokens are not substitutes. Publication IDs, pagination cursors,
+custom state-tree digests and idempotency keys are independently user-scoped. Bodies never choose an
+owner. Even same-user unexposed account sources cannot be silently replaced by a resolution tree.
+
+Current effective-state queries and reset/restore reuse `get_skill_context`; only an active user's
+user token is accepted. Selection authorizes account/source IDs before inspecting preconditions.
+Restore cannot cross accounts, stable sources, names or selected revisions. Same-source reinstall
+history may be explicitly restored; matching paths or bytes alone never substitute identity.
+
+Skill state preparation uses the existing active-user skill context and feature gate. It never
+accepts caller-supplied ownership, never borrows an equal digest from another account, and never
+allows Node/device tokens to initiate version migration. Receipt lookup is scoped to the user key;
+source branches and checkpoints must belong to the selected account and installation epoch.
+
+Explicit skill from/to migration requires the same active-user context as preparation. Both revisions
+and branches must belong to the account's same stable active installation and current installation
+epoch. An explicit non-effective target does not change rules or grant another source's namespace.
+
+Migration conflict IDs, list cursors and exported side digests remain scoped to their original
+owner/account/installation. Only active user tokens may inspect them; Node and device credentials
+cannot. A same-user digest in another tree is not sufficient authorization for a side-file export.
+
+Migration custom uploads require an active user token and the exact original conflict. Upload keys
+use an independent migration namespace; same-user uploads from other migrations or finalizations
+cannot substitute. Completion creates a migration-scoped content grant only after byte verification.
+Superseded conflicts may recover existing uploads but cannot initiate new ones or regain publication
+authority through upload completion. Plan queries never initialize a plan.
+
+Node export continuation uses the additive `/renew` contract in `docs/skill-node-export.md`. Only
+the exact authenticated source Node can exchange a still-live original grant after all original
+identity/revocation/snapshot checks. Each successor keeps the original grant/token/binding identity
+and lasts at most fifteen minutes, never beyond the original user's current token expiry. Expired
+original grants cannot renew, even if expiry occurs during database observation. Existing `/verify`
+does not renew. Successor grants remain ephemeral; no credentials enter persistent state or logs.

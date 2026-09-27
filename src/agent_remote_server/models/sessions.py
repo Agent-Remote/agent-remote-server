@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,6 +35,9 @@ class Session(IdMixin, TimestampMixin, Base):
 
     __tablename__ = "sessions"
     __table_args__ = (
+        UniqueConstraint(
+            "user_id", "tool_account_id", "node_id", "id", name="sessions_skill_binding_uq"
+        ),
         Index("sessions_project_idx", "user_id", "tool_type", "project_key", "status"),
         Index("sessions_account_active_idx", "tool_account_id", "status"),
     )

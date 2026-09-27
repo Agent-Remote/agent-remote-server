@@ -6,7 +6,16 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import JSON as JsonType
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_remote_server.db import Base
@@ -124,6 +133,7 @@ class NodeTask(IdMixin, TimestampMixin, Base):
 
     __tablename__ = "node_tasks"
     __table_args__ = (
+        UniqueConstraint("node_id", "id", name="node_tasks_owner_uq"),
         Index("node_tasks_task_id_uidx", "task_id", unique=True),
         Index("node_tasks_poll_idx", "node_id", "status", "lease_until"),
     )

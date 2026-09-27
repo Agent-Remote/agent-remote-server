@@ -2,6 +2,13 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.27 - 2026-09-27
+
+- Add user-owned Skill libraries, immutable revisions, scoped rules, snapshots, deployment, finalization, retention and recovery APIs with database migrations.
+- Enforce leased, idempotent Node operations and explicit backend recovery, including source verification and interrupted source permission repair.
+- Deploy with Node 0.2.29 and CLI 0.2.31 selected by deployment bundle 0.2.42; back up the database and Skill content store together before upgrade.
+- Validation: repository quality gates and component contracts; remaining real Linux, genuine Docker Sandbox and actual model acceptance are deferred until after release with user assistance. Deferred tests are not certified as passed.
+
 ## v0.2.26 - 2026-09-20
 
 - chore(ego-browser): accept wrapper 0.1.19 (16c4759)

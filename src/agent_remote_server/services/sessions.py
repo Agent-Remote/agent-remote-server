@@ -22,12 +22,23 @@ from agent_remote_server.models import (
 )
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.sessions import SessionRepository
+from agent_remote_server.repositories.skill_runtime import SkillRuntimeRepository
 from agent_remote_server.services.device_sessions import (
     DeviceSessionService,
     RevokedDeviceBinding,
 )
 from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
+from agent_remote_server.services.runtime_migrations import require_runtime_migration_settled
+from agent_remote_server.services.skills.content import SkillContentError
+from agent_remote_server.services.skills.retention.lifecycle import existing_history_mutations
+from agent_remote_server.services.skills.runtime_capability import supports_managed_skills
+from agent_remote_server.services.skills.session_admission import (
+    SkillAdmissionPending,
+    SkillSessionAdmission,
+)
+from agent_remote_server.services.skills.session_retention import release_retained_session_reference
+from agent_remote_server.services.skills.takeover_admission import SkillTakeoverPending
 from agent_remote_server.services.tool_accounts import ACCOUNT_CONFIG_ROOT, ACTIVE_NODE_STATUSES
 from agent_remote_server.services.tool_registry import ToolRegistry, ToolRuntimeTemplate
 
@@ -144,6 +155,72 @@ class ToolSessionService:
         replaces_session_id: UUID | None = None,
     ) -> Session:
         """
+        启动异常回滚全部保存点，正常迁移冲突提交后明确拒绝创建会话。
+
+        :param user (User): 当前用户
+        :param tool_type (str): 工具类型
+        :param tool_account_id (UUID): 已授权账户
+        :param workspace_id (UUID): 已授权工作区
+        :param project_key (str): 项目身份
+        :param argv (list[str]): 工具参数
+        :param replaces_session_id (UUID | None): 可选替代会话
+        :return Session: 完整受理的启动会话
+        """
+        try:
+            async with self._session.begin_nested():
+                result = await self._create_session(
+                    user=user,
+                    tool_type=tool_type,
+                    tool_account_id=tool_account_id,
+                    workspace_id=workspace_id,
+                    project_key=project_key,
+                    argv=argv,
+                    replaces_session_id=replaces_session_id,
+                )
+        except SkillContentError as error:
+            status = 413 if error.code in {"QUOTA_EXCEEDED", "CONTENT_TOO_LARGE"} else 409
+            raise ApiError(
+                code=error.code, message=str(error), status_code=status, details=error.details
+            ) from error
+        await self._session.commit()
+        if isinstance(result, SkillTakeoverPending):
+            raise ApiError(
+                code="MIGRATION_PENDING",
+                message="Account skill takeover is pending; existing sessions may finish normally.",
+                status_code=409,
+                details={
+                    "account_id": str(result.account_id),
+                    "takeover_id": str(result.takeover_id),
+                    "takeover_status": result.status,
+                    "reservation_committed": True,
+                    "session_created": False,
+                },
+            )
+        if isinstance(result, SkillAdmissionPending):
+            raise ApiError(
+                code="STATE_MIGRATION_REQUIRED",
+                message="Resolve the retained skill migrations before starting this account.",
+                status_code=409,
+                details={
+                    "account_id": str(result.account_id),
+                    "migration_ids": [str(identity) for identity in result.migration_ids],
+                    "preparations_committed": True,
+                },
+            )
+        return result
+
+    async def _create_session(
+        self,
+        *,
+        user: User,
+        tool_type: str,
+        tool_account_id: UUID,
+        workspace_id: UUID,
+        project_key: str,
+        argv: list[str],
+        replaces_session_id: UUID | None = None,
+    ) -> Session | SkillAdmissionPending | SkillTakeoverPending:
+        """
         创建工具运行 session 并投递节点任务
 
         :param user (User): 当前用户
@@ -153,7 +230,7 @@ class ToolSessionService:
         :param project_key (str): 项目 key
         :param argv (list[str]): 工具 CLI 透传参数
         :param replaces_session_id (UUID | None): 被替代的中断会话 ID
-        :return Session: 工具 session 实体
+        :return Session | SkillAdmissionPending | SkillTakeoverPending: 工具会话或需保留的迁移冲突
         :raises ApiError: 工具账户、工作区、替代会话或可用节点不满足创建条件
         """
 
@@ -194,7 +271,23 @@ class ToolSessionService:
                 message="Workspace has no remote path.",
                 status_code=409,
             )
-        node = await self._choose_session_node(account)
+        admission = SkillSessionAdmission(self._session, self._settings)
+        managed = await admission.required(account)
+        await self._require_active_account(
+            user=user, tool_type=template.tool_type, account_id=account.id
+        )
+        node = await self._choose_session_node(account, managed=managed)
+        if managed:
+            pending = await admission.prepare(account, node)
+            if pending is not None:
+                latest_node = await self._repository.get_node(node.id)
+                if not self._node_can_host(latest_node, account, managed=True):
+                    raise ApiError(
+                        code="SKILL_MANAGER_UNSUPPORTED",
+                        message="Runtime skill capability changed during preparation.",
+                        status_code=409,
+                    )
+                return pending
         if account.runtime_backend is None:
             account.runtime_backend = node.default_runtime_backend
         runtime_backend = account.runtime_backend
@@ -240,7 +333,7 @@ class ToolSessionService:
         tool_session.container_id = sandbox_name
         account.affinity_node_id = node.id
         task_id = f"create_tool_session:{tool_session.id}"
-        await self._repository.add_task(
+        task = await self._repository.add_task(
             NodeTask(
                 node_id=node.id,
                 task_id=task_id,
@@ -276,6 +369,15 @@ class ToolSessionService:
                 retry_count=0,
             )
         )
+        if managed:
+            latest_node = await self._repository.get_node(node.id)
+            if not self._node_can_host(latest_node, account, managed=True):
+                raise ApiError(
+                    code="SKILL_MANAGER_UNSUPPORTED",
+                    message="Runtime skill capability changed during preparation.",
+                    status_code=409,
+                )
+            await admission.reserve(tool_session, task, node)
         await self._audit(
             actor_user_id=user.id,
             action="sessions.create",
@@ -283,7 +385,6 @@ class ToolSessionService:
             target_id=str(tool_session.id),
             details={"node_id": str(node.id), "task_id": task_id},
         )
-        await self._session.commit()
         return tool_session
 
     async def stop_session(self, *, user: User, session_id: UUID) -> Session:
@@ -311,59 +412,76 @@ class ToolSessionService:
             await self._session.commit()
             await ego_service.publish_pending_revocations()
             return tool_session
-        device_stop = await DeviceSessionService(
-            self._session, self._settings, self._relay_hub
-        ).stop_for_tool_session(
-            tool_session_id=tool_session.id,
-            reason="tool_session_stop",
-            actor_user_id=user.id,
-            audit_action="device_session.session_stop",
-            commit=False,
-        )
-        ego_service = EgoBrowserService(
-            self._session,
-            self._settings,
-            revocation_publisher=self._ego_browser_revocation_publisher,
-        )
-        await ego_service.revoke_for_tool_session(
-            tool_session_id=tool_session.id,
-            reason="tool_session_stop",
-            commit=False,
-            publish=False,
-        )
-        task_id = f"stop_tool_session:{tool_session.id}"
-        existing = await self._repository.get_task_by_task_id(task_id)
-        if existing is None:
-            await self._repository.add_task(
-                NodeTask(
-                    node_id=tool_session.node_id,
-                    task_id=task_id,
-                    task_type="stop_tool_session",
-                    status="pending",
-                    payload={
-                        "session_id": str(tool_session.id),
-                        "tmux_session_name": tool_session.tmux_session_name,
-                        "sandbox_name": tool_session.container_id,
-                        "runtime_backend": tool_session.runtime_backend,
-                        "runtime_resource_id": tool_session.runtime_resource_id,
-                    },
-                    retry_count=0,
-                )
+        async with existing_history_mutations(self._session, (user.id,)):
+            device_stop = await DeviceSessionService(
+                self._session, self._settings, self._relay_hub
+            ).stop_for_tool_session(
+                tool_session_id=tool_session.id,
+                reason="tool_session_stop",
+                actor_user_id=user.id,
+                audit_action="device_session.session_stop",
+                commit=False,
             )
-        tool_session.status = "stopping"
-        await revoke_port_forwards(
-            self._session,
-            reason="session_not_running",
-            actor_user_id=user.id,
-            session_id=tool_session.id,
-        )
-        await self._audit(
-            actor_user_id=user.id,
-            action="sessions.stop",
-            target_type="session",
-            target_id=str(tool_session.id),
-            details={"task_id": task_id},
-        )
+            ego_service = EgoBrowserService(
+                self._session,
+                self._settings,
+                revocation_publisher=self._ego_browser_revocation_publisher,
+            )
+            await ego_service.revoke_for_tool_session(
+                tool_session_id=tool_session.id,
+                reason="tool_session_stop",
+                commit=False,
+                publish=False,
+            )
+            task_id = f"stop_tool_session:{tool_session.id}"
+            existing = await self._repository.get_task_by_task_id(task_id)
+            if existing is None:
+                snapshot = await SkillRuntimeRepository(self._session).snapshot_for_session(
+                    user.id, tool_session.id
+                )
+                finalization_pointer = (
+                    {
+                        "skill_finalization": {
+                            "snapshot_id": str(snapshot.id),
+                            "task_id": str(snapshot.prepare_task_id),
+                            "user_id": str(snapshot.user_id),
+                            "account_id": str(snapshot.account_id),
+                        }
+                    }
+                    if snapshot is not None
+                    else {}
+                )
+                await self._repository.add_task(
+                    NodeTask(
+                        node_id=tool_session.node_id,
+                        task_id=task_id,
+                        task_type="stop_tool_session",
+                        status="pending",
+                        payload={
+                            "session_id": str(tool_session.id),
+                            "tmux_session_name": tool_session.tmux_session_name,
+                            "sandbox_name": tool_session.container_id,
+                            "runtime_backend": tool_session.runtime_backend,
+                            "runtime_resource_id": tool_session.runtime_resource_id,
+                            **finalization_pointer,
+                        },
+                        retry_count=0,
+                    )
+                )
+            tool_session.status = "stopping"
+            await revoke_port_forwards(
+                self._session,
+                reason="session_not_running",
+                actor_user_id=user.id,
+                session_id=tool_session.id,
+            )
+            await self._audit(
+                actor_user_id=user.id,
+                action="sessions.stop",
+                target_type="session",
+                target_id=str(tool_session.id),
+                details={"task_id": task_id},
+            )
         await self._session.commit()
         await DeviceSessionService(
             self._session, self._settings, self._relay_hub
@@ -387,6 +505,7 @@ class ToolSessionService:
                 message="Only stopped, interrupted, or failed sessions can be deleted.",
                 status_code=409,
             )
+        await release_retained_session_reference(self._session, tool_session)
         device_stop = await DeviceSessionService(
             self._session, self._settings, self._relay_hub
         ).stop_for_tool_session(
@@ -442,6 +561,8 @@ class ToolSessionService:
         )
         if not sessions:
             return 0
+        for tool_session in sessions:
+            await release_retained_session_reference(self._session, tool_session)
         revoked_bindings: list[RevokedDeviceBinding] = []
         ego_service = EgoBrowserService(
             self._session,
@@ -526,6 +647,7 @@ class ToolSessionService:
                 message="Tool account type does not match requested tool.",
                 status_code=409,
             )
+        await require_runtime_migration_settled(self._session, user.id, account.id)
         if account.status != "active":
             raise ApiError(
                 code="TOOL_ACCOUNT_NOT_ACTIVE",
@@ -534,26 +656,27 @@ class ToolSessionService:
             )
         return account
 
-    async def _choose_session_node(self, account: ToolAccount) -> Node:
+    async def _choose_session_node(self, account: ToolAccount, *, managed: bool = False) -> Node:
         """
         选择会话节点。
 
         :param account (ToolAccount): 账号
+        :param managed (bool): 是否必须具有完整技能能力
         :return Node: 会话节点
         """
         active_sessions = await self._repository.list_active_sessions_for_account(account.id)
         if active_sessions:
             node = await self._repository.get_node(active_sessions[0].node_id)
-            if node is not None and self._node_can_host(node, account):
+            if node is not None and self._node_can_host(node, account, managed=managed):
                 return node
             raise ApiError(
-                code="NODE_UNAVAILABLE",
+                code="SKILL_MANAGER_UNSUPPORTED" if managed else "NODE_UNAVAILABLE",
                 message="Active sessions for this account are pinned to an unavailable node.",
                 status_code=409,
             )
         if account.affinity_node_id is not None:
             node = await self._repository.get_node(account.affinity_node_id)
-            if node is not None and self._node_can_host(node, account):
+            if node is not None and self._node_can_host(node, account, managed=managed):
                 return node
         candidates = await self._repository.list_candidate_nodes(
             tool_type=account.tool_type,
@@ -561,22 +684,30 @@ class ToolSessionService:
             preferred_tags=account.preferred_node_tags,
         )
         node = next(
-            (candidate for candidate in candidates if self._node_can_host(candidate, account)), None
+            (
+                candidate
+                for candidate in candidates
+                if self._node_can_host(candidate, account, managed=managed)
+            ),
+            None,
         )
         if node is None:
             raise ApiError(
-                code="NODE_UNAVAILABLE",
+                code="SKILL_MANAGER_UNSUPPORTED" if managed else "NODE_UNAVAILABLE",
                 message="No available node can host this tool session.",
                 status_code=409,
             )
         return node
 
-    def _node_can_host(self, node: Node | None, account: ToolAccount) -> bool:
+    def _node_can_host(
+        self, node: Node | None, account: ToolAccount, *, managed: bool = False
+    ) -> bool:
         """
         判断节点能否承载浏览器会话。
 
         :param node (Node | None): 节点
         :param account (ToolAccount): 账号
+        :param managed (bool): 是否要求当前后端完整技能支持
         :return bool: 是否满足校验条件
         """
         if node is None or node.status not in ACTIVE_NODE_STATUSES:
@@ -588,10 +719,12 @@ class ToolSessionService:
         backend = account.runtime_backend or node.default_runtime_backend
         if backend not in node.allowed_runtime_backends:
             return False
+        if managed and not supports_managed_skills(node, backend, self._settings):
+            return False
         available = node.runtime_capabilities.get("backends")
         if isinstance(available, list):
             return backend in available
-        return backend == "docker_sandbox"
+        return not managed and backend == "docker_sandbox"
 
     def _runtime_payload(self, template: ToolRuntimeTemplate, argv: list[str]) -> dict[str, object]:
         """

@@ -801,4 +801,4 @@ def test_runtime_migration_commits_only_after_task_success(client: TestClient) -
         f"/api/v1/tool-accounts/{account['id']}", headers=auth_header(token)
     ).json()["data"]
     assert after_failure["runtime_backend"] == "native"
-    assert after_failure["status"] == "active"
+    assert after_failure["status"] == "migrating"

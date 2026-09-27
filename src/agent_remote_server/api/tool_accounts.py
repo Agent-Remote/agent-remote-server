@@ -24,6 +24,10 @@ from agent_remote_server.schemas.developer_credentials import (
     BindDeveloperCredentialProfileRequest,
     DeveloperCredentialProfileResponse,
 )
+from agent_remote_server.schemas.runtime_recovery import (
+    RuntimeRecoveryRequest,
+    RuntimeRecoveryResponse,
+)
 from agent_remote_server.schemas.tool_accounts import (
     BindingStatusResponse,
     CreateToolAccountRequest,
@@ -41,6 +45,7 @@ from agent_remote_server.schemas.tool_accounts import (
     UpdateToolAccountRequest,
 )
 from agent_remote_server.services.developer_credentials import DeveloperCredentialService
+from agent_remote_server.services.runtime_recovery import RuntimeRecoveryService
 from agent_remote_server.services.tool_accounts import ToolAccountService
 
 router = APIRouter(prefix="/tool-accounts", tags=["tool-accounts"])
@@ -463,3 +468,47 @@ async def unbind_developer_credential_profile(
         user=user,
         account_id=tool_account_id,
     )
+
+
+@router.post("/{tool_account_id}/runtime-migration/recover", response_model=RuntimeRecoveryResponse)
+async def recover_runtime_migration(
+    tool_account_id: UUID,
+    payload: RuntimeRecoveryRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> RuntimeRecoveryResponse:
+    """
+    管理员受理独立原迁移检查，不覆盖原任务结果。
+
+    :param tool_account_id (UUID): 原账户
+    :param payload (RuntimeRecoveryRequest): 原任务及独立请求键
+    :param session (AsyncSession): 请求事务
+    :param admin (User): 当前管理员
+    :return RuntimeRecoveryResponse: 恢复检查当前状态
+    """
+    data = await RuntimeRecoveryService(session).submit(admin, tool_account_id, payload)
+    await session.commit()
+    return RuntimeRecoveryResponse(data=data, request_id=get_request_id())
+
+
+@router.get(
+    "/{tool_account_id}/runtime-migration/recover/{key}", response_model=RuntimeRecoveryResponse
+)
+async def runtime_migration_recovery_status(
+    tool_account_id: UUID,
+    key: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    admin: Annotated[User, Depends(require_admin)],
+) -> RuntimeRecoveryResponse:
+    """
+    管理员只读查询原键受理状态。
+
+    :param tool_account_id (UUID): 原账户
+    :param key (UUID): 原请求键
+    :param session (AsyncSession): 请求事务
+    :param admin (User): 当前管理员
+    :return RuntimeRecoveryResponse: 原检查当前状态
+    """
+    data = await RuntimeRecoveryService(session).status(tool_account_id, key)
+    await session.commit()
+    return RuntimeRecoveryResponse(data=data, request_id=get_request_id())

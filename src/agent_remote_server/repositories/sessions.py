@@ -204,7 +204,7 @@ class SessionRepository:
         :return Node | None: 节点实体
         """
 
-        return await self._session.get(Node, node_id)
+        return await self._session.get(Node, node_id, populate_existing=True)
 
     async def list_candidate_nodes(
         self, *, tool_type: str, region_code: str, preferred_tags: list[str]

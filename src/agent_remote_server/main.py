@@ -13,6 +13,7 @@ from starlette.middleware.cors import CORSMiddleware
 from agent_remote_server import __version__
 from agent_remote_server.api.health import router as health_router
 from agent_remote_server.api.routes import api_router
+from agent_remote_server.api.skill_common import skill_error_handler
 from agent_remote_server.config import Settings, get_settings
 from agent_remote_server.db import create_engine, create_session_factory
 from agent_remote_server.device_control.relay_hub import DeviceRelayHub
@@ -35,6 +36,8 @@ from agent_remote_server.logging import configure_logging
 from agent_remote_server.middleware.request_id import RequestIdMiddleware
 from agent_remote_server.port_forwarding.cleanup import run_port_forward_cleanup
 from agent_remote_server.port_forwarding.tokens import create_port_forward_token_store
+from agent_remote_server.services.skills.content import SkillContentError
+from agent_remote_server.services.skills.gc.lifecycle import run_skill_content_deletions
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -133,6 +136,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ego_browser_cleanup_task = asyncio.create_task(
             run_ego_browser_cleanup(current_app, cleanup_stop)
         )
+        skill_content_deletion_task = asyncio.create_task(
+            run_skill_content_deletions(current_app, cleanup_stop)
+        )
         await current_app.state.device_relay_revocation_bus.start(
             current_app.state.device_relay_hub.close_binding_remote
         )
@@ -147,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 port_forward_cleanup_task,
                 device_control_retention_task,
                 ego_browser_cleanup_task,
+                skill_content_deletion_task,
             )
             await current_app.state.device_relay_store.close()
             await current_app.state.device_relay_revocation_bus.close()
@@ -218,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await api_error_handler(request, api_error)
 
     app.add_exception_handler(ApiError, _handle_api_error)
+    app.add_exception_handler(SkillContentError, skill_error_handler)
     app.include_router(health_router)
     app.include_router(api_router)
 

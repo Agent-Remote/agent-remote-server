@@ -1,6 +1,6 @@
 [project]
 name = "agent-remote-server"
-version = "0.2.26"
+version = "0.2.27"
 description = "Control-plane API for agent-remote."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
     "pydantic-settings>=2.7,<3",
+    "pyyaml>=6,<7",
     "redis>=5.2,<7",
     "sqlalchemy[asyncio]>=2.0,<3",
     "uvicorn[standard]>=0.34,<1",
@@ -32,6 +33,7 @@ dev = [
     "pytest-asyncio>=0.25,<1",
     "pytest-cov>=6,<8",
     "ruff>=0.9,<1",
+    "types-pyyaml>=6,<7",
 ]
 
 [build-system]

@@ -27,6 +27,14 @@
 - Do not add a dependency for a small helper that can be implemented clearly in the standard library.
 - New dependencies require a short justification in the pull request.
 
+## Skill Metadata Parsing
+
+PyYAML is an explicit runtime dependency because third-party SKILL.md frontmatter supports YAML
+block strings and quoting that must not be reimplemented with ad-hoc line parsing. Only the
+safe loader is used; the metadata prefix is bounded and aliases/anchors are rejected to prevent
+expansion attacks. Parsing never executes hooks or rewrites source content. `types-PyYAML` is a
+development-only typing dependency.
+
 ## Python Version Policy
 
 `pyproject.toml`, Dockerfile, and CI must all target Python 3.13.

@@ -399,7 +399,9 @@ class NodeTaskEnvelope(BaseModel):
     节点任务信封
     """
 
-    task_id: str = Field(..., description="任务 ID")
+    task_id: str = Field(..., description="逻辑任务 ID，用于启动和结果重放")
+    task_record_id: UUID = Field(description="数据库任务 UUID，用于精确内容授权")
+    lease_attempt: int = Field(ge=1, description="当前轮询领取序号，用于续租排除旧执行轮次")
     node_id: UUID = Field(..., description="节点 ID")
     task_type: str = Field(..., description="任务类型")
     idempotency_key: str = Field(..., description="幂等键")
