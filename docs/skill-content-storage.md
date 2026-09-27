@@ -2,9 +2,11 @@
 
 This implements the private content foundation of the approved
 [skill manager design](../../agent-remote/docs/skill-manager-design.zh-CN.md).
-It now backs the authenticated package HTTP API and library services, behind
-`SKILL_MANAGER_ENABLED=false` by default. Account checkpoints, Node authorization, CLI commands
-and retained-history GC still need to be connected before the complete manager can be released.
+It backs authenticated package/library APIs and retained runtime content. Skill management defaults
+to `SKILL_MANAGER_ENABLED=true`; explicit `false` remains available for an administrative disable.
+Existing deployment environments with the earlier explicit `false` must be updated once to enable
+it. Deployment must still provide the persistent content volume and apply database migrations.
+Default enablement does not bypass Node capability or account takeover checks.
 
 `SkillContentService` accepts the authenticated user identity from its caller. Its repository
 owns every SQL query; the service does not commit the caller's transaction. Mutations acquire the user's storage write lock. Read paths lock an existing user row without

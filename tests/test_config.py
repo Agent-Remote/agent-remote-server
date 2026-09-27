@@ -87,6 +87,7 @@ def test_settings_use_python_313_project_defaults() -> None:
     assert settings.redis_url.startswith("redis://")
     assert settings.access_token_ttl_seconds == 3600
     assert settings.device_token_ttl_seconds == 2_592_000
+    assert settings.skill_manager_enabled is True
     assert settings.device_control_enabled is False
     assert settings.device_control_v2_enabled is True
     assert settings.device_session_authorization_mode == "per_application_approval"
@@ -136,6 +137,7 @@ def test_example_environment_uses_the_default_v2_switch() -> None:
     """
 
     example = Path(".env.example").read_text(encoding="utf-8")
+    assert "SKILL_MANAGER_ENABLED=true" in example
     assert "DEVICE_CONTROL_V2_ENABLED=true" in example
     assert "EGO_BROWSER_BRIDGE_ENABLED=false" in example
     for field in (
@@ -209,3 +211,22 @@ def test_production_ego_browser_settings_are_validated_at_startup() -> None:
     )
 
     assert settings.ego_browser_bridge_enabled is True
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, True), ("true", True), ("false", False)])
+def test_skill_manager_defaults_enabled_and_honors_environment(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, expected: bool
+) -> None:
+    """
+    基础 Skill 功能缺省开启，旧部署显式关闭在升级后仍保持关闭。
+
+    :param monkeypatch (pytest.MonkeyPatch): 独立环境变量补丁
+    :param value (str | None): 部署开关或缺省状态
+    :param expected (bool): 预期启用状态
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    monkeypatch.delenv("SKILL_MANAGER_ENABLED", raising=False)
+    if value is not None:
+        monkeypatch.setenv("SKILL_MANAGER_ENABLED", value)
+    assert Settings().skill_manager_enabled is expected
+    assert Settings(skill_manager_enabled=False).skill_manager_enabled is False

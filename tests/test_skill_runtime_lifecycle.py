@@ -174,7 +174,7 @@ async def test_empty_managed_library_cannot_fall_back_to_legacy(state: RuntimeHa
         enabled = Settings(secret_key="test-lifecycle", skill_manager_enabled=True)
         assert await SkillSessionAdmission(session, enabled).required(account)
         with pytest.raises(ApiError) as error:
-            await SkillSessionAdmission(session, Settings(secret_key="test-lifecycle")).required(
-                account
-            )
+            await SkillSessionAdmission(
+                session, Settings(secret_key="test-lifecycle", skill_manager_enabled=False)
+            ).required(account)
         assert error.value.code == "SKILL_MANAGER_DISABLED"

@@ -138,7 +138,7 @@ queries separate. New legacy session admission rejects an account with any effec
 user-library skill before creating a session or startup task; it must never silently omit installed
 skills until takeover completes. Managed accounts use full-account preparation and exact snapshot
 reservation after per-backend capability verification. Existing session lookup and attach retain
-their original runtime. `SKILL_MANAGER_ENABLED` gates admission and the new routes during rollout;
+their original runtime. `SKILL_MANAGER_ENABLED` defaults to true and gates admission and the new routes; explicit false disables them;
 it does not upgrade an account to managed mode. User writes retain an explicit database
 commit boundary; errors roll back the request. Package streams are bounded by an authenticated
 upload manifest before accepting file bytes. No generic remote-path write endpoint is introduced.

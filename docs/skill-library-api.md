@@ -1,9 +1,10 @@
 # Private skill library API
 
-The library and package APIs are implemented behind `SKILL_MANAGER_ENABLED`, which defaults to
-false during rollout. The complete runtime manager is not released yet. Bound accounts currently
-report `unsupported`; new legacy sessions with effectively enabled library skills fail explicitly
-instead of silently omitting them. Existing sessions remain unchanged.
+The library and package APIs are enabled by default. Set `SKILL_MANAGER_ENABLED=false` to
+explicitly disable them. Existing deployment environments containing `false` retain that override;
+change it to `true` when migrating the old installation default. Runtime deployment still requires
+a fresh compatible Node capability report and account takeover; enabling the API does not enroll
+accounts or certify model loading. Existing sessions retain their original runtime.
 
 Every management request uses a current **user** token. Device tokens and Node tokens cannot
 access these routes. Source URLs contain no credentials; Git is fetched by the local CLI. A local

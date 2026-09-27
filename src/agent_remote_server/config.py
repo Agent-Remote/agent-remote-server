@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     )
 
     skill_manager_enabled: bool = Field(
-        default=False,
+        default=True,
         validation_alias="SKILL_MANAGER_ENABLED",
         description="是否启用技能 API 和已授权删除任务，账户模式仍需独立迁移",
     )
