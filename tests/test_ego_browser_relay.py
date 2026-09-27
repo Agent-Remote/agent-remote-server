@@ -203,6 +203,7 @@ class _FakeWebSocket:
         """
         self.messages: asyncio.Queue[dict[str, object]] = asyncio.Queue()
         self.sent: list[bytes] = []
+        self.frame_sent = asyncio.Event()
         self.close_codes: list[int] = []
         self.accepted = False
 
@@ -227,6 +228,7 @@ class _FakeWebSocket:
         :param data (bytes): 数据
         """
         self.sent.append(data)
+        self.frame_sent.set()
 
     async def close(self, code: int = 1000) -> None:
         """
@@ -290,7 +292,6 @@ def test_redis_relay_hubs_pair_and_forward_across_workers() -> None:
         binding = _binding()
         frame = _raw(_outer(binding_id=str(binding.binding_id)))
         wrapper.messages.put_nowait({"type": "websocket.receive", "bytes": frame})
-        wrapper.messages.put_nowait({"type": "websocket.disconnect", "code": 1000})
         validated: list[tuple[EgoBrowserRelayRole, bytes]] = []
 
         async def validate(
@@ -307,23 +308,21 @@ def test_redis_relay_hubs_pair_and_forward_across_workers() -> None:
             """
             validated.append((claims.role, raw))
 
+        connections = asyncio.gather(
+            bridge_hub.connect(_claims(binding, "bridge"), cast(WebSocket, bridge), validate),
+            wrapper_hub.connect(_claims(binding, "wrapper"), cast(WebSocket, wrapper), validate),
+        )
         try:
-            await asyncio.wait_for(
-                asyncio.gather(
-                    bridge_hub.connect(
-                        _claims(binding, "bridge"), cast(WebSocket, bridge), validate
-                    ),
-                    wrapper_hub.connect(
-                        _claims(binding, "wrapper"), cast(WebSocket, wrapper), validate
-                    ),
-                ),
-                timeout=3,
-            )
+            await asyncio.wait_for(bridge.frame_sent.wait(), timeout=10)
+            wrapper.messages.put_nowait({"type": "websocket.disconnect", "code": 1000})
+            await asyncio.wait_for(connections, timeout=10)
             assert bridge.accepted and wrapper.accepted
             assert bridge.sent == [frame]
             assert validated == [("wrapper", frame)]
             assert 1011 in bridge.close_codes
         finally:
+            connections.cancel()
+            await asyncio.gather(connections, return_exceptions=True)
             await asyncio.gather(bridge_hub.close(), wrapper_hub.close())
 
     asyncio.run(scenario())

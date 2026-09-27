@@ -14,6 +14,11 @@ Before committing:
 
 The hook scripts enforce these checks.
 
+SQLite template fixtures must copy SQLAlchemy metadata before creating their schema. PostgreSQL
+DDL mutates deferred foreign-key creation rules on the original metadata; reusing it can silently
+omit SQLite constraints depending on test order. Relay forwarding tests must observe delivery
+before disconnecting, and concurrency tests must synchronize on events with bounded CI deadlines.
+
 ## Security Rules
 
 - Never commit `.env` files.

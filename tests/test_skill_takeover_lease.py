@@ -19,18 +19,21 @@ from agent_remote_server.models import NodeTask, User
 from agent_remote_server.schemas.skill_takeover import SkillTakeoverLeaseRequest
 
 
-async def prepare_attempt(takeover: TakeoverHarness, http: TakeoverHTTP) -> None:
+async def prepare_attempt(
+    takeover: TakeoverHarness, http: TakeoverHTTP, lease_seconds: int = 5
+) -> None:
     """
-    固定真实轮询会增加的领取轮次并设置临近结束的有效租约。
+    固定真实轮询会增加的领取轮次，并为并行 CI 的调度等待保留有效租约。
 
     :param takeover (TakeoverHarness): 数据库
     :param http (TakeoverHTTP): 原始预约
+    :param lease_seconds (int): 初始租约时长，网络同步用例允许额外调度时间
     """
     async with takeover.library.database.begin() as session:
         task = await session.get(NodeTask, http.receipt.task_id)
         assert task is not None
         task.retry_count = 3
-        task.lease_until = datetime.now(UTC) + timedelta(seconds=5)
+        task.lease_until = datetime.now(UTC) + timedelta(seconds=lease_seconds)
 
 
 async def test_takeover_renewal_preserves_attempt_and_extends_only_live_lease(
@@ -141,7 +144,7 @@ async def test_takeover_body_wait_allows_concurrent_renewal_and_rechecks_revocat
     import json
 
     http = takeover_http
-    await prepare_attempt(takeover, http)
+    await prepare_attempt(takeover, http, lease_seconds=30)
     manifest = tree({"state": b"retained"})
     capture = takeover.capture(http.receipt, manifest)
     params = dict(http.params)
@@ -167,9 +170,10 @@ async def test_takeover_body_wait_allows_concurrent_renewal_and_rechecks_revocat
         http.client.request(method, path, params=params, content=paused_body())
     )
     try:
-        await asyncio.wait_for(arrived.wait(), 2)
+        await asyncio.wait_for(arrived.wait(), 10)
         renewal = await asyncio.wait_for(
-            http.client.post(http.path + "/lease", params=http.params, json={"lease_attempt": 3}), 2
+            http.client.post(http.path + "/lease", params=http.params, json={"lease_attempt": 3}),
+            10,
         )
         assert renewal.status_code == 200, renewal.text
         async with takeover.library.database.begin() as session:
@@ -177,7 +181,7 @@ async def test_takeover_body_wait_allows_concurrent_renewal_and_rechecks_revocat
             assert owner is not None
             owner.status = "disabled"
         resume.set()
-        rejected = await asyncio.wait_for(sending, 2)
+        rejected = await asyncio.wait_for(sending, 10)
         assert (
             rejected.status_code == 404
             and json.loads(rejected.content)["errors"][0]["code"] == "TAKEOVER_NOT_FOUND"

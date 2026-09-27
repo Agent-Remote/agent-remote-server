@@ -6,9 +6,22 @@ import os
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, create_engine
 
 from agent_remote_server.db import Base
+
+
+def isolated_metadata(source: MetaData) -> MetaData:
+    """
+    复制结构以清除其他数据库 DDL 留下的约束建表规则。
+
+    :param source (MetaData): 原始模型结构
+    :return MetaData: 不受先前建表顺序影响的独立结构
+    """
+    metadata = MetaData()
+    for table in source.tables.values():
+        table.to_metadata(metadata)
+    return metadata
 
 
 @pytest.fixture(scope="session")
@@ -21,8 +34,10 @@ def sqlite_schema(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     path = tmp_path_factory.mktemp("schema") / "empty.db"
     engine = create_engine(f"sqlite:///{path}")
+    # PostgreSQL 的 AddConstraint 会修改原约束的建表规则，模板必须复制元数据。
+    metadata = isolated_metadata(Base.metadata)
     try:
-        Base.metadata.create_all(engine)
+        metadata.create_all(engine)
     finally:
         engine.dispose()
     return path
