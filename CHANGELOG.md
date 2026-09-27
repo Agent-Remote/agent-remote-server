@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.28 - 2026-09-27
+
+- test(skills): accept explicit empty node capability reports (f02ffaa)
+- fix(skills): scope deployments and diagnose unavailable content storage (8cf6ce2)
+
 ## v0.2.27 - 2026-09-27
 
 - perf(test): reuse isolated sqlite schemas and parallelize server checks (5b048cb)
