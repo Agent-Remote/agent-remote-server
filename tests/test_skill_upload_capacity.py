@@ -115,6 +115,8 @@ async def capacity_client(
             raise
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # 预绑定 socket 由调用方配置，避免小响应叠加 Nagle 与延迟 ACK 等待。
+    listener.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     listener.bind(("127.0.0.1", 0))
     listener.listen()
     listener.setblocking(False)
@@ -205,22 +207,36 @@ async def test_default_100000_distinct_objects_over_http(
 
         event.listen(engine, "before_cursor_execute", observe_sql)
         start = time.monotonic()
+        pending = iter(enumerate(zip(entries, contents, strict=True), 1))
+        completed = 0
+
+        async def upload_objects() -> None:
+            """
+            有界并发传输独立对象，保留逐个响应断言及全部落盘校验。
+            """
+            nonlocal completed
+            for index, (entry, content) in pending:
+                response = await client.put(
+                    base + "/files/" + entry.sha256, params=params, content=content
+                )
+                assert response.status_code == 200, (index, response.text)
+                assert not response.json()["committed"]
+                completed += 1
+                if completed % 1_000 == 0:
+                    print(
+                        f"capacity_objects={completed} "
+                        f"elapsed_seconds={time.monotonic() - start:.3f}",
+                        flush=True,
+                    )
+
         try:
             async with asyncio.timeout(3 * 60 * 60):
-                for index, (entry, content) in enumerate(zip(entries, contents, strict=True), 1):
-                    response = await client.put(
-                        base + "/files/" + entry.sha256, params=params, content=content
-                    )
-                    assert response.status_code == 200, (index, response.text)
-                    assert not response.json()["committed"]
-                    if index % 1_000 == 0:
-                        print(
-                            f"capacity_objects={index} "
-                            f"elapsed_seconds={time.monotonic() - start:.3f}",
-                            flush=True,
-                        )
+                async with asyncio.TaskGroup() as workers:
+                    for _ in range(8):
+                        workers.create_task(upload_objects())
         finally:
             event.remove(engine, "before_cursor_execute", observe_sql)
+        assert completed == count
         assert full_manifest_reads == 0
         print(
             f"capacity_object_seconds={time.monotonic() - start:.3f} "
