@@ -58,7 +58,11 @@ async def test_drain_confirmation_flush_failure_rolls_back_terminal_state(
             :param kwargs (object): 未使用的命名参数
             """
             await original()
-            if await session.scalar(select(func.count()).select_from(NodeTaskResult)):
+            if await session.scalar(
+                select(func.count())
+                .select_from(NodeTaskResult)
+                .where(NodeTaskResult.node_task_id == binding.task_id)
+            ):
                 raise RuntimeError("injected terminal failure")
 
         monkeypatch.setattr(session, "flush", fail_after_result)
@@ -72,7 +76,14 @@ async def test_drain_confirmation_flush_failure_rolls_back_terminal_state(
         operation = await session.get(SkillOperation, binding.operation_id)
         assert task is not None and task.status == "leased"
         assert operation is not None and operation.status == "preparing"
-        assert await session.scalar(select(func.count()).select_from(NodeTaskResult)) == 0
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(NodeTaskResult)
+                .where(NodeTaskResult.node_task_id == binding.task_id)
+            )
+            == 0
+        )
         assert (
             await NodeDeploymentTermination(session).lookup(
                 prepared.node, binding.task_id, binding.attempt_id
@@ -192,9 +203,11 @@ async def test_postgres_success_and_revocation_have_one_winner(
             prepared.node, binding.task_id, binding.attempt_id
         )
         assert (intent is not None) == winners[0]
-        assert await session.scalar(select(func.count()).select_from(NodeTaskResult)) == int(
-            winners[1]
-        )
+        assert await session.scalar(
+            select(func.count())
+            .select_from(NodeTaskResult)
+            .where(NodeTaskResult.node_task_id == binding.task_id)
+        ) == int(winners[1])
 
 
 @pytest.mark.parametrize("different", [False, True])
@@ -246,4 +259,11 @@ async def test_postgres_drain_confirmation_is_single_immutable_result(
     outcomes = await asyncio.wait_for(asyncio.gather(confirm(False), confirm(True)), 30)
     assert sum(outcomes) == (1 if different else 2)
     async with prepared.database() as session:
-        assert await session.scalar(select(func.count()).select_from(NodeTaskResult)) == 1
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(NodeTaskResult)
+                .where(NodeTaskResult.node_task_id == binding.task_id)
+            )
+            == 1
+        )

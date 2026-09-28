@@ -76,7 +76,13 @@ async def test_concurrent_polls_reserve_and_lease_one_original_task(
     tasks = [task for batch in polls for task in batch]
     assert len(tasks) == 1 and tasks[0].retry_count == 1
     async with prepared.database() as session:
-        bindings = list(await session.scalars(select(SkillDeploymentTask)))
+        bindings = list(
+            await session.scalars(
+                select(SkillDeploymentTask).where(
+                    SkillDeploymentTask.account_id == prepared.account
+                )
+            )
+        )
         assert len(bindings) == 1 and bindings[0].operation_id == result.operation_id
 
 
