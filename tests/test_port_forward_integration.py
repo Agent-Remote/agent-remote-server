@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import logging
 import os
 from uuid import uuid4
 
@@ -44,10 +45,18 @@ def test_postgres_migration_creates_port_forward_ledger(monkeypatch: pytest.Monk
     database_url = integration_url("AGENT_REMOTE_INTEGRATION_DATABASE_URL")
     monkeypatch.setenv("DATABASE_URL", database_url)
     get_settings.cache_clear()
+    root_handlers = logging.getLogger().handlers[:]
+    service_logger = logging.getLogger("agent_remote_server.services.ego_browser")
+    logger_disabled = service_logger.disabled
     try:
-        command.upgrade(Config("alembic.ini"), "head")
+        # 集成迁移不加载 CLI 日志配置，避免禁用同进程业务日志及 pytest 捕获器。
+        migration_config = Config()
+        migration_config.set_main_option("script_location", "migrations")
+        command.upgrade(migration_config, "head")
     finally:
         get_settings.cache_clear()
+    assert logging.getLogger().handlers == root_handlers
+    assert service_logger.disabled == logger_disabled
 
     async def inspect_schema() -> None:
         """
