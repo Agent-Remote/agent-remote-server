@@ -42,19 +42,6 @@ Port forwarding is available only when the selected node explicitly advertises t
 The web console can delete failed or paused sync sessions. Active local Mutagen sessions must be
 paused on their owning device first, so the control plane does not silently orphan a running sync.
 
-Managed Native startup has an authenticated result-confirmation endpoint bound to the original
-snapshot, task record and lease attempt. Exact committed retries return the historical receipt
-without reviving a stopped session or reacquiring retired skill content. Generic task-result routes
-enforce the same managed authorization. Read-only inspection distinguishes a committed receipt from
-an older unaccepted attempt without renewing authority. Native worker dispatch now uses this contract;
-finalization transport, restart recovery and runtime acceptance remain required before advertising support.
-
-Managed Native termination now has a separate exact snapshot endpoint and immutable receipt
-(migration 0048). It fences unaccepted startup tasks, preserves accepted startup history and revokes
-device/browser bindings atomically. The Node confirms termination before its first frozen-content
-upload; stopped, persisted and published remain separate outcomes. See
-[the termination contract](docs/skill-session-termination.md). This does not enable backend capability.
-
 ## Requirements
 
 - Python 3.13
@@ -172,79 +159,16 @@ GitHub Actions builds and pushes the production image to GHCR for `v*` tags and 
 
 This repository contains the control-plane API, persistence model, identity and device APIs, node/runtime policy, tool-account binding and migration state machines, session reconciliation, and node task polling APIs. Privileged isolation and process execution run in the node repository; local device networking and workspace synchronization run in the CLI repository.
 
+## Skill Management
+
+Skill management defaults to enabled through `SKILL_MANAGER_ENABLED=true`. Persist the Skill content
+volume as well as the database; changing the image alone does not update old Compose mounts.
+[Server Skill manager](docs/skill-manager.md) covers settings, storage, authorization and lifecycle
+contracts. Runtime admission requires the Node's real Native report. Deployment, stopped writers,
+persisted content, publication and actual Claude loading are distinct results; see the linked acceptance status.
+
 ## License
 
 agent-remote-server is licensed under GPL-3.0-only. See `LICENSE`.
 
 Third-party dependency notices are listed in `THIRD_PARTY_NOTICES.md`.
-
-Managed session stop responses expose `skill_finalization_operation_id` (the original snapshot UUID).
-The owner can query `GET /api/v1/sessions/skill-finalizations/{operation_id}` with the existing user
-or device session token, including after session deletion. Process confirmation, data persistence,
-latest publication and content retention are reported separately. See [stop status](docs/skill-stop-status.md).
-
-Native account takeover tasks now maintain their exact poll-attempt lease through Helper capture
-and retained upload. Generic task completion requires the original committed initial checkpoint
-and an exact bounded result; failure cannot consume a pending reservation. Durable Server and Helper
-records recover retries without reimporting source changes. Ordinary Native session admission now
-initiates reservations; mixed-backend acceptance remains pending; no managed capability is enabled by this integration.
-
-First managed Native session creation now reserves takeover of the original account directory on
-its original Node and returns MIGRATION_PENDING with a durable operation ID and explicit evidence
-that no session was created. Retries reuse that reservation and leave legacy sessions running.
-GET /api/v1/sessions/skill-takeovers/{operation_id} gives owner/device-authenticated read-only progress,
-including when new managed admission is disabled. fclaude waits up to 60 seconds, then submits one
-new session request only after the original initial checkpoint commits. Unknown source binding,
-changed task evidence or unavailable backend cannot silently switch to an empty directory.
-
-Deployment acceptance now records an independent attempt for each original account target. Internal
-retry acceptance preserves the original plan, appends only explicitly selected transient failures and
-keeps completed targets unchanged. Status and retention fail closed on inconsistent history; public
-retry submission and receipt lookup are now available under the original operation’s `/retries`
-subresource. Ordinary polling now schedules compatible pending targets. See [attempt contract](docs/skill-deployment-attempts.md).
-
-Changed skill configuration now marks an older unfinished deployment operation `superseded` when an
-unfinished affected target’s saved selection actually differs. The original status points to the
-first replacing operation; late target completion cannot turn that old operation ready. Account pins,
-unrelated changes, staging and completed targets do not trigger replacement by generation alone.
-Active/conflicted targets keep their original content references until independently ended. This
-configuration fence does not establish Node cancellation or Helper drain.
-
-Internal deployment reservation now saves a complete account-directory input and binds it to the
-exact original attempt and Node task. Retries reuse that input; every authorization rechecks the
-lease, selection and state epochs. Active tasks keep their content even after a failed projection or
-configuration supersession. Migration 0050 adds the binding without inventing session use or Node
-readiness. Ordinary polling invokes this reservation; dedicated revocation/drain governs terminal
-execution. No deployment capability is advertised by the Node yet. See
-[deployment dispatch boundary](docs/skill-deployment-dispatch.md).
-
-Dedicated Node deployment manifest/file/lease endpoints now serve the exact reserved complete input.
-Every request pins the current poll attempt; file copies release database locks and reauthorize before
-sending verified bytes. The matching Go client validates original plan and tree digests, exact owner
-identity and lease bounds. Download availability is `prepared_input`, never execution readiness.
-
-Dedicated deployment result confirmation now atomically saves the original Helper preparation
-receipt, task success and target readiness. Exact replay and read-only inspection recover committed
-results even after input retirement. Worker execution journals the proposal before confirmation;
-generic task completion remains forbidden. See [result contract](docs/skill-deployment-results.md).
-
-Deployment termination now persists a permanent original-attempt revocation before accepting the
-Helper's separate drain receipt. Atomic confirmation ends only the original task/target; exact
-historical replay survives input retirement and preserves successors. Migration 0051 adds the
-immutable intent, and retry dispatch requires an accepted drain result. Worker orchestration durably
-recovers each revocation/drain/confirmation phase. See [termination contract](docs/skill-deployment-termination.md).
-
-Initial account takeover now resolves manual sources through a separate immutable deployment discovery
-record. It preserves accepted configuration plans and binds added local sources to the original
-account, takeover, first versions and directory epoch. Actual task input, retries, supersession and
-retention use that saved resolution. See [deployment discovery](docs/skill-deployment-discovery.md).
-New compatible Native targets start pending, including known compatible offline Nodes. Authenticated
-polling schedules bounded original targets and resumes resolved conflicts; existing task bindings keep
-their dedicated execution/drain lifecycle. See [scheduling](docs/skill-deployment-scheduling.md).
-Full runtime acceptance remains pending; no Node capability is activated.
-
-Frozen Native snapshot export uses the user-authorized `/api/v1/skills/state/node-exports/{snapshot_id}/authorize`
-and original-Node `/api/v1/node/skill-state-exports/{snapshot_id}/verify` endpoints. The matching CLI
-reads the already-frozen data directly through restricted SSH, so exhausted Server state quota does
-not prevent recovery. Live user/device/key checks remain mandatory; authorization is not evidence of
-local data availability or upload completion. See [the export contract](docs/skill-node-export.md).
