@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.31 - 2026-09-29
+
+- fix(skills): preserve accepted deployments through helper recovery (771d616)
+
 ## v0.2.30 - 2026-09-29
 
 - test(integration): preserve logging across migrations (eb30a45)
