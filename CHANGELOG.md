@@ -2,6 +2,13 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.30 - 2026-09-29
+
+- test(integration): preserve logging across migrations (eb30a45)
+- perf(tests): accelerate real capacity transfers (93efc47)
+- test(skills): scope postgres assertions to each fixture (7d7a1b6)
+- docs: consolidate skill documentation and current acceptance (3f62f39)
+
 ## v0.2.29 - 2026-09-27
 
 - fix: enable skill management by default (54087af)
