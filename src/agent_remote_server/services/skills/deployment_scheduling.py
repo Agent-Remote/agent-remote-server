@@ -22,7 +22,6 @@ from agent_remote_server.services.skills.deployment_attempts import (
     current_attempts,
     save_projection,
 )
-from agent_remote_server.services.skills.deployment_capability import supports_deployment
 from agent_remote_server.services.skills.deployment_dispatch import SkillDeploymentDispatch
 from agent_remote_server.services.skills.retention.clocks import retention_mutation
 
@@ -125,11 +124,7 @@ async def _schedule(
                 candidate.user_id, operation.id, candidate.account_id, attempt.id
             )
         except SkillContentError as error:
-            if error.code == "SKILL_MANAGER_UNSUPPORTED" and not await _compatible(
-                session, settings, candidate
-            ):
-                attempt.status, attempt.error_code = "unsupported", error.code
-            elif error.code == "STATE_MIGRATION_REQUIRED":
+            if error.code == "STATE_MIGRATION_REQUIRED":
                 attempt.status, attempt.error_code = "needs_resolution", error.code
             elif error.code in _WAITING:
                 attempt.status, attempt.error_code = original
@@ -139,23 +134,3 @@ async def _schedule(
             else:
                 raise
             save_projection(operation, current)
-
-
-async def _compatible(
-    session: AsyncSession, settings: Settings, candidate: DeploymentCandidate
-) -> bool:
-    """
-    区分已知兼容但离线的等待与真实能力撤回，不因心跳过期写入不支持。
-
-    :param session (AsyncSession): 已持有原用户锁的事务
-    :param settings (Settings): 当前部署策略
-    :param candidate (DeploymentCandidate): 已核对原绑定的目标
-    :return bool: 已保存报告是否仍满足受理协议
-    """
-    account = await SkillLibraryRepository(session).account(candidate.user_id, candidate.account_id)
-    if account is None or account.affinity_node_id is None:
-        return False
-    node = await SkillDeploymentTaskRepository(session).node(account.affinity_node_id)
-    return node is not None and supports_deployment(
-        node, account.runtime_backend, account.tool_type, settings, fresh=False
-    )

@@ -190,7 +190,6 @@ async def test_stale_candidate_after_other_reservation_cannot_change_existing_ta
 @pytest.mark.parametrize(
     "change,code,status",
     [
-        ("capability", "SKILL_MANAGER_UNSUPPORTED", "unsupported"),
         ("binding", "DEPLOYMENT_BINDING_CHANGED", "failed"),
         ("account", "ACCOUNT_NOT_AVAILABLE", "failed"),
         ("owner", "AUTHORIZATION_DENIED", "failed"),
@@ -217,9 +216,7 @@ async def test_pre_dispatch_rejection_records_exact_failure_without_task(
         account = await session.get(ToolAccount, prepared.account)
         owner = await session.get(User, prepared.owner)
         assert node is not None and account is not None and owner is not None
-        if change == "capability":
-            node.runtime_capabilities = {"backends": ["native"]}
-        elif change == "binding":
+        if change == "binding":
             account.runtime_backend = "docker_sandbox"
         elif change == "account":
             account.status = "disabled"

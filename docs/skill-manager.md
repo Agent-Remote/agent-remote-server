@@ -30,6 +30,8 @@ The deletion worker consumes committed tasks; its interval does not retire all h
 - Store immutable configuration plans and exact target attempts. Global/tool mutations select changed effective
   enabled sources; explicit account requests and unfinished attempts remain meaningful. Poll-time scheduling is bounded
   and precedes task locks, one owner transaction at a time. Dispatch rechecks fresh capabilities and exact leases.
+  Accepted pending attempts, including retry successors, wait through missing Helper capability reports and resume
+  the same plan when fresh support returns. Initially unsupported targets remain unsupported; waiting grants no execution.
 - Initial takeover serializes with imports and writer admission under the user storage lock. Server task terminality
   cannot prove Node process quiescence. Managed accounts and migration profiles fence legacy writer paths independently
   of the feature flag; managed snapshots are excluded from generic runtime-list reconciliation.
