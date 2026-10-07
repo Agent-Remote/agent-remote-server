@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.33 - 2026-10-07
+
+- fix(nodes): validate native temporary storage policy (5703bc3)
+
 ## v0.2.32 - 2026-10-07
 
 - fix(sessions): preserve starting sessions during node reconciliation (f019eb8)
