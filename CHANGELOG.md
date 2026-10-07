@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.32 - 2026-10-07
+
+- fix(sessions): preserve starting sessions during node reconciliation (f019eb8)
+
 ## v0.2.31 - 2026-09-29
 
 - fix(skills): preserve accepted deployments through helper recovery (771d616)
