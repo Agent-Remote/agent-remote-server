@@ -86,3 +86,13 @@ Read [Skill manager](../skill-manager.md) and its mandatory shared contract befo
 Preserve user-scoped authorization, exact task/lease/snapshot bindings, atomic publication, reference
 and retention transactions, and separate configuration/deployment/persistence receipts. Schema and
 protocol changes require matching migrations, tests and callers; do not add stage-by-stage logs here.
+
+## Native Temporary Storage Policy
+
+Node create and update requests validate optional `runtime_policy.temporary_storage` as `disk`
+or `tmpfs`, and `temporary_size_bytes` as an integral JSON number from 64 MiB through 16 GiB.
+Invalid types, booleans and out-of-range sizes return HTTP 422 before persistence. Existing
+policy keys and requests omitting these additive fields remain compatible; no database migration
+or server-side default injection is required. New Native sessions use the Node's 16 GiB disk
+filesystem default, while saved legacy session specs retain tmpfs. These fields do not change
+Docker Sandbox storage. The privileged Node independently enforces its local resource limits.

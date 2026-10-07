@@ -249,3 +249,7 @@ Read [Skill manager](../skill-manager.md) and its mandatory shared contract befo
 Preserve user-scoped authorization, exact task/lease/snapshot bindings, atomic publication, reference
 and retention transactions, and separate configuration/deployment/persistence receipts. Schema and
 protocol changes require matching migrations, tests and callers; do not add stage-by-stage logs here.
+
+Node request schemas validate the additive Native temporary-storage policy before persistence;
+the generic policy dictionary remains the transport and storage contract. Node execution performs
+independent limit checks. See the Native Temporary Storage Policy section in the node-control rules.

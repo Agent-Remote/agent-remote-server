@@ -787,3 +787,88 @@ def test_node_delete_is_blocked_by_retained_device_binding(client: TestClient) -
     )
     assert deleted.status_code == 409
     assert deleted.json()["error"]["code"] == "NODE_DELETE_BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"temporary_storage": "unknown"},
+        {"temporary_storage": None},
+        {"temporary_storage": ["disk"]},
+        {"temporary_size_bytes": True},
+        {"temporary_size_bytes": "17179869184"},
+        {"temporary_size_bytes": None},
+        {"temporary_size_bytes": (64 << 20) - 1},
+        {"temporary_size_bytes": (16 << 30) + 1},
+        {"temporary_size_bytes": (64 << 20) + 0.5},
+    ],
+)
+def test_node_temporary_storage_rejects_invalid_policy(
+    client: TestClient, policy: dict[str, object]
+) -> None:
+    """
+    创建和更新接口拒绝非法临时存储策略且不修改既有节点。
+
+    :param client (TestClient): 测试 API 客户端
+    :param policy (dict[str, object]): 非法运行时策略
+    """
+
+    token = bootstrap(client)
+    headers = auth_header(token)
+    created = client.post(
+        "/api/v1/nodes",
+        headers=headers,
+        json={"name": "invalid", "region_code": "US", "runtime_policy": policy},
+    )
+    assert created.status_code == 422
+    node_id, _ = create_and_register_node(client, token)
+    updated = client.patch(
+        f"/api/v1/nodes/{node_id}", headers=headers, json={"runtime_policy": policy}
+    )
+    assert updated.status_code == 422
+    stored = client.get(f"/api/v1/nodes/{node_id}", headers=headers)
+    assert stored.json()["data"]["runtime_policy"] == {}
+    nodes = client.get("/api/v1/nodes", headers=headers).json()["data"]
+    assert [node["id"] for node in nodes["items"]] == [node_id]
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {},
+        {"tmpfs_size_bytes": 1 << 30},
+        {"temporary_storage": "tmpfs", "tmpfs_size_bytes": 1 << 29},
+        {"temporary_storage": "disk", "temporary_size_bytes": 64 << 20},
+        {"temporary_storage": "disk", "temporary_size_bytes": 16 << 30},
+        {"temporary_size_bytes": float(16 << 30)},
+    ],
+)
+def test_node_temporary_storage_policy_round_trip(
+    client: TestClient, policy: dict[str, object]
+) -> None:
+    """
+    新旧策略均可保存和更新且保留其他运行时字段。
+
+    :param client (TestClient): 测试 API 客户端
+    :param policy (dict[str, object]): 有效运行时策略
+    """
+
+    headers = auth_header(bootstrap(client))
+    expected = {**policy, "network_allowlist": ["10.0.0.0/8"], "future_policy": {"enabled": True}}
+    created = client.post(
+        "/api/v1/nodes",
+        headers=headers,
+        json={"name": "temporary", "region_code": "US", "runtime_policy": expected},
+    )
+    assert created.status_code == 200, created.text
+    node = created.json()["data"]["node"]
+    assert node["runtime_policy"] == expected
+    url = f"/api/v1/nodes/{node['id']}"
+    renamed = client.patch(url, headers=headers, json={"name": "renamed"})
+    assert renamed.status_code == 200
+    assert renamed.json()["data"]["runtime_policy"] == expected
+    updated = client.patch(url, headers=headers, json={"runtime_policy": policy})
+    assert updated.status_code == 200
+    assert updated.json()["data"]["runtime_policy"] == policy
+    stored = client.get(url, headers=headers)
+    assert stored.json()["data"]["runtime_policy"] == policy

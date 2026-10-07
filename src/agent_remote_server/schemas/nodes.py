@@ -3,10 +3,38 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def validate_temporary_storage_policy(policy: dict[str, object]) -> dict[str, object]:
+    """
+    校验新增临时存储策略并保留既有策略字段。
+
+    :param policy (dict[str, object]): 节点运行时策略
+    :return dict[str, object]: 已校验的原始策略
+    :raises ValueError: 临时存储类型或容量不符合节点限制
+    """
+
+    if "temporary_storage" in policy and policy["temporary_storage"] not in ("disk", "tmpfs"):
+        raise ValueError("temporary_storage must be disk or tmpfs")
+    if "temporary_size_bytes" in policy:
+        size = policy["temporary_size_bytes"]
+        if (
+            isinstance(size, bool)
+            or not isinstance(size, (int, float))
+            or not 64 << 20 <= size <= 16 << 30
+            or int(size) != size
+        ):
+            raise ValueError("temporary_size_bytes must be an integer from 64 MiB to 16 GiB")
+    return policy
+
+
+TemporaryStoragePolicy = Annotated[
+    dict[str, object], AfterValidator(validate_temporary_storage_policy)
+]
 
 
 class NodeData(BaseModel):
@@ -67,7 +95,7 @@ class CreateNodeRequest(BaseModel):
         default_factory=lambda: ["docker_sandbox"], description="管理员允许的运行时"
     )
     default_runtime_backend: str = Field(default="docker_sandbox", description="默认运行时")
-    runtime_policy: dict[str, object] = Field(default_factory=dict, description="运行时策略")
+    runtime_policy: TemporaryStoragePolicy = Field(default_factory=dict, description="运行时策略")
     ego_browser_enabled: bool = Field(
         default=False, description="是否在加入时启用 ego-browser 能力"
     )
@@ -91,7 +119,7 @@ class UpdateNodeRequest(BaseModel):
     supported_tool_types: list[str] | None = Field(default=None, description="支持工具类型")
     allowed_runtime_backends: list[str] | None = Field(default=None, description="允许的运行时")
     default_runtime_backend: str | None = Field(default=None, description="默认运行时")
-    runtime_policy: dict[str, object] | None = Field(default=None, description="运行时策略")
+    runtime_policy: TemporaryStoragePolicy | None = Field(default=None, description="运行时策略")
     ego_browser_enabled: bool | None = Field(default=None, description="更新 ego-browser 能力意图")
     wireguard_ip: str | None = Field(default=None, description="WireGuard 地址")
     wireguard_public_key: str | None = Field(default=None, description="WireGuard 公钥")
