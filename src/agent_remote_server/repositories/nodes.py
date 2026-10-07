@@ -109,7 +109,7 @@ class NodeRepository:
 
     async def list_legacy_active_sessions_for_node(self, node_id: UUID) -> Sequence[Session]:
         """
-        只返回不受精确技能快照保护的活跃会话，避免通用清单抢先终止受管启动。
+        只返回已启动且不受精确技能快照保护的会话，启动结果由创建任务决定。
 
         :param node_id (UUID): 节点 ID
         :return Sequence[Session]: 可由通用对账处理的旧会话列表
@@ -118,7 +118,7 @@ class NodeRepository:
         result = await self._session.scalars(
             select(Session)
             .where(Session.node_id == node_id)
-            .where(Session.status.in_(["starting", "running", "active"]))
+            .where(Session.status.in_(["running", "active"]))
             .where(
                 ~select(SessionSkillSnapshot.id)
                 .where(SessionSkillSnapshot.session_reference_id == Session.id)

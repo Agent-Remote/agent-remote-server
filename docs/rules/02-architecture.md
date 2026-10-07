@@ -63,6 +63,9 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Backend changes use an explicit node task and commit only after node-side verification succeeds.
 - Nodes report independently probed backend capabilities. Scheduling uses the intersection of the administrator allowlist and the reported capabilities.
 - Inactive native resources reported during reconciliation move active sessions to `interrupted`; process exits may enqueue idempotent runtime cleanup without replacing that status, and the control plane never replays their commands.
+- Generic runtime reconciliation considers only `running` and `active` legacy sessions. A
+  `starting` session remains owned by its creation task: missing or inactive runtime observations
+  can precede launch and must not interrupt startup or enqueue cleanup.
 - Node task leases cover both delivery and execution. An expired non-terminal lease is reissued so
   the node can replay its locally persisted terminal result and converge the control-plane state.
 - Users may delete only `stopped`, `interrupted`, or `failed` tool sessions. Collection deletion removes all sessions in those three states for the current user; active lifecycle states remain protected and all deletion paths are audited.
