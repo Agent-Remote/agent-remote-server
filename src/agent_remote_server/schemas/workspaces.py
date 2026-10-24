@@ -3,9 +3,10 @@
 """
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GitSyncPolicy(BaseModel):
@@ -127,6 +128,11 @@ class SyncSessionData(BaseModel):
     同步会话响应数据
     """
 
+    target_precondition_version: Literal[1] = Field(default=1, description="同步目标条件协议版本")
+    target_precondition_checked: bool = Field(
+        default=False, description="本次动作是否已核验确认目标"
+    )
+
     id: UUID = Field(..., description="同步会话 ID")
     user_id: UUID = Field(..., description="用户 ID")
     workspace_id: UUID = Field(..., description="工作区标识")
@@ -158,12 +164,34 @@ class CreateSyncSessionRequest(BaseModel):
     exclude: list[str] = Field(default_factory=default_git_excludes, description="排除规则")
 
 
+class SyncSessionExpectedTarget(BaseModel):
+    """
+    客户端已确认的同步目标，不含可变化的观测状态。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID = Field(..., description="同步会话 ID")
+    workspace_id: UUID = Field(..., description="工作区 ID")
+    node_id: UUID | None = Field(..., description="节点 ID")
+    local_path: str = Field(..., description="本地目录")
+    remote_path: str = Field(..., description="远端目录")
+    mutagen_session_id: str | None = Field(..., description="Mutagen 会话名称")
+    remote_endpoint: str | None = Field(..., description="远端同步端点")
+    sync_mode: str = Field(..., description="同步模式")
+    sync_git: bool = Field(..., strict=True, description="是否同步 Git")
+    exclude: list[str] = Field(..., description="排除规则")
+
+
 class SyncSessionActionRequest(BaseModel):
     """
     同步会话操作请求
     """
 
     note: str | None = Field(default=None, description="操作备注")
+    expected_target: SyncSessionExpectedTarget | None = Field(
+        default=None, description="已确认目标，旧客户端可省略"
+    )
 
 
 class SyncSessionResponse(BaseModel):

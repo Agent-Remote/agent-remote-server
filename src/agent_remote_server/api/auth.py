@@ -3,6 +3,7 @@
 """
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from agent_remote_server.schemas.auth import (
     CliLoginApproveRequest,
     CliLoginCompleteRequest,
     CliLoginStartData,
+    CliLoginStartRequest,
     CliLoginStartResponse,
     CliSessionRefreshRequest,
     CliSessionTokenResponse,
@@ -201,16 +203,20 @@ async def refresh_cli_session(
 async def start_cli_login(
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    payload: CliLoginStartRequest | None = None,
 ) -> CliLoginStartResponse:
     """
     启动 CLI 设备码登录
 
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
+    :param payload (CliLoginStartRequest | None): 可选的完成回执恢复键
     :return CliLoginStartResponse: CLI 登录启动响应
     """
 
-    result = await IdentityService(session, settings).start_cli_login()
+    result = await IdentityService(session, settings).start_cli_login(
+        completion_request_id=payload.completion_request_id if payload else None
+    )
     return CliLoginStartResponse(
         data=CliLoginStartData(
             device_code=result.device_code,
@@ -218,6 +224,7 @@ async def start_cli_login(
             verification_url=result.verification_url,
             expires_in=result.expires_in,
             interval=result.interval,
+            completion_request_id=payload.completion_request_id if payload else None,
         ),
         request_id=get_request_id(),
     )
@@ -262,7 +269,29 @@ async def complete_cli_login(
     """
 
     token_issue = await IdentityService(session, settings).complete_cli_login(
-        device_code=payload.device_code
+        device_code=payload.device_code,
+        completion_request_id=payload.completion_request_id,
+    )
+    return AuthTokenResponse(data=_token_data(token_issue), request_id=get_request_id())
+
+
+@router.get("/cli/completions/{completion_request_id}", response_model=AuthTokenResponse)
+async def recover_cli_login(
+    completion_request_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AuthTokenResponse:
+    """
+    按原始调用方键恢复设备码登录完成回执。
+
+    :param completion_request_id (UUID): 原始完成回执键
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :return AuthTokenResponse: 恢复的登录令牌响应
+    """
+
+    token_issue = await IdentityService(session, settings).recover_cli_login(
+        completion_request_id=completion_request_id
     )
     return AuthTokenResponse(data=_token_data(token_issue), request_id=get_request_id())
 

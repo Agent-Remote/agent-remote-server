@@ -611,7 +611,7 @@ def test_admin_can_list_failed_node_tasks(client: TestClient) -> None:
                 node_id=UUID(node_id),
                 task_id="task_failed",
                 task_type="create_tool_session",
-                payload={"session_id": "session-test"},
+                payload={"session_id": str(uuid4())},
             )
 
     asyncio.run(create_task())

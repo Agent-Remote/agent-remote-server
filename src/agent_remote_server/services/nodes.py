@@ -26,7 +26,6 @@ from agent_remote_server.models import (
     NodeTask,
     NodeTaskResult,
     Session,
-    SyncSession,
     ToolAccount,
     ToolAccountProfile,
     User,
@@ -34,6 +33,9 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories import NodeRepository
 from agent_remote_server.repositories.ego_browser import EgoBrowserRepository
 from agent_remote_server.repositories.identity import IdentityRepository
+from agent_remote_server.repositories.sessions import SessionRepository
+from agent_remote_server.repositories.skill_runtime import SkillRuntimeRepository
+from agent_remote_server.repositories.tool_accounts import ToolAccountRepository
 from agent_remote_server.schemas.skill_start_result import (
     ManagedStartObservation,
     ManagedStartReady,
@@ -49,6 +51,9 @@ from agent_remote_server.services.ego_browser.helpers import _as_utc
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
 from agent_remote_server.services.runtime_migrations import RuntimeMigrationResultGuard
 from agent_remote_server.services.runtime_recovery import RuntimeRecoveryService
+from agent_remote_server.services.session_lifecycle_capability import normalize_session_lifecycle
+from agent_remote_server.services.session_stop_results import SessionStopResultGuard
+from agent_remote_server.services.session_task_results import SessionTaskResultGuard
 from agent_remote_server.services.skills.config_import import SkillConfigImportGuard
 from agent_remote_server.services.skills.deployment_authorization import (
     reject_generic_deployment_result,
@@ -65,6 +70,7 @@ from agent_remote_server.services.skills.start_results import (
 )
 from agent_remote_server.services.skills.stop_results import ManagedStopResultGuard
 from agent_remote_server.services.skills.takeover_results import TakeoverResultGuard
+from agent_remote_server.services.sync_task_results import publish_sync_preparation
 
 RUNTIME_BACKENDS = {"docker_sandbox", "native"}
 _EGO_BROWSER_CANCEL_RESULT_KEYS = {
@@ -1202,6 +1208,20 @@ class NodeService:
         if not isinstance(value, dict):
             return {}
         normalized = dict(value)
+        if "session_lifecycle" in normalized:
+            normalized["session_lifecycle"] = normalize_session_lifecycle(
+                normalized["session_lifecycle"]
+            )
+        for name in ("binding_attach", "session_attach"):
+            attach = normalized.get(name)
+            if (
+                not isinstance(attach, dict)
+                or attach.get("supported") is not True
+                or type(attach.get("protocol_version")) is not int
+                or attach.get("protocol_version") != 1
+            ):
+                # 清除能力可避免 JSON 的 True == 1 比较保留上次有效声明。
+                normalized.pop(name, None)
         if "skill_manager" in normalized:
             normalized["skill_manager"] = normalize_skill_capabilities(normalized["skill_manager"])
         raw_bridge = normalized.get("ego_browser_bridge")
@@ -1681,6 +1701,8 @@ class NodeService:
         result = _content_safe_task_completion(task, result)
         ego_browser_service: EgoBrowserService | None = None
         async with session_history_mutation(self._session, self._task_session_id(task, result)):
+            if task.task_type == "stop_tool_session":
+                SessionStopResultGuard().authorize(task, result)
             replay = await ManagedStartResultGuard(self._session).authorize(
                 task, result, "succeeded"
             )
@@ -1702,6 +1724,10 @@ class NodeService:
                 await RuntimeRecoveryService(self._session).result(task, result, "succeeded")
                 or replay
             )
+            if not replay:
+                replay = await SessionTaskResultGuard(self._session).replay(
+                    task, result, "succeeded"
+                )
             if not replay:
                 if await self._repository.get_task_result(task_id) is None:
                     await self._repository.add_task_result(
@@ -1755,6 +1781,8 @@ class NodeService:
                 await RuntimeRecoveryService(self._session).result(task, error, "failed") or replay
             )
             if not replay:
+                replay = await SessionTaskResultGuard(self._session).replay(task, error, "failed")
+            if not replay:
                 if await self._repository.get_task_result(task_id) is None:
                     await self._repository.add_task_result(
                         NodeTaskResult(
@@ -1805,8 +1833,20 @@ class NodeService:
             async with existing_history_mutations(
                 self._session, {item.user_id for item in active_sessions}
             ):
-                for tool_session in active_sessions:
-                    if tool_session.runtime_backend not in {"native", "docker_sandbox"}:
+                for candidate in sorted(active_sessions, key=lambda item: item.id):
+                    tool_session = await SessionRepository(self._session).lock_session(
+                        candidate.id, candidate.user_id
+                    )
+                    if (
+                        tool_session is None
+                        or tool_session.node_id != node.id
+                        or tool_session.status not in {"running", "active"}
+                        or tool_session.runtime_backend not in {"native", "docker_sandbox"}
+                        or await SkillRuntimeRepository(self._session).snapshot_for_session(
+                            tool_session.user_id, tool_session.id
+                        )
+                        is not None
+                    ):
                         continue
                     runtime = reported.get(str(tool_session.id))
                     if runtime is None and tool_session.runtime_backend == "docker_sandbox":
@@ -1994,8 +2034,13 @@ class NodeService:
         account_id = self._task_tool_account_id(task, result)
         if account_id is None:
             return
-        account = await self._session.get(ToolAccount, account_id)
-        if account is None:
+        binding_task = task.task_type in {"create_binding_session", "verify_tool_account"}
+        account = (
+            await ToolAccountRepository(self._session).get_account_for_update(account_id)
+            if binding_task
+            else await self._session.get(ToolAccount, account_id)
+        )
+        if account is None or (binding_task and account.status == "disabled"):
             return
         profile = await self._tool_account_profile(account)
         if task.task_type == "migrate_tool_account_runtime":
@@ -2092,8 +2137,13 @@ class NodeService:
         account_id = self._task_tool_account_id(task, error)
         if account_id is None:
             return
-        account = await self._session.get(ToolAccount, account_id)
-        if account is None:
+        binding_task = task.task_type in {"create_binding_session", "verify_tool_account"}
+        account = (
+            await ToolAccountRepository(self._session).get_account_for_update(account_id)
+            if binding_task
+            else await self._session.get(ToolAccount, account_id)
+        )
+        if account is None or (binding_task and account.status == "disabled"):
             return
         profile = await self._tool_account_profile(account)
         if (
@@ -2145,6 +2195,8 @@ class NodeService:
         if tool_session is None:
             return
         if task.task_type == "create_tool_session":
+            if tool_session.status != "starting":
+                return
             status = result.get("status")
             if status in {"running", "active", "ready"}:
                 tool_session.status = "running" if status == "running" else "active"
@@ -2183,17 +2235,8 @@ class NodeService:
         :param result (dict[str, object]): 任务结果
         """
 
-        if task.task_type != "prepare_workspace" or result.get("status") != "prepared":
-            return
-        value = task.payload.get("sync_session_id")
-        if not isinstance(value, str):
-            return
-        try:
-            sync_session = await self._session.get(SyncSession, UUID(value))
-        except ValueError:
-            return
-        if sync_session is not None:
-            sync_session.status = "active"
+        if result.get("status") == "prepared":
+            await publish_sync_preparation(self._session, task, "active")
 
     async def _apply_sync_session_task_failure(self, task: NodeTask) -> None:
         """
@@ -2202,17 +2245,7 @@ class NodeService:
         :param task (NodeTask): 节点任务
         """
 
-        if task.task_type != "prepare_workspace":
-            return
-        value = task.payload.get("sync_session_id")
-        if not isinstance(value, str):
-            return
-        try:
-            sync_session = await self._session.get(SyncSession, UUID(value))
-        except ValueError:
-            return
-        if sync_session is not None:
-            sync_session.status = "failed"
+        await publish_sync_preparation(self._session, task, "failed")
 
     async def _apply_tool_session_task_failure(
         self, task: NodeTask, error: dict[str, object]
@@ -2233,9 +2266,9 @@ class NodeService:
             if task.payload.get("preserve_interrupted_status") is True:
                 tool_session.status = "interrupted"
                 return
-            tool_session.status = "failed"
+            tool_session.status = "stopping"
             return
-        if task.task_type == "create_tool_session":
+        if task.task_type == "create_tool_session" and tool_session.status == "starting":
             tool_session.status = "failed"
 
     async def _apply_browser_session_task_result(

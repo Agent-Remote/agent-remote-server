@@ -46,6 +46,10 @@ class DeviceRegistrationRequest(IdMixin, TimestampMixin, Base):
     wireguard_peer_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     receipt_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict)
     encrypted_device_token: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     phase: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")

@@ -4,6 +4,8 @@
 
 from agent_remote_server.models.audit import AuditLog
 from agent_remote_server.models.auth import AuthToken, CliLoginCode, CliLoginSession
+from agent_remote_server.models.config_import_requests import ToolAccountConfigImportRequest
+from agent_remote_server.models.device_registration_requests import DeviceRegistrationRequest
 from agent_remote_server.models.ego_browser import (
     EgoBrowserBinding,
     EgoBrowserDevice,
@@ -20,6 +22,13 @@ from agent_remote_server.models.nodes import (
     NodeTask,
     NodeTaskResult,
 )
+from agent_remote_server.models.session_attachment import (
+    SessionAttachmentCleanupReceipt,
+    SessionAttachmentLease,
+)
+from agent_remote_server.models.session_create_requests import SessionCreateRequest
+from agent_remote_server.models.session_delete_requests import SessionDeleteRequest
+from agent_remote_server.models.session_stop_requests import SessionStopRequest
 from agent_remote_server.models.sessions import (
     BrowserSession,
     DeviceSession,
@@ -109,6 +118,7 @@ from agent_remote_server.models.workspaces import SyncSession, Workspace
 
 __all__ = [
     "SkillContentDeletion",
+    "DeviceRegistrationRequest",
     "SkillPruneContentClaim",
     "SkillPruneOperation",
     "SkillPruneOperationDeletion",
@@ -158,6 +168,11 @@ __all__ = [
     "PortForward",
     "Session",
     "SessionEvent",
+    "SessionCreateRequest",
+    "SessionDeleteRequest",
+    "SessionStopRequest",
+    "SessionAttachmentCleanupReceipt",
+    "SessionAttachmentLease",
     "SkillLibrary",
     "SkillAccountTakeover",
     "SkillSnapshotTermination",
@@ -186,6 +201,7 @@ __all__ = [
     "SshKey",
     "SyncSession",
     "ToolAccount",
+    "ToolAccountConfigImportRequest",
     "ToolAccountDeveloperCredentialProfile",
     "ToolAccountProfile",
     "User",

@@ -90,9 +90,29 @@ ORM metadata enforces the same state set so SQLite tests cannot silently accept 
 status support. Downgrade holds the account table lock and refuses any migrating row before changing
 the constraint. Runtime migration profiles remain the independent writer-admission authority.
 
+`session_delete_requests` is an owner-scoped caller-key ledger. It stores the exact reviewed session
+ID list, selection summary, canonical digests, immutable receipt and content-free observation. It has
+no foreign key to `sessions`, so deletion retains the receipt and its per-session runtime context.
+The unique `(user_id, request_id)` key rejects cross-intent replay; a fixed collection mismatch is
+rejected before retention, device revocation or port-forward cleanup.
+
+`session_attachment_leases` stores only the immutable node/session/user/device/SSH-key identity,
+pinned runtime backend/resource identity, opaque runtime scope, bounded byte/entry limits and lease
+lifecycle timestamps. It never stores an account path, credentials or attachment bytes.
+`session_attachment_cleanup_receipts` stores one public receipt per lease, including the original
+identity snapshot and `cleaned|pending|unknown|rejected` status, so a lost response cannot be
+confused with a later lease. Session deletion and device revocation mark live leases revoked in
+their existing transaction; receipt rows remain available for explicit recovery.
+
 ## Skill Manager
 
 Read [Skill manager](../skill-manager.md) and its mandatory shared contract before changing Skill code.
 Preserve user-scoped authorization, exact task/lease/snapshot bindings, atomic publication, reference
 and retention transactions, and separate configuration/deployment/persistence receipts. Schema and
 protocol changes require matching migrations, tests and callers; do not add stage-by-stage logs here.
+
+Migration 0057 adds the content-free account config-import receipt ledger described in [caller-key imports](../account-config-import-requests.md). Unique user/request and task bindings prevent duplicate acceptance. Original account/node/task identifiers are retained snapshots; only user deletion cascades. Receipt publication shares the task/audit transaction, and a nonempty ledger blocks downgrade.
+
+Reviewed runtime recovery adds no schema or journal. Existing recovery NodeTask payloads hold the
+immutable original projection; `(account_id,request_id)` remains the key scope. The accepting
+administrator remains in the existing audit. Read-only inspection/GET never creates storage rows.

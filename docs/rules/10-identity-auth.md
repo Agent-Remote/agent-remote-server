@@ -1,5 +1,10 @@
 # 10 Identity And Authentication
 
+Exact session attach authenticates device tokens without writing last-seen timestamps. Both
+authorization and observation require equality with the client's expected device before any
+mutation. Node exact verification checks the active owner, device and actual SSH key and echoes
+all bound identities; see [session attachment](../session-exact-attach.md).
+
 ## User Accounts
 
 - The first administrator is created through the bootstrap API only when no users exist.
@@ -29,7 +34,11 @@
 - Existing user tokens can migrate only while valid. CLI stores the complete credential
   pair atomically in its credential store and serializes refresh across local processes.
   Lost refresh responses fail closed; business mutations are never replayed automatically.
-- CLI device-code login must store only a hashed `device_code`.
+- CLI device-code login must store only a hashed `device_code`; a completion
+  receipt may be retained only as short-lived server-keyed ciphertext. Plaintext
+  device codes and access tokens must never enter persistent storage. Lost
+  completion responses are recovered by the original caller UUID only, with no
+  polling, latest-device inference, or replacement-code retry.
 - The `user_code` is short-lived and must expire.
 - Completing CLI login before approval must fail.
 - Completed or expired login codes must not be reused.
@@ -38,6 +47,11 @@
 ## Devices And Keys
 
 - Device registration is tied to the authenticated user.
+- Device registration callers may supply a UUID `request_id`. The server binds that
+  user-scoped key to the complete registration intent and retains a short-lived encrypted
+  token receipt. An identical retry or the read-only registration-recovery endpoint returns
+  the original token without rotating it; a changed intent is rejected with
+  `DEVICE_REGISTRATION_KEY_REUSED`, and an unavailable receipt remains `UNKNOWN_RESULT`.
 - A CLI login may reuse only an active device owned by the authenticated user. Reuse rotates the
   device token and ensures the submitted SSH public key is active without creating another device.
 - Device tokens must be device-scoped.
@@ -103,6 +117,19 @@
 
 ## Audit
 
+Account binding attachment requires an active device owned by the account owner and
+the exact expected binding attempt. Both POST and GET require explicit verified
+Node gateway capability `binding_attach` with literal supported true and integer
+protocol version 1; missing or incompatible support rejects before task creation.
+POST may synchronize that device's SSH keys;
+GET polls only the original task with fresh ownership, device, generation and payload
+checks, never refreshing authorization by mutation. Node forced-command verification
+must reject an expected attempt that differs from the current binding.
+Exact binding verification also requires the SSH key identity supplied by the Node's
+trusted forced command, checks current device ownership and active key status, and
+echoes the verified key ID. Legacy binding requests without an expected attempt keep
+their existing compatibility behavior.
+
 Audit logs may include IDs, statuses, usernames, roles, and high-level action metadata.
 
 Audit logs must not include:
@@ -123,3 +150,14 @@ Read [Skill manager](../skill-manager.md) and its mandatory shared contract befo
 Preserve user-scoped authorization, exact task/lease/snapshot bindings, atomic publication, reference
 and retention transactions, and separate configuration/deployment/persistence receipts. Schema and
 protocol changes require matching migrations, tests and callers; do not add stage-by-stage logs here.
+
+Updated sync gateways supply the forced-command SSH key ID and require the verified
+key echo. The server rejects revoked or foreign supplied keys; omitted keys retain
+legacy compatibility only. See [workspace sync safety](../workspace-sync-safety.md).
+
+Caller-key config-import receipt recovery uses read-only active-user/device authentication: ownership and revocation are rechecked, but device last-seen updates are suppressed. This does not weaken device validation or change legacy authentication behavior.
+
+Reviewed runtime recovery routes require active user tokens with no device association and use
+read-only credential validation. Authority returns admin=false for ordinary users; inspection and
+request POST/GET require admin. Device-token rejection cannot refresh last-seen. Legacy admin
+routes retain their existing behavior; see [the reviewed contract](../runtime-recovery-requests.md).

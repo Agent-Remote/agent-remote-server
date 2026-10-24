@@ -2,6 +2,8 @@
 定义认证接口模型。
 """
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field, SecretStr
 
 
@@ -106,6 +108,9 @@ class CliLoginStartData(BaseModel):
     verification_url: str = Field(..., description="确认地址")
     expires_in: int = Field(..., description="有效秒数")
     interval: int = Field(..., description="轮询间隔秒数")
+    completion_request_id: UUID | None = Field(
+        default=None, description="丢失完成回执时使用的调用方原始键"
+    )
 
 
 class CliLoginStartResponse(BaseModel):
@@ -115,6 +120,16 @@ class CliLoginStartResponse(BaseModel):
 
     data: CliLoginStartData = Field(..., description="CLI 登录启动数据")
     request_id: str | None = Field(default=None, description="请求 ID")
+
+
+class CliLoginStartRequest(BaseModel):
+    """
+    可恢复设备码登录的调用方原始键。
+    """
+
+    completion_request_id: UUID | None = Field(
+        default=None, description="调用方生成的完成回执恢复键"
+    )
 
 
 class CliLoginApproveRequest(BaseModel):
@@ -131,6 +146,9 @@ class CliLoginCompleteRequest(BaseModel):
     """
 
     device_code: str = Field(..., description="CLI 设备码")
+    completion_request_id: UUID | None = Field(
+        default=None, description="启动时返回的完成回执恢复键"
+    )
 
 
 class TotpSetupData(BaseModel):

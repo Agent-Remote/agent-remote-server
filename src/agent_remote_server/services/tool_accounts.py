@@ -251,7 +251,7 @@ class ToolAccountService:
         :return ToolAccount: 工具账户实体
         """
 
-        account = await self._require_account(user=user, account_id=account_id)
+        account = await self._require_account(user=user, account_id=account_id, lock=True)
         account.status = "disabled"
         await revoke_port_forwards(
             self._session,
@@ -428,6 +428,7 @@ class ToolAccountService:
         files: list[ToolAccountConfigImportFile],
         include_resume_history: bool,
         dry_run: bool,
+        commit: bool = True,
     ) -> ToolAccountConfigImportData:
         """
         生成工具账户配置导入计划
@@ -440,6 +441,7 @@ class ToolAccountService:
         :param files (list[ToolAccountConfigImportFile]): 待导入的配置文件
         :param include_resume_history (bool): 是否包含恢复历史路径
         :param dry_run (bool): 是否仅生成计划而不实际导入
+        :param commit (bool): 是否提交当前事务，强版本受理由外层统一提交
         :return ToolAccountConfigImportData: 配置导入计划
         :raises ApiError: 工具类型、配置文件、导入路径或可用节点不满足导入条件
         """
@@ -531,7 +533,8 @@ class ToolAccountService:
                 "task_id": task_id,
             },
         )
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
         return ToolAccountConfigImportData(
             tool_account_id=account.id,
             accepted=accepted,
@@ -826,6 +829,7 @@ class ToolAccountService:
 
         account = await self._require_account(user=user, account_id=account_id)
         await require_legacy_account_writer(self._session, account.user_id, account.id)
+        account = await self._require_account(user=user, account_id=account_id, lock=True)
         template = self._require_template(account.tool_type)
         node = await self._choose_binding_node(account)
         if account.runtime_backend is None:
@@ -962,7 +966,13 @@ class ToolAccountService:
         :raises ApiError: 工具账户不存在或其亲和节点当前不可用
         """
 
-        account = await self._require_account(user=user, account_id=account_id)
+        account = await self._require_account(user=user, account_id=account_id, lock=True)
+        if account.status == "disabled":
+            raise ApiError(
+                code="ACCOUNT_DISABLED",
+                message="Disabled accounts cannot be verified.",
+                status_code=409,
+            )
         template = self._require_template(account.tool_type)
         profile = await self._ensure_profile(account=account, template=template)
         node = await self._load_affinity_node(account)
@@ -1080,15 +1090,22 @@ class ToolAccountService:
             )
         )
 
-    async def _require_account(self, *, user: User, account_id: UUID) -> ToolAccount:
+    async def _require_account(
+        self, *, user: User, account_id: UUID, lock: bool = False
+    ) -> ToolAccount:
         """
         获取并校验账号。
 
         :param user (User): 用户
         :param account_id (UUID): 账号 ID
+        :param lock (bool): 是否锁定并刷新原账户
         :return ToolAccount: 账号
         """
-        account = await self._repository.get_account(account_id)
+        account = (
+            await self._repository.get_account_for_update(account_id)
+            if lock
+            else await self._repository.get_account(account_id)
+        )
         if account is None or account.user_id != user.id:
             raise ApiError(
                 code="COMMON_NOT_FOUND",

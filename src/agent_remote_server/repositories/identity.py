@@ -134,6 +134,33 @@ class IdentityRepository:
             select(CliLoginCode).where(CliLoginCode.device_code_hash == device_code_hash)
         )
 
+    async def lock_cli_login_by_device_hash(self, device_code_hash: str) -> CliLoginCode | None:
+        """
+        锁定 device_code 对应的登录码，串行化完成与回放。
+
+        :param device_code_hash (str): device_code 哈希
+        :return CliLoginCode | None: 锁定的登录码实体
+        """
+
+        return await self._session.scalar(
+            select(CliLoginCode)
+            .where(CliLoginCode.device_code_hash == device_code_hash)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    async def get_cli_login_by_completion_request_id(self, request_id: UUID) -> CliLoginCode | None:
+        """
+        仅按调用方拥有的原始键读取完成回执。
+
+        :param request_id (UUID): 完成回执请求键
+        :return CliLoginCode | None: 登录码实体
+        """
+
+        return await self._session.scalar(
+            select(CliLoginCode).where(CliLoginCode.completion_request_id == request_id)
+        )
+
     async def get_cli_login_by_user_code(self, user_code: str) -> CliLoginCode | None:
         """
         按 user_code 读取 CLI 登录码

@@ -68,6 +68,20 @@ class ToolAccountRepository:
         )
         return result.all()
 
+    async def get_account_for_update(self, account_id: UUID) -> ToolAccount | None:
+        """
+        锁定并刷新账户以串行化禁用与绑定状态发布。
+
+        :param account_id (UUID): 原账户身份
+        :return ToolAccount | None: 当前持锁账户
+        """
+        return await self._session.scalar(
+            select(ToolAccount)
+            .where(ToolAccount.id == account_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
     async def has_sessions_for_account(self, account_id: UUID) -> bool:
         """
         判断工具账户是否仍有历史工具 session

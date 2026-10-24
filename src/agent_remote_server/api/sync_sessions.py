@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_remote_server.api.deps import get_current_user, get_session, get_settings
 from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
-from agent_remote_server.models import Node, SyncSession, User
+from agent_remote_server.models import User
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.workspaces import (
     CreateSyncSessionRequest,
@@ -21,21 +21,26 @@ from agent_remote_server.schemas.workspaces import (
     SyncSessionListResponse,
     SyncSessionResponse,
 )
+from agent_remote_server.services.sync_targets import sync_remote_endpoint
 from agent_remote_server.services.workspaces import SyncSessionResult, WorkspaceService
 
 router = APIRouter(prefix="/sync-sessions", tags=["sync-sessions"])
 
 
-def sync_session_data(result: SyncSessionResult) -> SyncSessionData:
+def sync_session_data(
+    result: SyncSessionResult, *, target_checked: bool = False
+) -> SyncSessionData:
     """
     转换同步 session 响应数据
 
     :param result (SyncSessionResult): 同步 session 结果
+    :param target_checked (bool): 本次动作是否已验证确认目标
     :return SyncSessionData: 同步 session 响应数据
     """
 
     sync_session = result.sync_session
     return SyncSessionData(
+        target_precondition_checked=target_checked,
         id=sync_session.id,
         user_id=sync_session.user_id,
         workspace_id=sync_session.workspace_id,
@@ -48,29 +53,11 @@ def sync_session_data(result: SyncSessionResult) -> SyncSessionData:
         sync_git=sync_session.sync_git,
         exclude=sync_session.exclude_patterns,
         mutagen_session_id=sync_session.mutagen_session_id,
-        remote_endpoint=_remote_endpoint(result.node, sync_session),
+        remote_endpoint=sync_remote_endpoint(result.node, sync_session),
         prepare_task_id=result.prepare_task_id,
         created_at=sync_session.created_at,
         updated_at=sync_session.updated_at,
     )
-
-
-def _remote_endpoint(node: Node | None, sync_session: SyncSession) -> str | None:
-    """
-    返回远端端点。
-
-    :param node (Node | None): 节点
-    :param sync_session (SyncSession): 同步会话
-    :return str | None: 远端端点
-    """
-    if node is None:
-        return None
-    host = node.ssh_host or node.wireguard_ip
-    if not host:
-        return None
-    user = node.ssh_user or "agent-remote"
-    port = node.ssh_port or 22
-    return f"{user}@{host}:{port}:{sync_session.remote_path}"
 
 
 @router.get("", response_model=SyncSessionListResponse)
@@ -166,11 +153,13 @@ async def pause_sync_session(
     :return SyncSessionResponse: 同步 session 响应
     """
 
-    _ = payload
     result = await WorkspaceService(session, settings).pause_sync_session(
-        user=user, sync_session_id=sync_session_id
+        user=user, sync_session_id=sync_session_id, expected_target=payload.expected_target
     )
-    return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
+    return SyncSessionResponse(
+        data=sync_session_data(result, target_checked=payload.expected_target is not None),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/{sync_session_id}/resume", response_model=SyncSessionResponse)
@@ -192,11 +181,13 @@ async def resume_sync_session(
     :return SyncSessionResponse: 同步 session 响应
     """
 
-    _ = payload
     result = await WorkspaceService(session, settings).resume_sync_session(
-        user=user, sync_session_id=sync_session_id
+        user=user, sync_session_id=sync_session_id, expected_target=payload.expected_target
     )
-    return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
+    return SyncSessionResponse(
+        data=sync_session_data(result, target_checked=payload.expected_target is not None),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/{sync_session_id}/resolve", response_model=SyncSessionResponse)
@@ -218,11 +209,13 @@ async def resolve_sync_session(
     :return SyncSessionResponse: 同步 session 响应
     """
 
-    _ = payload
     result = await WorkspaceService(session, settings).resolve_sync_session(
-        user=user, sync_session_id=sync_session_id
+        user=user, sync_session_id=sync_session_id, expected_target=payload.expected_target
     )
-    return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
+    return SyncSessionResponse(
+        data=sync_session_data(result, target_checked=payload.expected_target is not None),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/{sync_session_id}/reset", response_model=SyncSessionResponse)
@@ -244,11 +237,13 @@ async def reset_sync_session(
     :return SyncSessionResponse: 同步 session 响应
     """
 
-    _ = payload
     result = await WorkspaceService(session, settings).reset_sync_session(
-        user=user, sync_session_id=sync_session_id
+        user=user, sync_session_id=sync_session_id, expected_target=payload.expected_target
     )
-    return SyncSessionResponse(data=sync_session_data(result), request_id=get_request_id())
+    return SyncSessionResponse(
+        data=sync_session_data(result, target_checked=payload.expected_target is not None),
+        request_id=get_request_id(),
+    )
 
 
 @router.delete("/{sync_session_id}", response_model=EmptyResponse)

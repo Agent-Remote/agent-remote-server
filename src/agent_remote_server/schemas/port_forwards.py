@@ -24,6 +24,7 @@ class CreatePortForwardRequest(StrictPortForwardRequest):
     remote_port: int = Field(..., ge=1, le=65535, description="运行时远端端口")
     local_port: int = Field(..., ge=1, le=65535, description="客户端请求的本地端口")
     client_instance_id: str = Field(..., min_length=1, max_length=128, description="CLI 实例 ID")
+    caller_request_id: UUID | None = Field(default=None, description="可重放的调用方原始请求键")
     ttl_seconds: int | None = Field(default=None, ge=60, description="请求的绝对有效秒数")
 
 
@@ -34,6 +35,11 @@ class PortForwardConnectionData(BaseModel):
 
     token: str = Field(..., description="仅返回一次的短期连接 token")
     expires_at: datetime = Field(..., description="连接 token 过期时间")
+    # Safe routing metadata for exact listener recovery. These fields contain
+    # no credentials and are optional for rolling upgrades with older servers.
+    node_wireguard_ip: str | None = Field(default=None, description="Node WireGuard 地址")
+    ssh_user: str | None = Field(default=None, description="Node SSH 用户")
+    ssh_port: int | None = Field(default=None, description="Node SSH 端口")
 
 
 class PortForwardData(BaseModel):
@@ -49,6 +55,7 @@ class PortForwardData(BaseModel):
     remote_port: int = Field(..., description="运行时远端端口")
     requested_local_port: int = Field(..., description="客户端请求的本地端口")
     client_instance_id: str = Field(..., description="CLI 实例 ID")
+    caller_request_id: UUID | None = Field(default=None, description="调用方原始请求键")
     status: str = Field(..., description="端口转发状态")
     bytes_up: int = Field(..., description="累计上行字节数")
     bytes_down: int = Field(..., description="累计下行字节数")

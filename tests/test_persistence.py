@@ -23,6 +23,7 @@ EXPECTED_TABLES = {
     "cli_login_codes",
     "cli_login_sessions",
     "developer_credential_profiles",
+    "device_registration_requests",
     "device_session_approvals",
     "device_sessions",
     "ego_browser_bindings",
@@ -39,6 +40,9 @@ EXPECTED_TABLES = {
     "nodes",
     "session_events",
     "sessions",
+    "session_create_requests",
+    "session_stop_requests",
+    "session_delete_requests",
     "skill_libraries",
     "skill_account_takeovers",
     "account_skill_directory_states",
@@ -95,6 +99,7 @@ EXPECTED_TABLES = {
     "ssh_keys",
     "sync_sessions",
     "tool_account_profiles",
+    "tool_account_config_import_requests",
     "tool_account_developer_credential_profiles",
     "tool_accounts",
     "user_devices",
@@ -121,6 +126,7 @@ EXPECTED_INDEXES = {
     "cli_login_sessions_access_uidx",
     "cli_login_sessions_refresh_uidx",
     "developer_credential_profiles_user_idx",
+    "device_registration_requests_device_idx",
     "device_session_approvals_session_app_uidx",
     "device_sessions_device_status_idx",
     "device_sessions_lease_idx",
@@ -139,6 +145,10 @@ EXPECTED_INDEXES = {
     "node_tasks_task_id_uidx",
     "sessions_account_active_idx",
     "sessions_project_idx",
+    "session_create_requests_session_idx",
+    "session_stop_requests_session_idx",
+    "session_stop_requests_task_idx",
+    "session_delete_requests_selection_idx",
     "ssh_keys_device_idx",
     "sync_sessions_workspace_status_idx",
     "tool_accounts_affinity_node_idx",
@@ -155,7 +165,12 @@ def test_model_metadata_registers_core_tables() -> None:
     """
     table_names = set(Base.metadata.tables)
 
-    assert table_names == EXPECTED_TABLES
+    # Attachment transfer leases and cleanup receipts are part of the current
+    # schema (migration 0065); keep this inventory aligned with model imports.
+    assert table_names == EXPECTED_TABLES | {
+        "session_attachment_leases",
+        "session_attachment_cleanup_receipts",
+    }
 
 
 def test_model_metadata_registers_core_indexes() -> None:
@@ -295,7 +310,7 @@ def test_alembic_revision_graph_has_one_resolvable_head() -> None:
     """
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0056_runtime_migration_status"]
+    assert script.get_heads() == ["0065_session_attachment_transfer"]
     revisions = list(script.walk_revisions())
     assert revisions[-1].revision == "0001_core_schema"
     assert len(revisions) == len(list(Path("migrations/versions").glob("*.py")))

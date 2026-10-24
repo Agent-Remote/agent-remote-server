@@ -18,6 +18,7 @@ from agent_remote_server.repositories.skill_imports import SkillImportRepository
 from agent_remote_server.repositories.skill_runtime import SkillRuntimeRepository
 from agent_remote_server.repositories.skill_storage import SkillStorageRepository
 from agent_remote_server.repositories.tool_accounts import ToolAccountRepository
+from agent_remote_server.schemas.reviewed_runtime_recovery import RuntimeRecoveryOriginal
 from agent_remote_server.schemas.runtime_recovery import (
     RuntimeRecoveryAuthorization,
     RuntimeRecoveryBinding,
@@ -55,7 +56,12 @@ class RuntimeRecoveryService:
         self.session = session
 
     async def submit(
-        self, actor: User, account_id: UUID, request: RuntimeRecoveryRequest
+        self,
+        actor: User,
+        account_id: UUID,
+        request: RuntimeRecoveryRequest,
+        *,
+        expected_original: RuntimeRecoveryOriginal | None = None,
     ) -> RuntimeRecoveryData:
         """
         同键只读重放，不以新键覆盖尚未结束的检查。
@@ -63,6 +69,7 @@ class RuntimeRecoveryService:
         :param actor (User): 已通过管理员校验的操作者
         :param account_id (UUID): 原账户
         :param request (RuntimeRecoveryRequest): 精确原任务及独立键
+        :param expected_original (RuntimeRecoveryOriginal | None): 新入口确认时的原始身份
         :return RuntimeRecoveryData: 原有或新受理检查
         """
         task_id = f"{RECOVERY_TASK}:{account_id}:{request.request_id}"
@@ -78,8 +85,17 @@ class RuntimeRecoveryService:
                 or binding.tool_account_id != account.id
             ):
                 raise _conflict()
+            if expected_original is not None:
+                try:
+                    matches = RuntimeRecoveryOriginal.from_binding(binding) == expected_original
+                except ValidationError as error:
+                    raise _conflict() from error
+                if not matches:
+                    raise _conflict()
             return RuntimeRecoveryData(binding=binding, status=saved.status)
         original = await self._task(request.original_task_id)
+        if original is None and expected_original is not None:
+            raise review_changed()
         if original is None or request.request_id.int == 0:
             raise _conflict()
         payload = original.payload
@@ -107,7 +123,16 @@ class RuntimeRecoveryService:
                 }
             )
         except ValidationError as error:
+            if expected_original is not None:
+                raise review_changed() from error
             raise _conflict() from error
+        if expected_original is not None:
+            try:
+                matches = RuntimeRecoveryOriginal.from_binding(binding) == expected_original
+            except ValidationError as error:
+                raise review_changed() from error
+            if not matches:
+                raise review_changed()
         if binding.tool_account_id != account.id or binding.user_id != account.user_id:
             raise _conflict()
         profile, migration = await self._current(binding, account)
@@ -465,4 +490,17 @@ def _not_found() -> ApiError:
     """
     return ApiError(
         code="COMMON_NOT_FOUND", message="Migration recovery task was not found.", status_code=404
+    )
+
+
+def review_changed() -> ApiError:
+    """
+    仅新受理的原身份变化允许调用方重新展示审核。
+
+    :return ApiError: 无新任务受理的确认身份变化
+    """
+    return ApiError(
+        code="RUNTIME_MIGRATION_RECOVERY_REVIEW_CHANGED",
+        message="The reviewed original migration identity has changed.",
+        status_code=409,
     )

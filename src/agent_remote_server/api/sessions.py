@@ -20,16 +20,25 @@ from agent_remote_server.config import Settings
 from agent_remote_server.context import get_request_id
 from agent_remote_server.device_control.relay_hub import DeviceRelayHub
 from agent_remote_server.ego_browser.relay import EgoBrowserRevocationPublisher
+from agent_remote_server.errors import ApiError
 from agent_remote_server.models import AuthToken, Session, User, Workspace
 from agent_remote_server.repositories.skill_runtime import SkillRuntimeRepository
 from agent_remote_server.schemas.auth import EmptyResponse
 from agent_remote_server.schemas.connections import AttachSessionData, AttachSessionResponse
 from agent_remote_server.schemas.sessions import (
     CreateSessionRequest,
+    DeleteSessionRequest,
+    SessionCreateRequestData,
+    SessionCreateRequestResponse,
     SessionData,
+    SessionDeleteRequestData,
+    SessionDeleteRequestResponse,
     SessionListData,
     SessionListResponse,
     SessionResponse,
+    SessionStopRequestData,
+    SessionStopRequestResponse,
+    StopSessionRequest,
 )
 from agent_remote_server.schemas.skill_stop_status import SkillStopStatusResponse
 from agent_remote_server.schemas.skill_takeover_status import SkillTakeoverStatusResponse
@@ -121,13 +130,13 @@ async def list_sessions(
     )
 
 
-@router.post("", response_model=SessionResponse)
+@router.post("", response_model=SessionResponse | SessionCreateRequestResponse)
 async def create_session(
     payload: CreateSessionRequest,
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
     user: Annotated[User, Depends(get_current_user)],
-) -> SessionResponse:
+) -> SessionResponse | SessionCreateRequestResponse:
     """
     创建工具运行 session
 
@@ -135,8 +144,25 @@ async def create_session(
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
-    :return SessionResponse: 工具会话响应
+    :return SessionResponse | SessionCreateRequestResponse: 工具会话响应
     """
+
+    if payload.request_id is not None:
+        try:
+            existing = await ToolSessionService(session, settings).get_create_request(
+                user=user, request_id=payload.request_id
+            )
+        except ApiError as error:
+            if error.code != "SESSION_CREATE_REQUEST_NOT_FOUND":
+                raise
+        else:
+            if existing.observation.get("session_deleted") is True:
+                response_data = dict(existing.receipt)
+                response_data.update(existing.observation)
+                return SessionCreateRequestResponse(
+                    data=SessionCreateRequestData.model_validate(response_data),
+                    request_id=get_request_id(),
+                )
 
     tool_session = await ToolSessionService(session, settings).create_session(
         user=user,
@@ -146,8 +172,124 @@ async def create_session(
         project_key=payload.project_key,
         argv=payload.argv,
         replaces_session_id=payload.replaces_session_id,
+        request_id=payload.request_id,
+        schema_version=payload.schema_version or (1 if payload.request_id is not None else None),
+        argv_digest=payload.argv_digest,
+        intent_fingerprint=payload.intent_fingerprint,
+        sync_target=(
+            payload.sync_target.model_dump(mode="json")
+            if payload.sync_target is not None
+            else (
+                {"target_digest": payload.sync_target_digest}
+                if payload.sync_target_digest
+                else None
+            )
+        ),
     )
+    if payload.request_id is not None:
+        accepted = await ToolSessionService(session, settings).get_create_request(
+            user=user, request_id=payload.request_id
+        )
+        response_data = dict(accepted.receipt)
+        response_data.update(accepted.observation)
+        return SessionCreateRequestResponse(
+            data=SessionCreateRequestData.model_validate(response_data), request_id=get_request_id()
+        )
     return await session_response(session, tool_session)
+
+
+@router.get("/requests/{request_id}", response_model=SessionCreateRequestResponse)
+async def get_create_request(
+    request_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> SessionCreateRequestResponse:
+    """
+    按所有者和调用方原键读取会话创建受理凭据及当前观察。
+
+    :param request_id (UUID): 调用方生成的原始请求身份
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return SessionCreateRequestResponse: 不可变受理凭据和只读观察
+    """
+    observation = await ToolSessionService(session, settings).get_create_request(
+        user=user, request_id=request_id
+    )
+    response_data = dict(observation.receipt)
+    response_data.update(observation.observation)
+    return SessionCreateRequestResponse(
+        data=SessionCreateRequestData.model_validate(response_data), request_id=get_request_id()
+    )
+
+
+@router.post("/delete-requests", response_model=SessionDeleteRequestResponse)
+async def delete_session_collection_request(
+    payload: DeleteSessionRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+    relay_hub: Annotated[DeviceRelayHub, Depends(get_device_relay_hub)],
+    ego_browser_revocation_bus: Annotated[
+        EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
+    ],
+) -> SessionDeleteRequestResponse:
+    """
+    原子删除用户确认的固定会话集合并保留原键回执。
+
+    :param payload (DeleteSessionRequest): 固定集合删除请求
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :param relay_hub (DeviceRelayHub): 设备 relay 连接中心
+    :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器撤销发布器
+    :return SessionDeleteRequestResponse: 不可变删除回执及只读观察
+    """
+    observation = await ToolSessionService(
+        session, settings, relay_hub, ego_browser_revocation_bus
+    ).delete_session_collection_request(
+        user=user,
+        request_id=payload.request_id,
+        schema_version=payload.schema_version,
+        tool_type=payload.tool_type,
+        session_ids=payload.session_ids,
+        selection=payload.selection.model_dump(mode="json"),
+        selection_digest=payload.selection_digest,
+        intent_fingerprint=payload.intent_fingerprint,
+        reason=payload.reason,
+    )
+    response_data = dict(observation.receipt)
+    response_data.update(observation.observation)
+    return SessionDeleteRequestResponse(
+        data=SessionDeleteRequestData.model_validate(response_data), request_id=get_request_id()
+    )
+
+
+@router.get("/delete-requests/{request_id}", response_model=SessionDeleteRequestResponse)
+async def get_delete_session_collection_request(
+    request_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> SessionDeleteRequestResponse:
+    """
+    按所有者和原键读取固定集合删除回执及当前观察。
+
+    :param request_id (UUID): 调用方原始删除请求标识
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return SessionDeleteRequestResponse: 删除回执和只读观察
+    """
+    observation = await ToolSessionService(session, settings).get_delete_request(
+        user=user, request_id=request_id
+    )
+    response_data = dict(observation.receipt)
+    response_data.update(observation.observation)
+    return SessionDeleteRequestResponse(
+        data=SessionDeleteRequestData.model_validate(response_data), request_id=get_request_id()
+    )
 
 
 @router.delete("", response_model=EmptyResponse)
@@ -254,7 +396,7 @@ async def delete_session(
     return EmptyResponse(request_id=get_request_id())
 
 
-@router.post("/{session_id}/stop", response_model=SessionResponse)
+@router.post("/{session_id}/stop", response_model=SessionResponse | SessionStopRequestResponse)
 async def stop_session(
     session_id: UUID,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -264,23 +406,70 @@ async def stop_session(
     ego_browser_revocation_bus: Annotated[
         EgoBrowserRevocationPublisher, Depends(get_ego_browser_revocation_bus)
     ],
-) -> SessionResponse:
+    payload: StopSessionRequest | None = None,
+) -> SessionResponse | SessionStopRequestResponse:
     """
     停止工具运行 session
 
     :param session_id (UUID): 工具会话 ID
+    :param payload (StopSessionRequest | None): 可选停止调用方原键请求
     :param settings (Settings): 应用配置
     :param session (AsyncSession): 数据库会话
     :param user (User): 当前用户
     :param relay_hub (DeviceRelayHub): 进程内设备 relay 连接中心
     :param ego_browser_revocation_bus (EgoBrowserRevocationPublisher): 浏览器代次撤销发布器
-    :return SessionResponse: 工具会话响应
+    :return SessionResponse | SessionStopRequestResponse: 工具会话或停止受理响应
     """
 
-    tool_session = await ToolSessionService(
-        session, settings, relay_hub, ego_browser_revocation_bus
-    ).stop_session(user=user, session_id=session_id)
+    service = ToolSessionService(session, settings, relay_hub, ego_browser_revocation_bus)
+    if payload is not None and payload.request_id is not None:
+        observation = await service.stop_session_request(
+            user=user,
+            session_id=session_id,
+            request_id=payload.request_id,
+            schema_version=payload.schema_version or 1,
+            reason=payload.reason,
+            intent_fingerprint=payload.intent_fingerprint,
+            expected_session_id=payload.expected_session_id,
+            expected_node_id=payload.expected_node_id,
+            expected_runtime_backend=payload.expected_runtime_backend,
+            expected_stop_task_id=payload.expected_stop_task_id,
+        )
+        response_data = dict(observation.receipt)
+        response_data.update(observation.observation)
+        return SessionStopRequestResponse(
+            data=SessionStopRequestData.model_validate(response_data),
+            request_id=get_request_id(),
+        )
+    tool_session = await service.stop_session(user=user, session_id=session_id)
     return await session_response(session, tool_session)
+
+
+@router.get("/stop-requests/{request_id}", response_model=SessionStopRequestResponse)
+async def get_stop_request(
+    request_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> SessionStopRequestResponse:
+    """
+    按所有者和原键读取停止受理凭据及当前进度。
+
+    :param request_id (UUID): 调用方生成的停止请求标识
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 数据库会话
+    :param user (User): 当前用户
+    :return SessionStopRequestResponse: 停止受理凭据和只读观察
+    """
+    observation = await ToolSessionService(session, settings).get_stop_request(
+        user=user, request_id=request_id
+    )
+    response_data = dict(observation.receipt)
+    response_data.update(observation.observation)
+    return SessionStopRequestResponse(
+        data=SessionStopRequestData.model_validate(response_data),
+        request_id=get_request_id(),
+    )
 
 
 @router.post("/{session_id}/attach", response_model=AttachSessionResponse)

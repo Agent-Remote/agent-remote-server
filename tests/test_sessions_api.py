@@ -275,6 +275,57 @@ def test_create_session_polls_create_tool_session_task(client: TestClient) -> No
     assert current["status"] == "running"
 
 
+def test_caller_key_replay_and_owner_observation(client: TestClient) -> None:
+    """
+    同一调用方键重放原会话，GET 返回稳定收据且不创建第二个任务。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+    token = bootstrap(client)
+    _node_id, _node_token = create_node(client, token, name="caller-key", weight=10)
+    device_id, device_token = register_device(client, token)
+    workspace_id = create_workspace(client, device_token, device_id, "sha256:caller-key")
+    account_id = create_account(client, token)
+    request_id = str(UUID(int=1))
+    payload = {
+        "tool_type": "claude",
+        "tool_account_id": account_id,
+        "workspace_id": workspace_id,
+        "project_key": "sha256:caller-key",
+        "argv": ["--model", "opus"],
+        "request_id": request_id,
+    }
+
+    first = client.post("/api/v1/sessions", headers=auth_header(token), json=payload)
+    assert first.status_code == 200
+    receipt = first.json()["data"]
+    assert receipt["request_id"] == request_id
+    session_id = receipt["session_id"]
+    task_id = receipt["create_task_id"]
+    assert receipt["task_record_id"]
+
+    second = client.post("/api/v1/sessions", headers=auth_header(token), json=payload)
+    assert second.status_code == 200
+    assert second.json()["data"]["session_id"] == session_id
+
+    observed = client.get(f"/api/v1/sessions/requests/{request_id}", headers=auth_header(token))
+    assert observed.status_code == 200
+    data = observed.json()["data"]
+    assert data["request_id"] == request_id
+    assert data["session_id"] == session_id
+    assert data["create_task_id"] == task_id
+    assert data["session_deleted"] is False
+    assert data["session_status"] == "starting"
+
+    conflict = client.post(
+        "/api/v1/sessions",
+        headers=auth_header(token),
+        json={**payload, "argv": ["--model", "haiku"]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "SESSION_CREATE_REQUEST_CONFLICT"
+
+
 def test_create_session_failure_does_not_fail_tool_account(client: TestClient) -> None:
     """
     验证会话创建失败不会使工具账号失效。

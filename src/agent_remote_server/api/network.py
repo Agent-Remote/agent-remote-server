@@ -67,13 +67,19 @@ async def enroll_wireguard_peer(
     """
 
     result = await ConnectionService(session, settings).enroll_wireguard_peer(
-        user=user, token=token, public_key=payload.public_key
+        user=user,
+        token=token,
+        public_key=payload.public_key,
+        expected_peer_id=payload.expected_peer_id,
+        expected_public_key=payload.expected_public_key,
+        expected_peer_version=payload.expected_peer_version,
     )
     return EnrollWireGuardPeerResponse(
         data=EnrollWireGuardPeerData(
             device_id=result.device.id,
             peer_id=result.peer.id,
             interface_address=result.peer.ip_address,
+            peer_version=result.peer.version,
         ),
         request_id=get_request_id(),
     )
@@ -103,6 +109,9 @@ async def get_wireguard_config(
     return WireGuardConfigResponse(
         data=WireGuardConfigData(
             device_id=peer.user_device_id,
+            peer_id=peer.id,
+            peer_public_key=peer.public_key,
+            peer_version=peer.version,
             interface_address=peer.ip_address,
             private_key_ref="agent-remote local WireGuard private key",
             dns=[],

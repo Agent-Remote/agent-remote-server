@@ -476,10 +476,14 @@ async def verify_sync(
     """
 
     device = await ConnectionService(session, settings).verify_node_sync(
-        node=node, node_id=payload.node_id, device_id=payload.device_id
+        node=node,
+        node_id=payload.node_id,
+        device_id=payload.device_id,
+        ssh_key_id=payload.ssh_key_id,
     )
     return VerifySyncResponse(
-        data=VerifySyncData(user_id=device.user_id), request_id=get_request_id()
+        data=VerifySyncData(user_id=device.user_id, ssh_key_id=payload.ssh_key_id),
+        request_id=get_request_id(),
     )
 
 
@@ -507,12 +511,17 @@ async def verify_binding_attach(
         node_id=payload.node_id,
         account_id=payload.tool_account_id,
         device_id=payload.device_id,
+        expected_binding_session_id=payload.expected_binding_session_id,
+        ssh_key_id=payload.ssh_key_id,
     )
     return VerifyBindingAttachResponse(
         data=VerifyBindingAttachData(
             binding_session_id=binding_id,
             tmux_session_name=tmux_name,
             runtime_backend=backend,
+            ssh_key_id=payload.ssh_key_id
+            if payload.expected_binding_session_id is not None
+            else None,
         ),
         request_id=get_request_id(),
     )

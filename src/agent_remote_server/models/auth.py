@@ -77,6 +77,7 @@ class CliLoginCode(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("cli_login_codes_device_hash_uidx", "device_code_hash", unique=True),
         Index("cli_login_codes_user_code_uidx", "user_code", unique=True),
+        Index("cli_login_codes_completion_key_uidx", "completion_request_id", unique=True),
         Index("cli_login_codes_status_idx", "status", "expires_at"),
     )
 
@@ -90,3 +91,10 @@ class CliLoginCode(IdMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     interval_seconds: Mapped[int] = mapped_column(nullable=False, default=5)
+    # A caller-owned UUID is the only selector for recovering a lost completion
+    # response.  The device code itself is never persisted in clear text.
+    completion_request_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    encrypted_completion_receipt: Mapped[bytes | None] = mapped_column(nullable=True)
+    completion_receipt_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

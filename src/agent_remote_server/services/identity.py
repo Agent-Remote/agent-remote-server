@@ -2,6 +2,7 @@
 实现身份业务逻辑。
 """
 
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -9,6 +10,7 @@ from hashlib import sha256
 from urllib.parse import urlencode
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
@@ -19,13 +21,18 @@ from agent_remote_server.models import (
     AuditLog,
     AuthToken,
     CliLoginCode,
+    DeviceRegistrationRequest,
     NodeTask,
     SshKey,
     User,
     UserDevice,
     WireGuardPeer,
 )
-from agent_remote_server.repositories import IdentityRepository, NodeRepository
+from agent_remote_server.repositories import (
+    DeviceRegistrationRequestRepository,
+    IdentityRepository,
+    NodeRepository,
+)
 from agent_remote_server.repositories.cli_login_sessions import CliLoginSessionRepository
 from agent_remote_server.repositories.device_sessions import DeviceSessionRepository
 from agent_remote_server.security import (
@@ -42,6 +49,7 @@ from agent_remote_server.services.cli_login_sessions import CliLoginSessionServi
 from agent_remote_server.services.device_sessions import DeviceSessionService
 from agent_remote_server.services.ego_browser import EgoBrowserService
 from agent_remote_server.services.port_forward_revocation import revoke_port_forwards
+from agent_remote_server.services.session_attachment import SessionAttachmentService
 from agent_remote_server.services.ssh_keys import ssh_key_sync_payload, ssh_key_sync_task_id
 
 
@@ -281,13 +289,24 @@ class IdentityService:
         await self._session.commit()
         return token_issue
 
-    async def start_cli_login(self) -> CliLoginStart:
+    async def start_cli_login(self, *, completion_request_id: UUID | None = None) -> CliLoginStart:
         """
         启动 CLI 设备码登录
 
+        :param completion_request_id (UUID | None): 可选的完成回执恢复键
         :return CliLoginStart: 登录码信息
         """
 
+        if completion_request_id is not None:
+            existing = await self._repository.get_cli_login_by_completion_request_id(
+                completion_request_id
+            )
+            if existing is not None:
+                raise ApiError(
+                    code="AUTH_CLI_COMPLETION_KEY_REUSED",
+                    message="The CLI completion key was already used.",
+                    status_code=409,
+                )
         device_code = create_opaque_token("devcode")
         user_code = self._create_user_code()
         expires_in = self._settings.cli_login_ttl_seconds
@@ -299,6 +318,7 @@ class IdentityService:
                 status="pending",
                 expires_at=self._now() + timedelta(seconds=expires_in),
                 interval_seconds=interval,
+                completion_request_id=completion_request_id,
             )
         )
         await self._session.commit()
@@ -338,22 +358,33 @@ class IdentityService:
         )
         await self._session.commit()
 
-    async def complete_cli_login(self, *, device_code: str) -> TokenIssue:
+    async def complete_cli_login(
+        self, *, device_code: str, completion_request_id: UUID | None = None
+    ) -> TokenIssue:
         """
         CLI 轮询完成登录
 
         :param device_code (str): 设备代码
+        :param completion_request_id (UUID | None): 原始完成回执恢复键
         :return TokenIssue: 登录令牌
         :raises ApiError: CLI 登录码不存在、已过期、未获批准或已不可使用
         """
 
-        cli_code = await self._repository.get_cli_login_by_device_hash(
+        cli_code = await self._repository.lock_cli_login_by_device_hash(
             hash_token(self._settings.secret_key, device_code)
         )
         if cli_code is None:
             raise ApiError(
                 code="COMMON_NOT_FOUND", message="CLI login code was not found.", status_code=404
             )
+        if cli_code.completion_request_id != completion_request_id:
+            raise ApiError(
+                code="AUTH_CLI_COMPLETION_KEY_MISMATCH",
+                message="The CLI completion key does not match the original request.",
+                status_code=409,
+            )
+        if cli_code.status == "consumed":
+            return await self._recover_cli_login_completion(cli_code)
         if self._is_expired(cli_code.expires_at):
             cli_code.status = "expired"
             await self._session.commit()
@@ -373,6 +404,20 @@ class IdentityService:
         token_issue = await self._issue_token(user=user, device=None, token_type="user")
         cli_code.status = "consumed"
         cli_code.consumed_at = self._now()
+        if cli_code.completion_request_id is not None:
+            cli_code.encrypted_completion_receipt = encrypt_text(
+                self._settings.secret_key,
+                json.dumps(
+                    {
+                        "access_token": token_issue.raw_token,
+                        "token_type": "bearer",
+                        "expires_in": token_issue.expires_in,
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+            cli_code.completion_receipt_expires_at = token_issue.record.expires_at
         await self._audit(
             actor_user_id=user.id,
             action="auth.cli_complete",
@@ -382,6 +427,88 @@ class IdentityService:
         )
         await self._session.commit()
         return token_issue
+
+    async def recover_cli_login(self, *, completion_request_id: UUID) -> TokenIssue:
+        """
+        按原始键恢复一个已完成的设备码结果。
+
+        :param completion_request_id (UUID): 原始完成回执键
+        :return TokenIssue: 登录令牌
+        """
+
+        cli_code = await self._repository.get_cli_login_by_completion_request_id(
+            completion_request_id
+        )
+        if cli_code is None:
+            raise ApiError(
+                code="AUTH_CLI_COMPLETION_NOT_FOUND",
+                message="CLI login completion was not found.",
+                status_code=404,
+            )
+        if cli_code.status != "consumed":
+            if self._is_expired(cli_code.expires_at):
+                cli_code.status = "expired"
+                await self._session.commit()
+                raise ApiError(
+                    code="AUTH_TOKEN_EXPIRED",
+                    message="CLI login code has expired.",
+                    status_code=401,
+                )
+            raise ApiError(
+                code="COMMON_BAD_REQUEST",
+                message="CLI login is not approved.",
+                status_code=400,
+            )
+        return await self._recover_cli_login_completion(cli_code)
+
+    async def _recover_cli_login_completion(self, cli_code: CliLoginCode) -> TokenIssue:
+        """
+        解密并校验登录回执，任何无效状态都安全失败。
+
+        :param cli_code (CliLoginCode): 登录码实体
+        :return TokenIssue: 回执中的登录令牌
+        """
+
+        if (
+            cli_code.completion_request_id is None
+            or cli_code.encrypted_completion_receipt is None
+            or cli_code.completion_receipt_expires_at is None
+            or self._is_expired(cli_code.completion_receipt_expires_at)
+        ):
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="CLI login completion cannot be recovered.",
+                status_code=503,
+            )
+        try:
+            receipt = json.loads(
+                decrypt_text(self._settings.secret_key, cli_code.encrypted_completion_receipt)
+            )
+            raw_token = receipt["access_token"]
+            expires_in = int(receipt["expires_in"])
+            if receipt.get("token_type") != "bearer" or not isinstance(raw_token, str):
+                raise ValueError("invalid receipt")
+        except Exception as exc:
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="CLI login completion cannot be recovered.",
+                status_code=503,
+            ) from exc
+        token = await self._repository.get_token_by_hash(
+            hash_token(self._settings.secret_key, raw_token)
+        )
+        if (
+            token is None
+            or token.token_type != "user"
+            or token.status != "active"
+            or self._is_expired(token.expires_at)
+        ):
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="CLI login completion token is no longer recoverable.",
+                status_code=503,
+            )
+        return TokenIssue(raw_token=raw_token, record=token, expires_in=expires_in)
 
     async def create_user(
         self,
@@ -576,6 +703,7 @@ class IdentityService:
         ssh_public_key: str,
         wireguard_public_key: str | None,
         existing_device_id: UUID | None = None,
+        request_id: UUID | None = None,
     ) -> DeviceRegistrationResult:
         """
         注册用户设备
@@ -587,9 +715,30 @@ class IdentityService:
         :param ssh_public_key (str): SSH 公钥
         :param wireguard_public_key (str | None): WireGuard 公钥
         :param existing_device_id (UUID | None): 需要复用的现有设备 ID
+        :param request_id (UUID | None): 调用方幂等请求标识
         :return DeviceRegistrationResult: 注册结果
         :raises ApiError: 指定的复用设备不存在或未处于启用状态
         """
+
+        request_repository = DeviceRegistrationRequestRepository(self._session)
+        intent_fingerprint = self._device_registration_fingerprint(
+            name=name,
+            platform=platform,
+            cli_version=cli_version,
+            ssh_public_key=ssh_public_key,
+            wireguard_public_key=wireguard_public_key,
+            existing_device_id=existing_device_id,
+        )
+        if request_id is not None:
+            previous = await request_repository.get_for_update(user.id, request_id)
+            if previous is not None:
+                if previous.intent_fingerprint != intent_fingerprint:
+                    raise ApiError(
+                        code="DEVICE_REGISTRATION_KEY_REUSED",
+                        message="The device registration key was already used for another intent.",
+                        status_code=409,
+                    )
+                return await self._recover_device_registration(previous, user=user)
 
         reused = existing_device_id is not None
         if existing_device_id is None:
@@ -668,6 +817,33 @@ class IdentityService:
             for token in await self._repository.list_tokens_for_device(device.id):
                 self._revoke_token(token)
         token_issue = await self._issue_token(user=user, device=device, token_type="device")
+        if request_id is not None:
+            await request_repository.add(
+                DeviceRegistrationRequest(
+                    user_id=user.id,
+                    request_id=request_id,
+                    intent_fingerprint=intent_fingerprint,
+                    device_id=device.id,
+                    ssh_key_id=ssh_key.id,
+                    wireguard_peer_id=wireguard_peer.id if wireguard_peer else None,
+                    receipt_json={
+                        "name": device.name,
+                        "platform": device.platform,
+                        "cli_version": device.cli_version,
+                        "status": device.status,
+                        "created_at": device.created_at.isoformat(),
+                        "last_seen_at": (
+                            device.last_seen_at.isoformat() if device.last_seen_at else None
+                        ),
+                    },
+                    encrypted_device_token=encrypt_text(
+                        self._settings.secret_key, token_issue.raw_token
+                    ),
+                    token_expires_at=token_issue.record.expires_at,
+                    result_expires_at=token_issue.record.expires_at,
+                    phase="completed",
+                )
+            )
         await self._audit(
             actor_user_id=user.id,
             action="devices.login" if reused else "devices.register",
@@ -681,13 +857,170 @@ class IdentityService:
                 "reused": reused,
             },
         )
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            if request_id is not None:
+                previous = await request_repository.get(user.id, request_id)
+                if previous is not None:
+                    if previous.intent_fingerprint != intent_fingerprint:
+                        raise ApiError(
+                            code="DEVICE_REGISTRATION_KEY_REUSED",
+                            message=(
+                                "The device registration key was already used for another intent."
+                            ),
+                            status_code=409,
+                        ) from None
+                    return await self._recover_device_registration(previous, user=user)
+            raise
         return DeviceRegistrationResult(
             device=device,
             ssh_key=ssh_key,
             wireguard_peer=wireguard_peer,
             token_issue=token_issue,
         )
+
+    async def _recover_device_registration(
+        self, record: DeviceRegistrationRequest, *, user: User
+    ) -> DeviceRegistrationResult:
+        """
+        从短期加密回执恢复第一次设备登记结果。
+
+        :param record (DeviceRegistrationRequest): 原键登记记录
+        :param user (User): 当前用户
+        :return DeviceRegistrationResult: 原始登记结果
+        :raises ApiError: 回执已过期、损坏或令牌不再有效
+        """
+
+        if (
+            record.phase != "completed"
+            or record.device_id is None
+            or record.ssh_key_id is None
+            or record.encrypted_device_token is None
+            or record.token_expires_at is None
+            or record.result_expires_at is None
+        ):
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="The device registration result cannot be recovered.",
+                status_code=503,
+            )
+        if self._is_expired(record.result_expires_at):
+            raise ApiError(
+                code="DEVICE_REGISTRATION_RECOVERY_EXPIRED",
+                message="The device registration recovery window has expired.",
+                status_code=410,
+            )
+        try:
+            raw_token = decrypt_text(self._settings.secret_key, record.encrypted_device_token)
+        except Exception as exc:
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="The device registration result cannot be recovered.",
+                status_code=503,
+            ) from exc
+        token = await self._repository.get_token_by_hash(
+            hash_token(self._settings.secret_key, raw_token)
+        )
+        if (
+            token is None
+            or token.user_id != user.id
+            or token.user_device_id != record.device_id
+            or token.status != "active"
+            or self._is_expired(token.expires_at)
+        ):
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="The device registration token is no longer recoverable.",
+                status_code=503,
+            )
+        device = await self._repository.get_device(record.device_id)
+        if device is None or device.user_id != user.id:
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="The registered device is no longer recoverable.",
+                status_code=503,
+            )
+        ssh_key = next(
+            (
+                item
+                for item in await self._repository.list_ssh_keys_for_device(device.id)
+                if item.id == record.ssh_key_id
+            ),
+            None,
+        )
+        if ssh_key is None:
+            raise ApiError(
+                code="UNKNOWN_RESULT",
+                message="The registered SSH key is no longer recoverable.",
+                status_code=503,
+            )
+        wireguard_peer = None
+        if record.wireguard_peer_id is not None:
+            wireguard_peer = next(
+                (
+                    item
+                    for item in await self._repository.list_wireguard_peers_for_device(device.id)
+                    if item.id == record.wireguard_peer_id
+                ),
+                None,
+            )
+            if wireguard_peer is None:
+                raise ApiError(
+                    code="UNKNOWN_RESULT",
+                    message="The registered WireGuard peer is no longer recoverable.",
+                    status_code=503,
+                )
+        token_expires_at = (
+            token.expires_at
+            if token.expires_at.tzinfo is not None
+            else token.expires_at.replace(tzinfo=UTC)
+        )
+        expires_in = max(1, int((token_expires_at - self._now()).total_seconds()))
+        return DeviceRegistrationResult(
+            device=device,
+            ssh_key=ssh_key,
+            wireguard_peer=wireguard_peer,
+            token_issue=TokenIssue(raw_token=raw_token, record=token, expires_in=expires_in),
+        )
+
+    @staticmethod
+    def _device_registration_fingerprint(
+        *,
+        name: str,
+        platform: str,
+        cli_version: str | None,
+        ssh_public_key: str,
+        wireguard_public_key: str | None,
+        existing_device_id: UUID | None,
+    ) -> str:
+        """
+        计算不含密钥明文的设备登记意图摘要。
+
+        :param name (str): 设备名称
+        :param platform (str): 设备平台
+        :param cli_version (str | None): CLI 版本
+        :param ssh_public_key (str): SSH 公钥
+        :param wireguard_public_key (str | None): WireGuard 公钥
+        :param existing_device_id (UUID | None): 复用设备标识
+        :return str: 固定格式的 SHA-256 摘要
+        """
+
+        value = json.dumps(
+            {
+                "name": name,
+                "platform": platform,
+                "cli_version": cli_version,
+                "ssh_public_key": ssh_public_key,
+                "wireguard_public_key": wireguard_public_key,
+                "existing_device_id": str(existing_device_id) if existing_device_id else None,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return f"sha256:{sha256(value.encode('utf-8')).hexdigest()}"
 
     async def revoke_device(self, *, actor: User, device_id: UUID) -> UserDevice:
         """
@@ -721,6 +1054,9 @@ class IdentityService:
             publish=False,
         )
         revoked_at = self._now()
+        await SessionAttachmentService(self._session).invalidate_for_device(
+            device.id, "device_revoked"
+        )
         device.status = "revoked"
         for ssh_key in await self._repository.list_ssh_keys_for_device(device.id):
             ssh_key.status = "revoked"
@@ -863,6 +1199,27 @@ class IdentityService:
         """
 
         return await self._require_visible_device(actor=actor, device_id=device_id)
+
+    async def recover_device_registration(
+        self, *, user: User, request_id: UUID
+    ) -> DeviceRegistrationResult:
+        """
+        读取设备登记原键的短期回执，不发起新登记或令牌轮换。
+
+        :param user (User): 当前用户
+        :param request_id (UUID): 调用方原键
+        :return DeviceRegistrationResult: 原始登记结果
+        :raises ApiError: 原键不存在或回执不可恢复
+        """
+
+        record = await DeviceRegistrationRequestRepository(self._session).get(user.id, request_id)
+        if record is None:
+            raise ApiError(
+                code="DEVICE_REGISTRATION_REQUEST_NOT_FOUND",
+                message="Device registration request was not found.",
+                status_code=404,
+            )
+        return await self._recover_device_registration(record, user=user)
 
     async def get_user(self, user_id: UUID) -> User:
         """

@@ -27,6 +27,9 @@ class WireGuardConfigData(BaseModel):
     """
 
     device_id: UUID = Field(..., description="设备 ID")
+    peer_id: UUID = Field(..., description="当前设备 WireGuard peer ID")
+    peer_public_key: str = Field(..., min_length=1, max_length=128, description="当前 peer 公钥")
+    peer_version: int = Field(..., ge=1, description="当前 peer 身份版本")
     interface_address: str = Field(..., description="设备 WireGuard 地址")
     private_key_ref: str = Field(..., description="本地私钥引用")
     dns: list[str] = Field(default_factory=list, description="DNS 服务器")
@@ -48,6 +51,11 @@ class EnrollWireGuardPeerRequest(BaseModel):
     """
 
     public_key: str = Field(..., min_length=44, max_length=44, description="WireGuard 公钥")
+    expected_peer_id: UUID | None = Field(default=None, description="预期当前 peer ID")
+    expected_public_key: str | None = Field(
+        default=None, min_length=44, max_length=44, description="预期当前 peer 公钥"
+    )
+    expected_peer_version: int | None = Field(default=None, ge=1, description="预期当前 peer 版本")
 
 
 class EnrollWireGuardPeerData(BaseModel):
@@ -58,6 +66,7 @@ class EnrollWireGuardPeerData(BaseModel):
     device_id: UUID = Field(..., description="设备 ID")
     peer_id: UUID = Field(..., description="WireGuard 对等端 ID")
     interface_address: str = Field(..., description="设备 WireGuard 地址")
+    peer_version: int = Field(..., ge=1, description="登记后 peer 身份版本")
 
 
 class EnrollWireGuardPeerResponse(BaseModel):
@@ -138,6 +147,14 @@ class VerifyBindingAttachRequest(BaseModel):
     node_id: UUID = Field(..., description="节点 ID")
     tool_account_id: UUID = Field(..., description="工具账户 ID")
     device_id: UUID = Field(..., description="设备 ID")
+    expected_binding_session_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_:-]+$",
+        description="新版客户端确认的原绑定尝试，旧客户端可省略",
+    )
+    ssh_key_id: UUID | None = Field(default=None, description="强制命令绑定的实际 SSH 密钥身份")
 
 
 class VerifyBindingAttachData(BaseModel):
@@ -148,6 +165,7 @@ class VerifyBindingAttachData(BaseModel):
     binding_session_id: str = Field(..., description="绑定运行时会话 ID")
     tmux_session_name: str = Field(..., description="tmux session 名称")
     runtime_backend: str = Field(..., description="账户运行时")
+    ssh_key_id: UUID | None = Field(default=None, description="精确流程中已验证的活跃设备 SSH 密钥")
 
 
 class VerifyBindingAttachResponse(BaseModel):
@@ -166,6 +184,7 @@ class VerifySyncRequest(BaseModel):
 
     node_id: UUID = Field(..., description="节点 ID")
     device_id: UUID = Field(..., description="设备 ID")
+    ssh_key_id: UUID | None = Field(default=None, description="可信强制命令携带的 SSH 密钥 ID")
 
 
 class VerifySyncData(BaseModel):
@@ -174,6 +193,7 @@ class VerifySyncData(BaseModel):
     """
 
     user_id: UUID = Field(..., description="同步运行用户 ID")
+    ssh_key_id: UUID | None = Field(default=None, description="已校验的 SSH 密钥 ID，旧节点为空")
 
 
 class VerifySyncResponse(BaseModel):

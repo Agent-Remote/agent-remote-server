@@ -30,3 +30,17 @@ Normal device registration retains the user login alongside the device credentia
 
 This login session never creates, resumes, or authorizes a browser binding. The
 separate local full-trust confirmation remains required for connect/resume.
+
+## Recovering a lost device-code completion
+
+`POST /api/v1/auth/cli/start` accepts an optional caller-generated UUID
+`completion_request_id`. The same UUID is sent to `POST /api/v1/auth/cli/complete`
+and can be used with `GET /api/v1/auth/cli/completions/{completion_request_id}`
+when the completion response is lost. The lookup is exact-key only and does not
+accept a device code, user code, current-device listing, or latest-result guess.
+
+The server persists only a short-lived Fernet-encrypted receipt. Neither the
+plaintext `device_code` nor the issued token is persisted. Repeated completion
+or recovery calls return the same active token receipt. Expired, revoked,
+corrupt, missing, and otherwise unknown receipts fail closed; clients retain the
+original UUID and must not start another login automatically.

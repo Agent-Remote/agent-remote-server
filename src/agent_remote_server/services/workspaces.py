@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import case, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_remote_server.config import Settings
@@ -22,7 +23,9 @@ from agent_remote_server.models import (
 from agent_remote_server.repositories.connections import ConnectionRepository
 from agent_remote_server.repositories.identity import IdentityRepository
 from agent_remote_server.repositories.workspaces import WorkspaceRepository
-from agent_remote_server.schemas.workspaces import default_git_excludes
+from agent_remote_server.schemas.workspaces import SyncSessionExpectedTarget, default_git_excludes
+from agent_remote_server.services.sync_targets import lock_sync_target
+from agent_remote_server.services.sync_task_results import publish_sync_preparation
 
 
 def _managed_sync_excludes(exclude: list[str]) -> list[str]:
@@ -353,12 +356,19 @@ class WorkspaceService:
         await self._repository.delete_sync_session(sync_session)
         await self._session.commit()
 
-    async def pause_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
+    async def pause_sync_session(
+        self,
+        *,
+        user: User,
+        sync_session_id: UUID,
+        expected_target: SyncSessionExpectedTarget | None = None,
+    ) -> SyncSessionResult:
         """
         暂停同步会话
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
+        :param expected_target (SyncSessionExpectedTarget | None): 已确认目标
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -368,14 +378,22 @@ class WorkspaceService:
             status="paused",
             conflict_status=None,
             action="sync_sessions.pause",
+            expected_target=expected_target,
         )
 
-    async def resume_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
+    async def resume_sync_session(
+        self,
+        *,
+        user: User,
+        sync_session_id: UUID,
+        expected_target: SyncSessionExpectedTarget | None = None,
+    ) -> SyncSessionResult:
         """
         恢复同步会话
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
+        :param expected_target (SyncSessionExpectedTarget | None): 已确认目标
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -385,6 +403,8 @@ class WorkspaceService:
             status="starting",
             conflict_status=None,
             action="sync_sessions.resume",
+            expected_target=expected_target,
+            commit=False,
         )
         sync_session = result.sync_session
         workspace = await self._require_workspace(user=user, workspace_id=sync_session.workspace_id)
@@ -396,31 +416,47 @@ class WorkspaceService:
             return SyncSessionResult(
                 sync_session=sync_session, node=result.node, prepare_task_id=task_id
             )
+        await self._session.commit()
         return result
 
-    async def resolve_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
+    async def resolve_sync_session(
+        self,
+        *,
+        user: User,
+        sync_session_id: UUID,
+        expected_target: SyncSessionExpectedTarget | None = None,
+    ) -> SyncSessionResult:
         """
         标记同步会话冲突已解决
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
+        :param expected_target (SyncSessionExpectedTarget | None): 已确认目标
         :return SyncSessionResult: 同步会话结果
         """
 
         return await self._transition_sync_session(
             user=user,
             sync_session_id=sync_session_id,
-            status="healthy",
+            status=None,
             conflict_status="none",
             action="sync_sessions.resolve",
+            expected_target=expected_target,
         )
 
-    async def reset_sync_session(self, *, user: User, sync_session_id: UUID) -> SyncSessionResult:
+    async def reset_sync_session(
+        self,
+        *,
+        user: User,
+        sync_session_id: UUID,
+        expected_target: SyncSessionExpectedTarget | None = None,
+    ) -> SyncSessionResult:
         """
         重置同步会话
 
         :param user (User): 当前用户
         :param sync_session_id (UUID): 同步会话 ID
+        :param expected_target (SyncSessionExpectedTarget | None): 已确认目标
         :return SyncSessionResult: 同步会话结果
         """
 
@@ -430,6 +466,8 @@ class WorkspaceService:
             status="starting",
             conflict_status="none",
             action="sync_sessions.reset",
+            expected_target=expected_target,
+            commit=False,
         )
         sync_session = result.sync_session
         workspace = await self._require_workspace(user=user, workspace_id=sync_session.workspace_id)
@@ -441,6 +479,7 @@ class WorkspaceService:
             return SyncSessionResult(
                 sync_session=sync_session, node=result.node, prepare_task_id=task_id
             )
+        await self._session.commit()
         return result
 
     async def _transition_sync_session(
@@ -448,35 +487,56 @@ class WorkspaceService:
         *,
         user: User,
         sync_session_id: UUID,
-        status: str,
+        status: str | None,
         conflict_status: str | None,
         action: str,
+        expected_target: SyncSessionExpectedTarget | None = None,
+        commit: bool = True,
     ) -> SyncSessionResult:
         """
         返回转换同步会话。
 
         :param user (User): 用户
         :param sync_session_id (UUID): 同步会话 ID
-        :param status (str): 状态
+        :param status (str | None): 指定状态，空值保留生命周期并规范旧健康状态
         :param conflict_status (str | None): 冲突状态
         :param action (str): 操作
+        :param expected_target (SyncSessionExpectedTarget | None): 已确认目标
+        :param commit (bool): 是否在本步骤提交
         :return SyncSessionResult: 转换同步会话
         """
-        sync_session = await self._require_sync_session(user=user, sync_session_id=sync_session_id)
-        sync_session.status = status
-        if conflict_status is not None:
-            sync_session.conflict_status = conflict_status
-        node = (
-            await self._repository.get_node(sync_session.node_id) if sync_session.node_id else None
+        sync_session, node = await lock_sync_target(
+            self._session, user.id, sync_session_id, expected_target
         )
+        if status is None:
+            await self._session.execute(
+                update(SyncSession)
+                .where(SyncSession.id == sync_session_id, SyncSession.user_id == user.id)
+                .values(
+                    status=case(
+                        (SyncSession.status == "healthy", "active"), else_=SyncSession.status
+                    ),
+                    conflict_status="none",
+                )
+                .execution_options(synchronize_session=False)
+            )
+            await self._session.refresh(sync_session)
+        else:
+            sync_session.status = status
+            if conflict_status is not None:
+                sync_session.conflict_status = conflict_status
         await self._audit(
             actor_user_id=user.id,
             action=action,
             target_type="sync_session",
             target_id=str(sync_session.id),
-            details={"status": status, "conflict_status": sync_session.conflict_status},
+            details={
+                "status": sync_session.status,
+                "conflict_status": sync_session.conflict_status,
+            },
         )
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
         return SyncSessionResult(sync_session=sync_session, node=node, prepare_task_id=None)
 
     async def _select_node(self, node_id: UUID | None) -> Node:
@@ -609,7 +669,8 @@ class WorkspaceService:
         }
         if existing is not None:
             if existing.status == "succeeded":
-                sync_session.status = "active"
+                await publish_sync_preparation(self._session, existing, "active")
+                await self._session.refresh(sync_session)
             if existing.status in {"failed", "cancelled", "expired"}:
                 existing.status = "pending"
                 existing.payload = payload

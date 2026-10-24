@@ -106,7 +106,14 @@ class ConnectionService:
         }
 
     async def enroll_wireguard_peer(
-        self, *, user: User, token: AuthToken, public_key: str
+        self,
+        *,
+        user: User,
+        token: AuthToken,
+        public_key: str,
+        expected_peer_id: UUID | None = None,
+        expected_public_key: str | None = None,
+        expected_peer_version: int | None = None,
     ) -> WireGuardPeerEnrollment:
         """
         为当前设备登记或更新 WireGuard 公钥
@@ -114,14 +121,29 @@ class ConnectionService:
         :param user (User): 当前用户
         :param token (AuthToken): 当前设备令牌
         :param public_key (str): WireGuard 公钥
+        :param expected_peer_id (UUID | None): 读取时的对端 ID
+        :param expected_public_key (str | None): 读取时的对端公钥
+        :param expected_peer_version (int | None): 读取时的对端版本
         :return WireGuardPeerEnrollment: 对端登记结果
         """
 
         self._validate_wireguard_public_key(public_key)
+        if expected_public_key is not None:
+            self._validate_wireguard_public_key(expected_public_key)
         device = await self._require_token_device(user=user, token=token)
         peer = await self._repository.get_active_device_wireguard_peer(device.id)
         created = peer is None
         if peer is None:
+            if any(
+                value is not None
+                for value in (expected_peer_id, expected_public_key, expected_peer_version)
+            ):
+                raise ApiError(
+                    code="WIREGUARD_PEER_CHANGED",
+                    message="The expected WireGuard peer does not exist.",
+                    status_code=409,
+                    details={"peer_id": None, "peer_version": None},
+                )
             count = await self._identity_repository.count_wireguard_peers()
             peer = await self._identity_repository.add_wireguard_peer(
                 WireGuardPeer(
@@ -135,6 +157,22 @@ class ConnectionService:
                 )
             )
         else:
+            if (
+                expected_peer_id is None
+                or expected_public_key is None
+                or expected_peer_version is None
+                or expected_peer_id != peer.id
+                or expected_public_key != peer.public_key
+                or expected_peer_version != peer.version
+            ):
+                raise ApiError(
+                    code="WIREGUARD_PEER_CHANGED",
+                    message="The WireGuard peer changed after it was read.",
+                    status_code=409,
+                    details={"peer_id": str(peer.id), "peer_version": peer.version},
+                )
+            if peer.public_key != public_key:
+                peer.version += 1
             peer.public_key = public_key
         await self._audit(
             actor_user_id=user.id,
@@ -291,13 +329,16 @@ class ConnectionService:
         await self._session.commit()
         return tool_session
 
-    async def verify_node_sync(self, *, node: Node, node_id: UUID, device_id: UUID) -> UserDevice:
+    async def verify_node_sync(
+        self, *, node: Node, node_id: UUID, device_id: UUID, ssh_key_id: UUID | None = None
+    ) -> UserDevice:
         """
         校验设备是否可在当前节点启动受限同步传输
 
         :param node (Node): 当前节点
         :param node_id (UUID): 请求节点 ID
         :param device_id (UUID): 设备 ID
+        :param ssh_key_id (UUID | None): 强制命令的实际密钥，旧节点可省略
         :return UserDevice: 已授权设备
         :raises ApiError: 节点或设备身份不匹配，或不存在可用的同步授权
         """
@@ -311,6 +352,14 @@ class ConnectionService:
         device = await self._repository.get_active_device_by_id(device_id)
         if device is None:
             raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
+        if ssh_key_id is not None:
+            keys = await self._repository.list_active_ssh_keys_for_device(device.id)
+            if not any(key.id == ssh_key_id for key in keys):
+                raise ApiError(
+                    code="SSH_KEY_REVOKED",
+                    message="SSH key is not active for this device.",
+                    status_code=403,
+                )
         sync_session = await self._repository.get_active_sync_session_for_device_node(
             user_id=device.user_id, device_id=device.id, node_id=node.id
         )
@@ -331,7 +380,14 @@ class ConnectionService:
         return device
 
     async def verify_node_binding_attach(
-        self, *, node: Node, node_id: UUID, account_id: UUID, device_id: UUID
+        self,
+        *,
+        node: Node,
+        node_id: UUID,
+        account_id: UUID,
+        device_id: UUID,
+        expected_binding_session_id: str | None = None,
+        ssh_key_id: UUID | None = None,
     ) -> tuple[str, str, str]:
         """
         校验设备对工具账户绑定会话的 attach 权限
@@ -340,6 +396,8 @@ class ConnectionService:
         :param node_id (UUID): 请求节点 ID
         :param account_id (UUID): 工具账户 ID
         :param device_id (UUID): 设备 ID
+        :param expected_binding_session_id (str | None): 原绑定尝试，旧客户端可省略
+        :param ssh_key_id (UUID | None): 强制命令中的实际 SSH 密钥身份
         :return tuple[str, str, str]: 绑定会话 ID、tmux 会话名与运行时后端
         :raises ApiError: 节点、设备或绑定会话状态未通过挂接校验
         """
@@ -360,6 +418,14 @@ class ConnectionService:
         )
         if device is None:
             raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
+        if expected_binding_session_id is not None:
+            keys = await self._repository.list_active_ssh_keys_for_device(device.id)
+            if ssh_key_id is None or not any(key.id == ssh_key_id for key in keys):
+                raise ApiError(
+                    code="SSH_KEY_REVOKED",
+                    message="SSH key is not active for this device.",
+                    status_code=403,
+                )
         if account.status not in {"binding_session_starting", "binding_waiting_user_login"}:
             raise ApiError(
                 code="SESSION_NOT_ATTACHABLE",
@@ -373,6 +439,13 @@ class ConnectionService:
         if not isinstance(binding_session_id, str) or not binding_session_id:
             raise ApiError(
                 code="SESSION_NOT_READY", message="Binding session is not ready.", status_code=409
+            )
+        if (
+            expected_binding_session_id is not None
+            and binding_session_id != expected_binding_session_id
+        ):
+            raise ApiError(
+                code="BINDING_SESSION_CHANGED", message="Binding attempt changed.", status_code=409
             )
         if not isinstance(tmux_session_name, str) or not tmux_session_name:
             raise ApiError(

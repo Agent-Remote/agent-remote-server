@@ -2,12 +2,21 @@
 
 ## Node Credentials
 
+Exact session attachment requires the configured installed gateway's session_attach v1 capability.
+The new exact verify route checks and echoes node, session, device and actual SSH key identities,
+and admits only Claude sessions. Legacy verification remains a separate compatible route.
+
 - Node registration tokens are one-time credentials.
 - Node registration tokens and node tokens must be stored only as keyed hashes.
 - Node credentials must not authenticate user-facing APIs.
 - User bearer tokens must not authenticate node APIs.
 
 ## Heartbeats
+
+Normalize `session_lifecycle` by the [per-backend lifecycle contract](../session-lifecycle.md).
+Only exact boolean/integer v1 entries survive; malformed or missing entries revoke
+previous support. Worker version and historical task success are not substitutes
+for the installed Helper's current probe.
 
 - Nodes actively submit heartbeats to the control plane.
 - Heartbeat payloads may include version, supported tool types, resource counters, and runtime capability flags.
@@ -30,6 +39,9 @@
 - Terminal statuses are `succeeded`, `failed`, `cancelled`, and `expired`.
 
 ## Task Results
+
+- Binding/verification results preserve disabled account admission, including delayed
+  success, failure and replay. Account row locks serialize these publications with disable.
 
 - Task completion and failure reporting must be idempotent by `task_id`.
 - Repeated completion calls for the same `task_id` must not create duplicate result rows.
@@ -96,3 +108,28 @@ policy keys and requests omitting these additive fields remain compatible; no da
 or server-side default injection is required. New Native sessions use the Node's 16 GiB disk
 filesystem default, while saved legacy session specs retain tmpfs. These fields do not change
 Docker Sandbox storage. The privileged Node independently enforces its local resource limits.
+
+Exact binding attach capability is derived from the configured installed gateway,
+not the Node version. Both attachment admission and original-task polling require
+`binding_attach.supported` literal true and `protocol_version` integer 1.
+Malformed binding gateway reports clear the previous capability, including JSON
+type changes that compare equal under Python (true, 1, and 1.0).
+
+Workspace preparation results conditionally update only a matching starting sync
+session; delayed results cannot override pause or another target binding.
+
+Reviewed runtime recovery requests preserve the existing Node recovery binding v1/v2/v3, task
+identity and lease/result protocol. Inspection is safe observation only. A matching confirmed
+projection does not replace current admission or Node authorization. No new execution protocol
+or automatic retry is introduced; see [request contract](../runtime-recovery-requests.md).
+
+Legacy create/stop session task result retries must match the original task row, terminal outcome
+and exact normalized JSON result. Replay cannot reapply resource/session/revocation updates.
+Late first create results retain their task receipt without overriding a later session lifecycle.
+Managed startup/stop and runtime recovery retain their existing specialized result authorization.
+
+Legacy explicit stop failure keeps the session stopping; automatic cleanup keeps interrupted.
+History deletion must preflight all associated stop tasks and original success receipts under
+history, session, then task locks. Unresolved or inconsistent stops block single and bulk deletion
+before reference release. Preserve create-failure deletion without stop tasks, immutable historical
+receipts and managed retention checks; these safeguards are not new physical termination evidence.

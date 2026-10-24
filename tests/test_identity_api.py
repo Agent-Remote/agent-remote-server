@@ -7,7 +7,7 @@ import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -20,6 +20,7 @@ from agent_remote_server.main import create_app
 from agent_remote_server.models import (
     AuditLog,
     AuthToken,
+    CliLoginCode,
     NodeTask,
     SshKey,
     UserDevice,
@@ -223,6 +224,102 @@ def test_cli_device_code_login_flow(client: TestClient) -> None:
     assert complete_response.json()["data"]["access_token"].startswith("art_")
 
 
+def test_cli_completion_is_recoverable_by_exact_key_and_fails_closed_when_revoked(
+    client: TestClient,
+) -> None:
+    """
+    丢失的完成响应只能通过原始 UUID 恢复。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    completion_key = str(uuid4())
+    start_response = client.post(
+        "/api/v1/auth/cli/start", json={"completion_request_id": completion_key}
+    )
+    assert start_response.status_code == 200
+    start_data = start_response.json()["data"]
+    assert start_data["completion_request_id"] == completion_key
+
+    assert (
+        client.post(
+            "/api/v1/auth/cli/approve",
+            headers=auth_header(admin_token),
+            json={"user_code": start_data["user_code"]},
+        ).status_code
+        == 200
+    )
+    complete = client.post(
+        "/api/v1/auth/cli/complete",
+        json={
+            "device_code": start_data["device_code"],
+            "completion_request_id": completion_key,
+        },
+    )
+    assert complete.status_code == 200
+    original = complete.json()["data"]["access_token"]
+
+    async def inspect_receipt() -> None:
+        """
+        检查完成回执不包含设备码和明文令牌。
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            row = await session.scalar(
+                select(CliLoginCode).where(
+                    CliLoginCode.completion_request_id == UUID(completion_key)
+                )
+            )
+            assert row is not None
+            assert row.encrypted_completion_receipt is not None
+            assert start_data["device_code"].encode() not in row.encrypted_completion_receipt
+            assert original.encode() not in row.encrypted_completion_receipt
+
+    asyncio.run(inspect_receipt())
+
+    missing_key_replay = client.post(
+        "/api/v1/auth/cli/complete", json={"device_code": start_data["device_code"]}
+    )
+    assert missing_key_replay.status_code == 409
+    assert missing_key_replay.json()["error"]["code"] == "AUTH_CLI_COMPLETION_KEY_MISMATCH"
+
+    recovered = client.get(f"/api/v1/auth/cli/completions/{completion_key}")
+    assert recovered.status_code == 200
+    assert recovered.json()["data"]["access_token"] == original
+    repeated = client.post(
+        "/api/v1/auth/cli/complete",
+        json={
+            "device_code": start_data["device_code"],
+            "completion_request_id": completion_key,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["data"]["access_token"] == original
+
+    unknown = client.get(f"/api/v1/auth/cli/completions/{uuid4()}")
+    assert unknown.status_code == 404
+
+    async def revoke() -> None:
+        """
+        撤销回执关联的令牌。
+        """
+        app = cast(FastAPI, client.app)
+        async with app.state.session_factory() as session:
+            token = await session.scalar(
+                select(AuthToken).where(AuthToken.token_hash == hash_token("test-secret", original))
+            )
+            assert token is not None
+            token.status = "revoked"
+            token.revoked_at = datetime.now(UTC)
+            await session.commit()
+
+    asyncio.run(revoke())
+    revoked = client.get(f"/api/v1/auth/cli/completions/{completion_key}")
+    assert revoked.status_code == 503
+    assert revoked.json()["error"]["code"] == "UNKNOWN_RESULT"
+
+
 def test_totp_setup_verify_and_login(client: TestClient) -> None:
     """
     验证 TOTP 设置、确认和登录流程。
@@ -370,6 +467,98 @@ def test_device_registration_revoke_and_audit_sanitization(client: TestClient) -
             assert wireguard_public_key not in details_text
 
     asyncio.run(inspect_state())
+
+
+def test_device_registration_replays_exact_token_and_rejects_intent_change(
+    client: TestClient,
+) -> None:
+    """
+    验证设备登记原键可恢复丢失回执且不能改写登记意图。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    payload = {
+        "name": "replay-device",
+        "platform": "linux",
+        "cli_version": "0.2.0",
+        "ssh_public_key": "ssh-ed25519 AAAAREPLAY rem@test",
+        "wireguard_public_key": "replay-wireguard",
+        "request_id": "11111111-1111-4111-8111-111111111111",
+    }
+    first_response = client.post(
+        "/api/v1/devices/register", headers=auth_header(admin_token), json=payload
+    )
+    assert first_response.status_code == 200
+    first = first_response.json()["data"]
+
+    replay_response = client.post(
+        "/api/v1/devices/register", headers=auth_header(admin_token), json=payload
+    )
+    assert replay_response.status_code == 200
+    replay = replay_response.json()["data"]
+    assert replay["device"]["id"] == first["device"]["id"]
+    assert replay["ssh_key_id"] == first["ssh_key_id"]
+    assert replay["wireguard_peer_id"] == first["wireguard_peer_id"]
+    assert replay["device_token"]["access_token"] == first["device_token"]["access_token"]
+
+    recovered_response = client.get(
+        "/api/v1/devices/registration-requests/11111111-1111-4111-8111-111111111111",
+        headers=auth_header(admin_token),
+    )
+    assert recovered_response.status_code == 200
+    assert (
+        recovered_response.json()["data"]["device_token"]["access_token"]
+        == first["device_token"]["access_token"]
+    )
+
+    changed = dict(payload)
+    changed["name"] = "different-intent"
+    conflict = client.post(
+        "/api/v1/devices/register", headers=auth_header(admin_token), json=changed
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "DEVICE_REGISTRATION_KEY_REUSED"
+
+    devices = client.get("/api/v1/devices", headers=auth_header(admin_token))
+    assert len(devices.json()["data"]["items"]) == 1
+
+
+def test_device_registration_recovery_reports_unknown_after_revoke(client: TestClient) -> None:
+    """
+    验证登记令牌撤销后回执不会重新授权设备。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    admin_token = bootstrap(client)
+    request_id = "22222222-2222-4222-8222-222222222222"
+    registration = client.post(
+        "/api/v1/devices/register",
+        headers=auth_header(admin_token),
+        json={
+            "name": "revoked-recovery",
+            "platform": "macos",
+            "ssh_public_key": "ssh-ed25519 AAAAREVOKE rem@test",
+            "request_id": request_id,
+        },
+    )
+    assert registration.status_code == 200
+    device_id = registration.json()["data"]["device"]["id"]
+    assert (
+        client.post(
+            f"/api/v1/devices/{device_id}/revoke", headers=auth_header(admin_token)
+        ).status_code
+        == 200
+    )
+
+    recovered = client.get(
+        f"/api/v1/devices/registration-requests/{request_id}",
+        headers=auth_header(admin_token),
+    )
+    assert recovered.status_code == 503
+    assert recovered.json()["error"]["code"] == "UNKNOWN_RESULT"
 
 
 def test_device_registration_rejects_unknown_platform(client: TestClient) -> None:

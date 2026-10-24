@@ -60,6 +60,7 @@ def port_forward_data(port_forward: PortForward) -> PortForwardData:
         remote_port=port_forward.remote_port,
         requested_local_port=port_forward.requested_local_port,
         client_instance_id=port_forward.client_instance_id,
+        caller_request_id=port_forward.caller_request_id,
         status=port_forward.status,
         bytes_up=port_forward.bytes_up,
         bytes_down=port_forward.bytes_down,
@@ -154,6 +155,7 @@ async def create_port_forward(
         remote_port=payload.remote_port,
         local_port=payload.local_port,
         client_instance_id=payload.client_instance_id,
+        caller_request_id=payload.caller_request_id,
         ttl_seconds=payload.ttl_seconds,
     )
     response.headers["Cache-Control"] = "no-store"
@@ -256,7 +258,13 @@ async def create_port_forward_connection(
     )
     response.headers["Cache-Control"] = "no-store"
     return PortForwardConnectionResponse(
-        data=PortForwardConnectionData(token=result.token, expires_at=result.expires_at),
+        data=PortForwardConnectionData(
+            token=result.token,
+            expires_at=result.expires_at,
+            node_wireguard_ip=result.node_wireguard_ip,
+            ssh_user=result.ssh_user,
+            ssh_port=result.ssh_port,
+        ),
         request_id=get_request_id(),
     )
 

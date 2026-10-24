@@ -12,123 +12,42 @@
 
 [English](README.md) | 中文
 
-agent-remote 的 Python 控制平面 API。
+`agent-remote-server` 是 Agent Remote 的 FastAPI 控制面，保存用户、设备、工具账户、工作区、会话、同步元数据、端口转发记录和审计数据，并提供 CLI、Node 与管理前端使用的 API。
 
-该仓库当前提供控制平面服务基础：
+## 当前边界
 
-- FastAPI application factory。
-- 从环境变量和 `.env` 加载设置。
-- 结构化 JSON 日志。
-- Request ID middleware。
-- `/healthz` 进程健康检查。
-- `/readyz` PostgreSQL 和 Redis readiness 检查。
-- SQLAlchemy async engine helpers。
-- Alembic 初始化。
-- Dockerfile 和本地 Compose 开发栈。
-- 基础测试。
+Server 负责控制面操作的授权与记录。Node 执行获准的运行时工作；CLI 负责本地凭据、WireGuard、SSH、Mutagen 和本地操作 journal。Server 不接收私钥，也不替代本地 CLI。
 
-Runtime 控制平面还提供：
-
-- 每节点 runtime backend 允许列表、默认值、策略、能力上报和 backend 感知调度。
-- 每账户 runtime backend 固定，以及 Native Runtime 与 Docker Sandbox 之间的显式迁移。
-- Session runtime 标识、中断 session 对账和不重放命令的 replacement session 继承关系。
-- 非特权 node worker 与特权 Native Runtime helper 之间的窄任务契约。
-- 带修订版本的设备级 SSH key 同步，以及 attach 就绪状态上报。
-- 为退役资源提供受保护的删除能力，删除前校验生命周期状态和关联记录。
-- Session 级端口转发授权，包含 Redis 一次性 token、可续租 lease、配额、资源即时撤销、生命周期清理和仅元数据审计事件。
-
-只有所选 Node 为 session backend 明确上报 capability 时，控制面才允许创建端口转发。当前发布同时支持 Native Runtime 与 Docker Sandbox session；backend capability 或受信 runtime state 校验失败时仍会 fail closed。应用数据直接在设备与 Node 之间传输，不经过控制面。
-
-管理前端可以删除失败或已暂停的同步会话。活跃的本地 Mutagen 会话必须先在所属设备上暂停，
-控制面不会静默遗留运行中的同步进程。
+当前 API 包括认证与设备登记、账户绑定、工作区/同步准备、准确会话接管/创建/停止/删除请求、端口转发、运行时恢复请求、附件传输元数据和设备控制 API。每个有后果的操作都绑定用户、设备、会话、节点和代次等上下文，并返回结构化结果或明确的未知结果。
 
 ## 要求
 
 - Python 3.13
-- uv
-- 用于本地依赖服务的 Docker 和 Docker Compose
+- `uv`
+- 用于本地服务的 Docker 和 Docker Compose
 
-## 本地设置
+## 本地开发
 
 ```sh
 uv sync
 cp .env.example .env
-```
-
-运行测试：
-
-```sh
 uv run pytest
-```
-
-本地运行 API：
-
-```sh
 uv run uvicorn agent_remote_server.main:app --reload
 ```
 
-运行本地 Compose 栈：
+启动本地栈：
 
 ```sh
 docker compose up --build
-```
-
-健康检查：
-
-```sh
 curl http://localhost:8000/healthz
 curl http://localhost:8000/readyz
 ```
 
-## 配置
+仓库质量门禁是 `scripts/run-quality-checks.sh`，会运行格式、lint、类型、docstring 检查和测试。
 
-环境变量：
+## 容器安装
 
-- `AGENT_REMOTE_ENV`
-- `AGENT_REMOTE_SECRET_KEY`
-- `PUBLIC_BASE_URL`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `LOG_LEVEL`
-- `PORT_FORWARDING_ENABLED`
-- `PORT_FORWARD_MIN_PORT` / `PORT_FORWARD_MAX_PORT`
-- `PORT_FORWARD_MAX_PER_USER` / `PORT_FORWARD_MAX_PER_DEVICE` / `PORT_FORWARD_MAX_PER_SESSION`
-- `PORT_FORWARD_MAX_STREAMS`
-- `PORT_FORWARD_DEFAULT_TTL_SECONDS` / `PORT_FORWARD_MAX_TTL_SECONDS`
-- `PORT_FORWARD_CONNECTION_TOKEN_TTL_SECONDS` / `PORT_FORWARD_LEASE_SECONDS`
-- `PORT_FORWARD_CONTROL_PLANE_GRACE_SECONDS`
-- `PORT_FORWARD_BYTES_PER_SECOND`
-- `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
-- `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
-- `DEVICE_CONTROL_ENABLED`
-- `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
-- `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
-- `DEVICE_SESSION_RETENTION_DAYS`
-- `DEVICE_SESSION_AUDIT_RETENTION_DAYS`
-
-见 `.env.example`。
-
-清单 schema 和 Ed25519 规范签名载荷见 `docs/device-control-release-evidence.md`。
-
-设备控制默认关闭。`AGENT_REMOTE_ENV=production` 时，当前版本启用该功能必须提供随根版本一起发布的 schema 9
-证据清单，并绑定精确的根分发版本、Server/组件/制品组合且由固定 Ed25519 公钥验证通过；schema 9
-没有 `expires_at` 字段，对同一签名组合永久有效。已签发的 schema 8 清单对其精确签名组合仍永久可验证，
-但只能授权 legacy `per_application_approval` 策略；生产 `session_full_trust` 未提供 schema 9 时会 fail closed。
-公钥使用 Base64 编码。开发环境只能为
-不含敏感数据的测试显式启用该能力。生产部署还必须显式选择非零的终态 session 和设备 session
-审计保留天数，且审计保留期不得短于 session 保留期。
-
-Computer Use v2 对新 generation 默认启用。只有 Node 广告完整必需的
-`observation_mode_v2`、`ax_state_v2`、`adaptive_settle_v2` 基础集合时，Server 才会协商
-v2，并带上双方支持的 `clipboard_payload_v2` 等扩展。缺失、部分、未知或畸形集合会原子回退
-到 v1。设置 `DEVICE_CONTROL_V2_ENABLED=false` 可在紧急情况下强制新 generation 使用 v1；
-活跃 generation 不会原地改变 capability 集合。
-
-用户 API 在 `/api/v1/port-forwards` 下提供创建、列表、详情、重连和停止操作；Node API 提供 redeem、renew 和 release。Connection token 只返回一次并带 `Cache-Control: no-store`，仅作为短期 Redis 值保存，客户端不得记录日志或持久化。
-
-## 容器
-
-Docker 镜像默认会运行 Alembic migrations，然后启动 Uvicorn：
+Docker 镜像默认先运行 Alembic 迁移，再启动 Uvicorn：
 
 ```sh
 docker build -t agent-remote-server .
@@ -139,23 +58,55 @@ docker run --rm -p 8000:8000 \
   agent-remote-server
 ```
 
-设置 `AGENT_REMOTE_RUN_MIGRATIONS=0` 可在一次性命令中跳过 migrations。
+一次性命令可设置 `AGENT_REMOTE_RUN_MIGRATIONS=0` 跳过迁移。
 
-GitHub Actions 会在 `v*` tag 上构建生产镜像并推送到 GHCR，同时创建带生成 release notes 的 GitHub Release 记录。
+## 配置
 
-## 当前边界
+运行配置来自 `.env`/环境变量，主要分组如下：
 
-该仓库包含控制平面 API、持久化模型、身份和设备 API、节点/runtime 策略、工具账户绑定与迁移状态机、session 对账，以及节点任务轮询 API。特权隔离和进程执行由 node 仓库实现；本地设备网络和 workspace 同步由 CLI 仓库实现。
+- `AGENT_REMOTE_ENV`、`AGENT_REMOTE_SECRET_KEY`、`PUBLIC_BASE_URL`
+- `DATABASE_URL`、`REDIS_URL`、`LOG_LEVEL`
+- 端口转发策略和限流：`PORT_FORWARD_*`
+- Device 控制策略和证据：`DEVICE_CONTROL_*`
+- 会话保留与审计保留：`DEVICE_SESSION_*`
 
-## Skill 管理
+修改生产设置前查看 `.env.example` 和当前规则文档。生产环境中的 Device 控制在缺少准确签名发布证据及策略前置条件时会 fail-closed。
 
-Skill 默认通过 `SKILL_MANAGER_ENABLED=true` 开启。数据库和 Skill 内容卷都须持久保存；
-只更新镜像不会更新旧 Compose 挂载。[Server Skill 管理](docs/skill-manager.md)集中说明
-配置、存储、权限与生命周期约束。运行准入要求 Node 的真实 Native 能力报告；
-部署、停写、内容持久化、发布和 Claude 实际加载是不同结果，验收范围见其中链接。
+## 部署
+
+除非设置 `AGENT_REMOTE_RUN_MIGRATIONS=0`，容器入口会先运行迁移再启动 Uvicorn。生产部署必须使用持久化 PostgreSQL/Redis 数据、由部署方管理的 secret，以及运维策略要求的非零保留期。发布镜像由 `v*` tag 和仓库 workflow 构建发布。
+
+## 脚本入口
+
+仓库保留以下发布和验证入口：
+
+```sh
+# 运行格式、lint、类型、docstring 检查和测试。
+scripts/install-githooks.sh
+scripts/check_docstrings.py
+scripts/run-quality-checks.sh
+# 准备版本化 Server 发布和 changelog 元数据。
+scripts/prepare-release.sh
+# 从一次性夹具生成经过审阅的 Device 控制发布证据。
+uv run python scripts/create_device_control_release_evidence.py --help
+```
+
+Docker 镜像使用 `scripts/docker-entrypoint.sh` 在启动 Uvicorn 前执行迁移。仓库没有独立的生产
+安装器；请使用上文的 Docker Compose 或容器命令。发布和证据脚本只能使用一次性数据运行，发布前
+必须审阅输出。
+
+## 文档
+
+- 架构与边界：`docs/rules/01-project-overview.md`、`docs/rules/02-architecture.md`
+- 数据与身份：`docs/rules/09-data-persistence.md`、`docs/rules/10-identity-auth.md`
+- Node 控制：`docs/rules/11-node-control.md`
+- 当前会话/账户合同：`docs/session-lifecycle.md`、`docs/session-exact-attach.md`、`docs/session-creation-caller-key.md`、`docs/session-deletion-caller-key.md`
+- 同步、导入与恢复：`docs/workspace-sync-safety.md`、`docs/account-config-import-requests.md`、`docs/runtime-recovery-requests.md`
+- 端口转发与设备登记：`docs/port-forward-caller-key.md`、`docs/device-registration-idempotency.md`
+- Skills 与 Device 控制运维：`docs/skill-manager.md`、`docs/device-control-release-evidence.md`
+
+这些文档描述当前合同；迁移、schema 和测试是最终兼容性事实来源。
 
 ## 许可证
 
-agent-remote-server 使用 GPL-3.0-only 许可证。详见 `LICENSE`。
-
-第三方依赖声明见 `THIRD_PARTY_NOTICES.md`。
+GPL-3.0-only。详见 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`。

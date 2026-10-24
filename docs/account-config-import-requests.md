@@ -1,0 +1,29 @@
+# Account configuration import requests
+
+Version 1 adds an explicit caller-key protocol; legacy `POST /api/v1/tool-accounts/{account}/config-imports` retains its existing behavior. Its dry-run still writes an audit record and is not a read-only operation.
+
+## Wire contract
+
+`POST /api/v1/tool-accounts/{account}/config-import-requests` requires every field:
+`schema_version: 1`, canonical UUID `request_id`, `expected_intent_fingerprint`, `tool_type`, `source: "local_cli"`, `include`, `exclude`, `files`, `include_resume_history`, `dry_run: false`.
+Each file requires `path`, `content_base64`, and integer `mode` (0 through 0777). Unknown fields, nulls, booleans standing in for numbers, coercible strings, duplicate file paths, empty file lists, and noncanonical paths are rejected. Paths begin with `~/`, use `/`, and contain no empty, `.` or `..` components, control characters, backslashes, or surrounding whitespace. Aliases such as `$HOME/` are not normalized silently. Include/exclude order is preserved. Files are ordered by path for their content manifest. Before JSON parsing, the complete HTTP body is bounded to 16 MiB, including chunked requests without a Content-Length header; overflow returns fixed 413 `CONFIG_IMPORT_TOO_LARGE`. Existing 1 MiB per-file, 8 MiB decoded-total and 12 MiB encoded-task limits remain enforced.
+
+The server recomputes the expected fingerprint before admission. The exact canonical object is:
+
+```json
+{"schema_version":1,"tool_account_id":"canonical UUID","tool_type":"claude","source":"local_cli","include":["~/.claude/settings.json"],"exclude":[],"include_resume_history":false,"dry_run":false,"files":[{"path":"~/.claude/settings.json","sha256":"sha256:64 lowercase hex characters","size":2,"mode":384}]}
+```
+
+Encode with sorted object keys, UTF-8, no insignificant whitespace, no ASCII escaping of Unicode, and no final newline (`json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`). The fingerprint is `sha256:` followed by the SHA-256 lowercase hexadecimal digest. File hashes use decoded content bytes. `request_id` and the expected fingerprint itself are not part of this object; authenticated user identity scopes the persisted request separately. Clients independently recompute the fingerprint from the returned immutable manifest and intent.
+
+All receipt fields are required and non-null: `schema_version`, `request_id`, `tool_account_id`, `tool_type`, `source`, `include`, `exclude`, `include_resume_history`, `dry_run`, `manifest` (the same path/hash/size/mode entries), `intent_fingerprint`, `task_id`, `accepted`, `rejected`, `warnings`, `account_remote_path`, and positive `file_count`. Version 1 is all-or-nothing: any rejected selection returns 422 without admitting a task; accepted receipts contain `accepted == include` and empty `rejected`. Warnings contain only `CONFIG_IMPORT_EXECUTABLE_REVIEW_REQUIRED` or `CONFIG_IMPORT_CUSTOM_MARKDOWN_REVIEW_REQUIRED`. They never echo executable/configuration contents or arbitrary exception messages.
+
+First acceptance returns 201. Exact replay returns 200 and the original receipt, with no additional task or import audit. Reuse of the same authenticated user's request UUID for a different account or canonical intent returns 409 `CONFIG_IMPORT_REQUEST_CONFLICT`. An incorrect expected fingerprint returns 422 `CONFIG_IMPORT_INTENT_MISMATCH`. Ordinary invalid selections use 422 `COMMON_VALIDATION_ERROR`.
+
+`GET /api/v1/tool-accounts/{account}/config-import-requests/{request_id}` reauthorizes the current active credential/user and exact owned account, then returns that immutable receipt. It never searches latest tasks, writes audit records, refreshes device last-seen metadata, enqueues work, or updates receipt/task status. Unavailable or foreign scope returns 404. A 404 cannot prove a concurrent POST will never commit. This acceptance receipt does not mean execution succeeded: clients use its exact `task_id` with the existing config-import task-status endpoint. That exact task-status GET also uses read-only authentication, so the complete recovery/status sequence never updates device last-seen metadata. Lost HTTP responses are recovered by this GET or an explicit identical-key retry; neither authorizes a new caller key automatically.
+
+## Persistence and transaction design
+
+Migration `0057_config_import_requests` adds `tool_account_config_import_requests`: generated row UUID, timestamps, authenticated `user_id`, caller `request_id`, original `tool_account_id`, `tool_type`, `node_id`, task row UUID and logical `task_id`, intent fingerprint, and immutable receipt JSON. The unique `(user_id, request_id)` constraint prevents concurrent duplicate keys; task row UUID is unique as well. Only the user relationship cascades deletion. Account/node/task identities are retained historical snapshots so later resource deletion cannot erase a used caller key or make it authorize another import. The server validates all live identities before acceptance and reauthorizes the account before any lookup/replay.
+
+The existing shared user-content write lock serializes admission with migration and managed Skill directory changes. After taking this lock, admission refreshes account ownership and status, rechecks the caller key, validates all selected paths and files, and applies the existing migration/Skill-directory guard. Receipt, task, account/profile updates and import audit are committed together. Any failure rolls all of them back. Existing import orchestration gains caller-controlled commit ownership while legacy callers retain their default commit behavior. No original file content is duplicated into the receipt ledger; only the existing task payload retains its already-supported execution content. Downgrade refuses a nonempty receipt ledger rather than discarding accepted caller identities.

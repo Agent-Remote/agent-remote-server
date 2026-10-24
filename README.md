@@ -12,133 +12,40 @@
 
 English | [中文](README.zh-CN.md)
 
-Python control-plane API for agent-remote.
+`agent-remote-server` is the FastAPI control plane for Agent Remote. It stores users, devices, tool accounts, workspaces, sessions, synchronization metadata, port-forward records and audit data, and exposes the APIs used by the CLI, Node and administration console.
 
-The repository currently provides the control-plane server foundation:
+## Current boundary
 
-- FastAPI application factory.
-- Settings loaded from environment and `.env`.
-- Structured JSON logging.
-- Request ID middleware.
-- `/healthz` process health check.
-- `/readyz` PostgreSQL and Redis readiness check.
-- SQLAlchemy async engine helpers.
-- Alembic initialization.
-- Dockerfile and local Compose development stack.
-- Basic tests.
+The server authorizes and records control-plane operations. Node executes approved runtime work, while the CLI owns local credentials, WireGuard, SSH, Mutagen and local operation journals. The server does not receive private keys or become a replacement for the local CLI.
 
-The runtime control plane also provides:
-
-- Per-node runtime backend allowlists, defaults, policy, capability reporting, and backend-aware scheduling.
-- Per-account runtime backend pinning and explicit migration between Native Runtime and Docker Sandbox.
-- Session runtime identity, interrupted-session reconciliation, and replacement-session lineage without command replay.
-- A narrow task contract between the unprivileged node worker and the privileged Native Runtime helper.
-- Revisioned, device-scoped SSH key synchronization with attach readiness reporting.
-- Guarded deletion for retired resources: dependencies and lifecycle state are checked before records are removed.
-- Session-scoped port-forward grants with one-time Redis tokens, renewable leases, quotas, immediate resource revocation, lifecycle cleanup, and metadata-only audit events.
-
-Port forwarding is available only when the selected node explicitly advertises the capability for the session backend. The current release supports both Native Runtime and Docker Sandbox sessions; backend-specific capability or trusted runtime-state failures still fail closed. Application traffic flows directly between the device and node and never traverses this control plane.
-
-The web console can delete failed or paused sync sessions. Active local Mutagen sessions must be
-paused on their owning device first, so the control plane does not silently orphan a running sync.
+Current API areas include authentication and device enrollment, account binding, workspace/sync preparation, exact session attach/create/stop/delete requests, port forwarding, runtime recovery requests, attachment-transfer metadata and the device-control APIs. Each consequential operation is bound to the relevant user/device/session/node/generation context and returns a structured result or an explicitly unknown outcome.
 
 ## Requirements
 
 - Python 3.13
-- uv
-- Docker and Docker Compose for local dependency services
+- `uv`
+- Docker and Docker Compose for local services
 
-## Local Setup
+## Local development
 
 ```sh
 uv sync
 cp .env.example .env
-```
-
-Run tests:
-
-```sh
 uv run pytest
-```
-
-Run API locally:
-
-```sh
 uv run uvicorn agent_remote_server.main:app --reload
 ```
 
-Run local Compose stack:
+Run the local stack with:
 
 ```sh
 docker compose up --build
-```
-
-Health checks:
-
-```sh
 curl http://localhost:8000/healthz
 curl http://localhost:8000/readyz
 ```
 
-## Configuration
+The repository quality gate is `scripts/run-quality-checks.sh`; it runs formatting, linting, typing, docstring checks and tests.
 
-Environment variables:
-
-- `AGENT_REMOTE_ENV`
-- `AGENT_REMOTE_SECRET_KEY`
-- `PUBLIC_BASE_URL`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `LOG_LEVEL`
-- `PORT_FORWARDING_ENABLED`
-- `PORT_FORWARD_MIN_PORT` / `PORT_FORWARD_MAX_PORT`
-- `PORT_FORWARD_MAX_PER_USER` / `PORT_FORWARD_MAX_PER_DEVICE` / `PORT_FORWARD_MAX_PER_SESSION`
-- `PORT_FORWARD_MAX_STREAMS`
-- `PORT_FORWARD_DEFAULT_TTL_SECONDS` / `PORT_FORWARD_MAX_TTL_SECONDS`
-- `PORT_FORWARD_CONNECTION_TOKEN_TTL_SECONDS` / `PORT_FORWARD_LEASE_SECONDS`
-- `PORT_FORWARD_CONTROL_PLANE_GRACE_SECONDS`
-- `PORT_FORWARD_BYTES_PER_SECOND`
-- `PORT_FORWARD_CLEANUP_INTERVAL_SECONDS`
-- `PORT_FORWARD_CREATE_RATE_LIMIT_PER_MINUTE` / `PORT_FORWARD_REDEEM_RATE_LIMIT_PER_MINUTE`
-- `DEVICE_CONTROL_ENABLED`
-- `DEVICE_CONTROL_V2_ENABLED` (defaults to `true`; emergency rollback switch for new generations)
-- `DEVICE_SESSION_AUTHORIZATION_MODE` (`per_application_approval` during compatibility rollout;
-  set to `session_full_trust` only for a fully capable signed component combination)
-- `DEVICE_CONTROL_RELEASE_EVIDENCE_PATH`
-- `DEVICE_CONTROL_RELEASE_PUBLIC_KEY`
-- `DEVICE_SESSION_RETENTION_DAYS`
-- `DEVICE_SESSION_AUDIT_RETENTION_DAYS`
-
-See `.env.example`.
-
-The manifest schema and canonical Ed25519 signing payload are documented in
-`docs/device-control-release-evidence.md`.
-
-Device control defaults to disabled. When `AGENT_REMOTE_ENV=production`, current releases require a
-schema 9 release-evidence manifest shipped with the exact root distribution, bound to the exact
-Server/component/artifact composition, and signed by the pinned Base64-encoded Ed25519 public key.
-Schema 9 is permanently valid for that signed composition and has no `expires_at` field. Already
-issued schema 8 manifests remain permanently verifiable for their exact signed compositions, but
-they authorize only the legacy `per_application_approval` policy; production `session_full_trust`
-fails closed unless the verified manifest is schema 9. Operators
-must also choose explicit non-zero terminal-session
-and device-session-audit retention periods; audit retention cannot be shorter than session
-retention. Development may explicitly enable the capability only for non-sensitive test data.
-
-Computer Use v2 is enabled for new generations by default. The Server negotiates v2 only when the
-Node advertises the complete required `observation_mode_v2`, `ax_state_v2`, and
-`adaptive_settle_v2` base, then includes supported extensions such as
-`clipboard_payload_v2`. Missing, partial, unknown, or malformed sets fall back atomically to v1.
-Set `DEVICE_CONTROL_V2_ENABLED=false` to force v1 for newly created generations during an
-emergency. Active generations never change capability sets in place.
-
-Schema 9 Apple and Community manifests may carry the optional artifact-bound v2 quality digest.
-That digest supports release-quality auditing but is not runtime authorization. General signed
-production release evidence remains mandatory whenever device control is enabled in production.
-
-The user API exposes create/list/detail/reconnect/stop operations under `/api/v1/port-forwards`; the node API exposes redeem/renew/release operations. Connection tokens are returned once with `Cache-Control: no-store`, stored only as short-lived Redis values, and must never be logged or persisted by clients.
-
-## Container
+## Container installation
 
 The Docker image runs Alembic migrations by default and then starts Uvicorn:
 
@@ -151,24 +58,56 @@ docker run --rm -p 8000:8000 \
   agent-remote-server
 ```
 
-Set `AGENT_REMOTE_RUN_MIGRATIONS=0` to skip migrations for one-off commands.
+Set `AGENT_REMOTE_RUN_MIGRATIONS=0` to skip migrations for a one-off command.
 
-GitHub Actions builds and pushes the production image to GHCR for `v*` tags and creates a GitHub Release record with generated release notes.
+## Configuration
 
-## Current Boundary
+Runtime configuration is read from `.env`/environment variables. The important groups are:
 
-This repository contains the control-plane API, persistence model, identity and device APIs, node/runtime policy, tool-account binding and migration state machines, session reconciliation, and node task polling APIs. Privileged isolation and process execution run in the node repository; local device networking and workspace synchronization run in the CLI repository.
+- `AGENT_REMOTE_ENV`, `AGENT_REMOTE_SECRET_KEY`, `PUBLIC_BASE_URL`
+- `DATABASE_URL`, `REDIS_URL`, `LOG_LEVEL`
+- Port-forward policy and rate limits: `PORT_FORWARD_*`
+- Device-control policy and evidence: `DEVICE_CONTROL_*`
+- Session retention and audit retention: `DEVICE_SESSION_*`
 
-## Skill Management
+See `.env.example` and the current rule documents before changing a production setting. Device-control is fail-closed in production unless the exact signed release evidence and policy prerequisites are present.
 
-Skill management defaults to enabled through `SKILL_MANAGER_ENABLED=true`. Persist the Skill content
-volume as well as the database; changing the image alone does not update old Compose mounts.
-[Server Skill manager](docs/skill-manager.md) covers settings, storage, authorization and lifecycle
-contracts. Runtime admission requires the Node's real Native report. Deployment, stopped writers,
-persisted content, publication and actual Claude loading are distinct results; see the linked acceptance status.
+## Deployment
+
+The container entrypoint runs migrations before Uvicorn unless `AGENT_REMOTE_RUN_MIGRATIONS=0` is set. Production deployments must use persistent PostgreSQL/Redis data, owner-managed secrets and non-zero retention settings required by the operations policy. Release images are built from `v*` tags and published through the repository workflow.
+
+## Script entry points
+
+The repository keeps these release and verification entry points:
+
+```sh
+# Run formatting, linting, typing, docstring checks and tests.
+scripts/install-githooks.sh
+scripts/check_docstrings.py
+scripts/run-quality-checks.sh
+# Prepare a versioned server release and changelog metadata.
+scripts/prepare-release.sh
+# Generate reviewed device-control release evidence from a disposable fixture.
+uv run python scripts/create_device_control_release_evidence.py --help
+```
+
+The Docker image uses `scripts/docker-entrypoint.sh` to apply migrations before
+starting Uvicorn. There is no standalone production installer; use the Docker
+Compose or container commands above. Run release and evidence scripts only with
+disposable data and review their output before publishing.
+
+## Documentation
+
+- Architecture and boundaries: `docs/rules/01-project-overview.md`, `docs/rules/02-architecture.md`
+- Data and identity: `docs/rules/09-data-persistence.md`, `docs/rules/10-identity-auth.md`
+- Node control: `docs/rules/11-node-control.md`
+- Current session/account contracts: `docs/session-lifecycle.md`, `docs/session-exact-attach.md`, `docs/session-creation-caller-key.md`, `docs/session-deletion-caller-key.md`
+- Sync, import and recovery: `docs/workspace-sync-safety.md`, `docs/account-config-import-requests.md`, `docs/runtime-recovery-requests.md`
+- Port forwarding and device enrollment: `docs/port-forward-caller-key.md`, `docs/device-registration-idempotency.md`
+- Skills and device-control operations: `docs/skill-manager.md`, `docs/device-control-release-evidence.md`
+
+These documents describe current contracts. Migrations, schemas and tests are the final compatibility authority.
 
 ## License
 
-agent-remote-server is licensed under GPL-3.0-only. See `LICENSE`.
-
-Third-party dependency notices are listed in `THIRD_PARTY_NOTICES.md`.
+GPL-3.0-only. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.

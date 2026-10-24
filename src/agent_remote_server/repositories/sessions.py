@@ -55,6 +55,21 @@ class SessionRepository:
 
         return await self._session.get(Session, session_id)
 
+    async def lock_session(self, session_id: UUID, user_id: UUID) -> Session | None:
+        """
+        历史锁之后取得原会话行锁，并刷新等待期间的生命周期变更。
+
+        :param session_id (UUID): 原会话身份
+        :param user_id (UUID): 已认证所有者
+        :return Session | None: 锁定会话或不存在
+        """
+        return await self._session.scalar(
+            select(Session)
+            .where(Session.id == session_id, Session.user_id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
     async def list_sessions_for_user(
         self, user_id: UUID, tool_type: str | None, statuses: list[str] | None
     ) -> Sequence[tuple[Session, Workspace]]:
@@ -94,8 +109,43 @@ class SessionRepository:
             select(Session)
             .where(Session.user_id == user_id)
             .where(Session.status.in_(sorted(statuses)))
-            .order_by(Session.updated_at.desc())
+            .order_by(Session.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
+        return result.all()
+
+    async def list_sessions_for_collection(
+        self,
+        *,
+        user_id: UUID,
+        tool_type: str,
+        statuses: set[str],
+        project_key: str | None,
+    ) -> Sequence[Session]:
+        """
+        在会话行锁下读取用户确认集合对应的当前候选集。
+
+        :param user_id (UUID): 会话所有者
+        :param tool_type (str): 工具类型筛选
+        :param statuses (set[str]): 状态筛选
+        :param project_key (str | None): 可选项目筛选
+        :return Sequence[Session]: 锁定并刷新的当前候选会话
+        """
+        statement = (
+            select(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.tool_type == tool_type,
+                Session.status.in_(sorted(statuses)),
+            )
+            .order_by(Session.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if project_key is not None:
+            statement = statement.where(Session.project_key == project_key)
+        result = await self._session.scalars(statement)
         return result.all()
 
     async def delete_session(self, tool_session: Session) -> None:

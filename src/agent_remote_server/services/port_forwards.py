@@ -2,6 +2,8 @@
 实现端口转发业务逻辑。
 """
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -25,6 +27,37 @@ from agent_remote_server.security import create_opaque_token, hash_token
 TERMINAL_FORWARD_STATUSES = {"stopped", "expired", "revoked", "failed"}
 RUNNING_SESSION_STATUSES = {"running", "active"}
 ACTIVE_NODE_STATUSES = {"healthy", "degraded", "active"}
+
+
+def _port_forward_intent_digest(
+    *,
+    session_id: UUID,
+    remote_port: int,
+    local_port: int,
+    client_instance_id: str,
+    ttl_seconds: int | None,
+) -> str:
+    """
+    计算不含凭据的端口转发原请求意图摘要。
+
+    :param session_id (UUID): 会话 ID
+    :param remote_port (int): 远端端口
+    :param local_port (int): 本地端口
+    :param client_instance_id (str): 客户端实例 ID
+    :param ttl_seconds (int | None): 请求的有效期
+    :return str: 规范化意图摘要
+    """
+
+    value = {
+        "schema_version": 1,
+        "session_id": str(session_id),
+        "remote_port": remote_port,
+        "local_port": local_port,
+        "client_instance_id": client_instance_id,
+        "ttl_seconds": ttl_seconds,
+    }
+    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return f"sha256:{hashlib.sha256(encoded.encode()).hexdigest()}"
 
 
 @dataclass(frozen=True)
@@ -74,6 +107,11 @@ class IssuedPortForwardConnection:
 
     token: str
     expires_at: datetime
+    # Non-secret routing metadata used to rebuild a local listener after a
+    # desktop process restart.  The one-shot token remains the only secret.
+    node_wireguard_ip: str | None = None
+    ssh_user: str | None = None
+    ssh_port: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +179,7 @@ class PortForwardService:
         remote_port: int,
         local_port: int,
         client_instance_id: str,
+        caller_request_id: UUID | None,
         ttl_seconds: int | None,
     ) -> CreatedPortForward:
         """
@@ -152,17 +191,62 @@ class PortForwardService:
         :param remote_port (int): 运行时远端端口
         :param local_port (int): 客户端请求的本地端口
         :param client_instance_id (str): CLI 实例 ID
+        :param caller_request_id (UUID | None): 可重放的调用方原始请求键
         :param ttl_seconds (int | None): 请求有效秒数
         :return CreatedPortForward: 新建端口转发结果
         :raises ApiError: 设备身份、工具 session、节点能力、端口、配额或有效期不符合转发策略
         """
 
         device_id = self._require_device_token(token)
+        await self._repository.lock_user(user.id)
+        caller_intent_digest = _port_forward_intent_digest(
+            session_id=session_id,
+            remote_port=remote_port,
+            local_port=local_port,
+            client_instance_id=client_instance_id,
+            ttl_seconds=ttl_seconds,
+        )
+        if caller_request_id is not None:
+            prior = await self._repository.get_by_caller_for_update(
+                user_id=user.id, caller_request_id=caller_request_id
+            )
+            if prior is not None:
+                if prior.caller_intent_digest != caller_intent_digest:
+                    raise ApiError(
+                        code="PORT_FORWARD_REQUEST_CONFLICT",
+                        message="Request identity is already bound to a different port forward.",
+                        status_code=409,
+                    )
+                if prior.device_id != device_id:
+                    raise ApiError(
+                        code="PORT_FORWARD_REQUEST_DEVICE_MISMATCH",
+                        message="The original request belongs to another device.",
+                        status_code=403,
+                    )
+                if prior.status in TERMINAL_FORWARD_STATUSES:
+                    raise ApiError(
+                        code="PORT_FORWARD_REQUEST_SETTLED",
+                        message="The original port forward is already settled.",
+                        status_code=409,
+                        details={"status": prior.status, "forward_id": str(prior.id)},
+                    )
+                await self._ensure_non_terminal(prior)
+                node = await self._require_node(prior.node_id)
+                await self._require_runtime_authorization(prior)
+                connection = await self._issue_connection(prior)
+                await self._audit(
+                    actor_user_id=user.id,
+                    action="port_forward.replayed",
+                    port_forward=prior,
+                    details={"request_id": str(caller_request_id)},
+                )
+                await self._session.commit()
+                return CreatedPortForward(port_forward=prior, node=node, connection=connection)
+
         await self._require_rate_limit(
             scope=f"create:{user.id}:{device_id}",
             limit=self._settings.port_forward_create_rate_limit_per_minute,
         )
-        await self._repository.lock_user(user.id)
         device = await self._repository.get_active_device(user_id=user.id, device_id=device_id)
         if device is None:
             raise ApiError(code="DEVICE_REVOKED", message="Device is not active.", status_code=403)
@@ -203,6 +287,10 @@ class PortForwardService:
                 remote_port=remote_port,
                 requested_local_port=local_port,
                 client_instance_id=client_instance_id,
+                caller_request_id=caller_request_id,
+                caller_intent_digest=(
+                    caller_intent_digest if caller_request_id is not None else None
+                ),
                 status="pending",
                 policy_snapshot=policy.snapshot(),
                 bytes_up=0,
@@ -293,6 +381,7 @@ class PortForwardService:
                 status_code=403,
             )
         await self._require_runtime_authorization(port_forward)
+        node = await self._require_node(port_forward.node_id)
         connection = await self._issue_connection(port_forward)
         await self._audit(
             actor_user_id=user.id,
@@ -301,7 +390,13 @@ class PortForwardService:
             details={"device_id": str(device_id)},
         )
         await self._session.commit()
-        return connection
+        return IssuedPortForwardConnection(
+            token=connection.token,
+            expires_at=connection.expires_at,
+            node_wireguard_ip=node.wireguard_ip,
+            ssh_user=node.ssh_user or "agent-remote",
+            ssh_port=node.ssh_port or 22,
+        )
 
     async def stop(self, *, user: User, forward_id: UUID) -> PortForward:
         """

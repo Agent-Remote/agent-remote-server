@@ -84,7 +84,9 @@ class ConnectionRepository:
             .where(SyncSession.user_id == user_id)
             .where(Workspace.device_id == device_id)
             .where(SyncSession.node_id == node_id)
-            .where(SyncSession.status.in_(["starting", "active", "paused"]))
+            .where(
+                SyncSession.status.in_(["starting", "active", "paused", "conflicted", "healthy"])
+            )
             .order_by(SyncSession.created_at.desc())
         )
 
@@ -101,6 +103,7 @@ class ConnectionRepository:
             .where(WireGuardPeer.user_device_id == device_id)
             .where(WireGuardPeer.peer_type == "device")
             .where(WireGuardPeer.status == "active")
+            .with_for_update()
         )
 
     async def list_connectable_nodes(self) -> Sequence[Node]:

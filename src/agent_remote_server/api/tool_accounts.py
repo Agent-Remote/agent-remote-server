@@ -8,9 +8,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_remote_server.api.binding_attach import router as binding_attach_router
+from agent_remote_server.api.config_import_requests import router as config_import_requests_router
 from agent_remote_server.api.deps import (
     get_current_token,
     get_current_user,
+    get_current_user_readonly,
     get_session,
     get_settings,
     require_admin,
@@ -49,6 +52,8 @@ from agent_remote_server.services.runtime_recovery import RuntimeRecoveryService
 from agent_remote_server.services.tool_accounts import ToolAccountService
 
 router = APIRouter(prefix="/tool-accounts", tags=["tool-accounts"])
+router.include_router(binding_attach_router)
+router.include_router(config_import_requests_router)
 
 
 @router.get("/config-imports/latest", response_model=ToolAccountConfigImportStatusListResponse)
@@ -395,7 +400,7 @@ async def get_tool_account_config_import_status(
     task_id: str,
     settings: Annotated[Settings, Depends(get_settings)],
     session: Annotated[AsyncSession, Depends(get_session)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_current_user_readonly)],
 ) -> ToolAccountConfigImportStatusResponse:
     """
     读取工具账户配置导入任务状态

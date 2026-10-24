@@ -25,6 +25,8 @@ from agent_remote_server.api import (
     node_skill_termination,
     nodes,
     port_forwards,
+    reviewed_runtime_recovery,
+    session_attach,
     sessions,
     skill_conflict_content,
     skill_conflicts,
@@ -61,6 +63,8 @@ api_router.include_router(nodes.router)
 api_router.include_router(workspaces.router)
 api_router.include_router(sync_sessions.router)
 api_router.include_router(tool_accounts.router)
+api_router.include_router(reviewed_runtime_recovery.router)
+api_router.include_router(session_attach.router)
 api_router.include_router(sessions.router)
 api_router.include_router(skill_content.router)
 api_router.include_router(node_skill_content.router)

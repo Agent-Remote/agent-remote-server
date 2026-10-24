@@ -128,6 +128,11 @@ class PortForward(IdMixin, TimestampMixin, Base):
     remote_port: Mapped[int] = mapped_column(Integer, nullable=False)
     requested_local_port: Mapped[int] = mapped_column(Integer, nullable=False)
     client_instance_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Stable caller key for retry-safe creation.  This is intentionally
+    # separate from client_instance_id, which identifies a running CLI
+    # process and is regenerated for every invocation.
+    caller_request_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    caller_intent_digest: Mapped[str | None] = mapped_column(String(71), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     policy_snapshot: Mapped[dict[str, object]] = mapped_column(
         JsonType, nullable=False, default=dict

@@ -220,14 +220,28 @@ def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -
     enrollment = enrolled.json()["data"]
     assert enrollment["device_id"] == device_id
     assert enrollment["interface_address"].startswith("10.77.0.")
+    assert enrollment["peer_version"] == 1
+
+    current = client.get("/api/v1/network/wireguard/config", headers=auth_header(device_token))
+    assert current.status_code == 200
+    current_peer = current.json()["data"]
+    assert current_peer["peer_id"] == enrollment["peer_id"]
+    assert current_peer["peer_public_key"] == first_public_key
+    assert current_peer["peer_version"] == 1
 
     rotated = client.post(
         "/api/v1/network/wireguard/peer",
         headers=auth_header(device_token),
-        json={"public_key": second_public_key},
+        json={
+            "public_key": second_public_key,
+            "expected_peer_id": current_peer["peer_id"],
+            "expected_public_key": current_peer["peer_public_key"],
+            "expected_peer_version": current_peer["peer_version"],
+        },
     )
     assert rotated.status_code == 200
-    assert rotated.json()["data"] == enrollment
+    assert rotated.json()["data"]["peer_id"] == enrollment["peer_id"]
+    assert rotated.json()["data"]["peer_version"] == 2
 
     config_response = client.get(
         "/api/v1/network/wireguard/config", headers=auth_header(device_token)
@@ -247,6 +261,7 @@ def test_wireguard_peer_enrollment_repairs_existing_device(client: TestClient) -
             )
             assert len(peers) == 1
             assert peers[0].public_key == second_public_key
+            assert peers[0].version == 2
             logs = list(
                 await session.scalars(
                     select(AuditLog).where(AuditLog.action == "network.wireguard_peer_enroll")
@@ -286,6 +301,37 @@ def test_wireguard_config_requires_device_token(client: TestClient) -> None:
     )
     assert user_token_response.status_code == 403
     assert user_token_response.json()["error"]["code"] == "DEVICE_REQUIRED"
+
+
+def test_wireguard_peer_enrollment_rejects_stale_identity(client: TestClient) -> None:
+    """
+    登记必须携带读取时的 peer identity、公钥和版本。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+    admin_token = bootstrap(client)
+    device_id, device_token = register_device_without_wireguard(client, admin_token)
+    first_public_key = base64.b64encode(bytes(range(32))).decode("ascii")
+    second_public_key = base64.b64encode(bytes(reversed(range(32)))).decode("ascii")
+    enrolled = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(device_token),
+        json={"public_key": first_public_key},
+    )
+    assert enrolled.status_code == 200
+    peer = enrolled.json()["data"]
+    stale = client.post(
+        "/api/v1/network/wireguard/peer",
+        headers=auth_header(device_token),
+        json={
+            "public_key": second_public_key,
+            "expected_peer_id": peer["peer_id"],
+            "expected_public_key": first_public_key,
+            "expected_peer_version": peer["peer_version"] + 1,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "WIREGUARD_PEER_CHANGED"
 
 
 @pytest.mark.parametrize("runtime_backend", ["native", "docker_sandbox"])

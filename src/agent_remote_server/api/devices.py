@@ -104,6 +104,38 @@ async def register_device(
         ssh_public_key=payload.ssh_public_key,
         wireguard_public_key=payload.wireguard_public_key,
         existing_device_id=payload.existing_device_id,
+        request_id=payload.request_id,
+    )
+    return DeviceRegistrationResponse(
+        data=DeviceRegistrationData(
+            device=_device_data(result.device),
+            device_token=_token_data(result.token_issue),
+            ssh_key_id=result.ssh_key.id,
+            wireguard_peer_id=result.wireguard_peer.id if result.wireguard_peer else None,
+        ),
+        request_id=get_request_id(),
+    )
+
+
+@router.get("/registration-requests/{request_id}", response_model=DeviceRegistrationResponse)
+async def recover_device_registration(
+    request_id: UUID,
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> DeviceRegistrationResponse:
+    """
+    读取设备登记丢失回执。
+
+    :param request_id (UUID): 原始设备登记请求标识
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 请求数据库会话
+    :param user (User): 当前用户
+    :return DeviceRegistrationResponse: 原始登记回执
+    """
+
+    result = await IdentityService(session, settings).recover_device_registration(
+        user=user, request_id=request_id
     )
     return DeviceRegistrationResponse(
         data=DeviceRegistrationData(

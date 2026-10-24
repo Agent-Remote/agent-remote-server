@@ -391,7 +391,11 @@ def test_port_forward_full_lifecycle_and_generation_fencing(
     )
     assert reconnect.status_code == 200
     assert reconnect.headers["cache-control"] == "no-store"
-    reconnect_token = reconnect.json()["data"]["token"]
+    reconnect_data = reconnect.json()["data"]
+    assert reconnect_data["node_wireguard_ip"] == "10.77.0.20"
+    assert reconnect_data["ssh_user"] == "agent-remote"
+    assert reconnect_data["ssh_port"] == 22
+    reconnect_token = reconnect_data["token"]
     second = client.post(
         "/api/v1/node-api/port-forwards/redeem",
         headers=auth_header(NODE_TOKEN),
@@ -451,6 +455,57 @@ def test_port_forward_full_lifecycle_and_generation_fencing(
             assert reconnect_token not in serialized
 
     asyncio.run(inspect())
+
+
+def test_port_forward_creation_replays_caller_key_without_duplicate_forward(
+    client: TestClient,
+) -> None:
+    """
+    同一原键重试返回原转发并签发新的连接 token。
+
+    :param client (TestClient): 测试 API 客户端
+    """
+
+    user_token = bootstrap(client)
+    device_id, device_token, _ssh_key_id = register_device(client, user_token)
+    session_id, _node_id = asyncio.run(seed_running_session(client, device_id=device_id))
+    request_id = "11111111-1111-4111-8111-111111111111"
+    payload = {
+        "remote_port": 5173,
+        "local_port": 5173,
+        "client_instance_id": "forward-process-a",
+        "caller_request_id": request_id,
+        "ttl_seconds": 3600,
+    }
+    first = client.post(
+        f"/api/v1/sessions/{session_id}/port-forwards",
+        headers=auth_header(device_token),
+        json=payload,
+    )
+    assert first.status_code == 200, first.text
+    first_data = first.json()["data"]
+    second = client.post(
+        f"/api/v1/sessions/{session_id}/port-forwards",
+        headers=auth_header(device_token),
+        json=payload,
+    )
+    assert second.status_code == 200, second.text
+    second_data = second.json()["data"]
+    assert second_data["id"] == first_data["id"]
+    assert second_data["caller_request_id"] == request_id
+    assert second_data["connection"]["token"] != first_data["connection"]["token"]
+
+    conflict = client.post(
+        f"/api/v1/sessions/{session_id}/port-forwards",
+        headers=auth_header(device_token),
+        json={**payload, "remote_port": 5174},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "PORT_FORWARD_REQUEST_CONFLICT"
+
+    listed = client.get("/api/v1/port-forwards", headers=auth_header(device_token))
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["data"]["items"]].count(first_data["id"]) == 1
 
 
 def test_port_forward_cleanup_expires_disconnects_and_revokes(client: TestClient) -> None:

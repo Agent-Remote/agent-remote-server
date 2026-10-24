@@ -58,6 +58,10 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 
 ## Runtime Backend Control
 
+The independently probed [session lifecycle capability](../session-lifecycle.md)
+describes persistent stop intent and prevention of late physical launches per
+backend. It does not prove current process termination or Skill persistence.
+
 - The control plane owns backend policy; clients cannot select a backend when creating a session.
 - A tool account pins `docker_sandbox` or `native` when it first binds. Sessions inherit that value.
 - Backend changes use an explicit node task and commit only after node-side verification succeeds.
@@ -69,10 +73,34 @@ Use `create_app(settings: Settings | None = None)` for testability. Tests should
 - Node task leases cover both delivery and execution. An expired non-terminal lease is reissued so
   the node can replay its locally persisted terminal result and converge the control-plane state.
 - Users may delete only `stopped`, `interrupted`, or `failed` tool sessions. Collection deletion removes all sessions in those three states for the current user; active lifecycle states remain protected and all deletion paths are audited.
+- New collection deletion uses the owner-scoped `session_delete_requests` caller-key contract. The
+  client submits a sorted, unique, exact session ID set plus tool/status/project selection and
+  canonical selection and intent digests. The Server locks and compares that candidate set before
+  any retention or revocation side effects; a mismatch is rejected and never dynamically expanded.
+  The immutable receipt retains per-session account/workspace/project/node/backend context after
+  the session rows are deleted; ownership remains bound by the owner-scoped request ledger. Legacy
+  dynamic bulk deletion remains only for compatibility.
 - SSH forced commands use a stable device gateway. Attach and sync access are re-authorized against the control plane on every connection.
+- Exact session attachment transfer is an additive Node-gateway contract. Its v1 admission and
+  cleanup routes require `session_attachment_transfer` protocol version 1 and the complete
+  `node/session/device/SSH-key/lease` identity. The Server returns only an opaque runtime scope
+  and bounded lease limits; it never accepts or returns a client-selected account path. Cleanup
+  receipts remain durable when status is `pending` or `unknown`, and only `cleaned` proves
+  completion.
 - SSH agent forwarding is authorized only for active developer credential profiles that explicitly select `agent_forwarding`; both the client attach response and the node forced-command verification carry that decision.
 
 ## CLI Remembered Login
+
+Exact Claude session attachment uses the additive [session attach contract](../session-exact-attach.md).
+Device equality is checked before mutation; polling is read-only and binds the original task row.
+The installed gateway must advertise session_attach v1 and reverify its actual device and SSH key.
+
+Exact account binding attachment uses the structured, device-authorized contract in
+[account binding attachment](../account-binding-attach.md). It is separate from ordinary
+session UUID attachment. Node verification and runtime dispatch preserve the expected
+binding attempt; no client executes the legacy display-only connection string.
+Exact attachment requires the installed gateway capability `binding_attach` with
+literal supported true and protocol version integer 1 before SSH task admission.
 
 CLI remembered login uses `services/cli_login_sessions.py` and an independent refresh
 endpoint. It does not extend ordinary user-token expiry, device identity, browser bindings,
@@ -83,6 +111,8 @@ or full-trust authorization. See the identity and persistence rules for rotation
 - A device-scoped token may create or update only its own active WireGuard peer.
 - The control plane accepts and stores only the device public key; private key generation and storage remain local to the CLI.
 - Re-enrollment keeps the existing peer ID and interface address so local repair does not change routing unexpectedly.
+- Configuration reads expose only `peer_id`, canonical public key, and monotonic `peer_version`; private keys are never returned.
+- Existing-peer enrollment must include matching `expected_peer_id`, `expected_public_key`, and `expected_peer_version`. Any drift returns `WIREGUARD_PEER_CHANGED` without changing the peer; a changed key increments the version and the receipt returns device, peer, and version identity.
 - WireGuard public key bodies must not be written to audit details or logs.
 
 ## Local Device Control Sessions
@@ -253,3 +283,22 @@ protocol changes require matching migrations, tests and callers; do not add stag
 Node request schemas validate the additive Native temporary-storage policy before persistence;
 the generic policy dictionary remains the transport and storage contract. Node execution performs
 independent limit checks. See the Native Temporary Storage Policy section in the node-control rules.
+
+Workspace sync preparation and exact SSH key verification follow
+[workspace sync safety](../workspace-sync-safety.md). Server lifecycle metadata is
+not a claim that a Mutagen cycle completed or that files have no conflicts.
+
+## Caller-key account configuration imports
+
+Strong versioned imports use [immutable caller-key receipts](../account-config-import-requests.md). Admission and the original task commit atomically under the shared user-content lock. Exact replay cannot enqueue another task; read-only recovery reauthorizes the original account and does not touch device last-seen state. Legacy import and dry-run semantics remain unchanged.
+
+Reviewed runtime recovery uses the additive [request contract](../runtime-recovery-requests.md):
+user-token administrator authority, safe observation and exact original-task projection confirmation.
+It reuses runtime recovery tasks/leases/results. New acceptance compares under the existing writer
+lock; saved-key recovery compares stored binding and never rechecks a newer migration scope.
+
+Legacy create/stop session task receipts are terminal and immutable: exact result replay skips
+all lifecycle side effects, and conflicting outcomes/content or task-record identity return a
+fixed conflict. Original create results only advance the same still-starting session under the
+user/session/task locks; later stopping/stopped/interrupted state is preserved. This protects
+control-plane state only: it does not prove physical termination or solve stop-before-start.

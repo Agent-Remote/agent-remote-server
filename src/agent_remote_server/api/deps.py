@@ -244,6 +244,7 @@ async def _resolve_token(
     session: AsyncSession,
     credentials: HTTPAuthorizationCredentials | None,
     allow_expired_device: bool,
+    touch_device: bool = True,
 ) -> AuthToken:
     """
     解析令牌。
@@ -252,6 +253,7 @@ async def _resolve_token(
     :param session (AsyncSession): 会话
     :param credentials (HTTPAuthorizationCredentials | None): 凭据
     :param allow_expired_device (bool): allow 过期状态设备
+    :param touch_device (bool): 是否允许刷新设备最近活动，恢复查询必须关闭
     :return AuthToken: 令牌
     """
     if credentials is None:
@@ -296,7 +298,9 @@ async def _resolve_token(
         last_seen_at = device.last_seen_at
         if last_seen_at is not None and last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=UTC)
-        if last_seen_at is None or last_seen_at <= now - DEVICE_LAST_SEEN_WRITE_INTERVAL:
+        if touch_device and (
+            last_seen_at is None or last_seen_at <= now - DEVICE_LAST_SEEN_WRITE_INTERVAL
+        ):
             device.last_seen_at = now
             await session.commit()
 
@@ -558,3 +562,102 @@ async def get_current_node(
             status_code=401,
         )
     return await NodeService(session, settings).authenticate_node_token(credentials.credentials)
+
+
+async def get_current_user_readonly(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
+    """
+    恢复查询重新验证用户及设备撤销状态，但不刷新任何活动记录。
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 当前只读请求事务
+    :param credentials (HTTPAuthorizationCredentials | None): 当前 Bearer 凭据
+    :return User: 当前仍被授权的活动用户
+    """
+    token = await _resolve_token(
+        settings=settings,
+        session=session,
+        credentials=credentials,
+        allow_expired_device=False,
+        touch_device=False,
+    )
+    user = await IdentityRepository(session).get_user(token.user_id)
+    if user is None or user.status != "active":
+        raise ApiError(code="COMMON_UNAUTHORIZED", message="User is not active.", status_code=401)
+    return user
+
+
+async def get_current_device_token_readonly(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> AuthToken:
+    """
+    验证当前设备凭据而不刷新活动记录，以便先核对预期设备。
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 请求事务
+    :param credentials (HTTPAuthorizationCredentials | None): 当前凭据
+    :return AuthToken: 活动设备令牌
+    """
+    token = await _resolve_token(
+        settings=settings,
+        session=session,
+        credentials=credentials,
+        allow_expired_device=False,
+        touch_device=False,
+    )
+    if token.token_type != "device" or token.user_device_id is None:
+        raise ApiError(
+            code="DEVICE_REQUIRED", message="An active device token is required.", status_code=403
+        )
+    return token
+
+
+async def get_current_user_token_readonly(
+    settings: Annotated[Settings, Depends(get_settings)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
+    """
+    只读验证无设备关联的用户令牌，拒绝设备借用所属管理员身份。
+
+    :param settings (Settings): 应用配置
+    :param session (AsyncSession): 请求事务
+    :param credentials (HTTPAuthorizationCredentials | None): 当前凭据
+    :return User: 当前活动用户
+    """
+    token = await _resolve_token(
+        settings=settings,
+        session=session,
+        credentials=credentials,
+        allow_expired_device=False,
+        touch_device=False,
+    )
+    if token.token_type != "user" or token.user_device_id is not None:
+        raise ApiError(
+            code="USER_TOKEN_REQUIRED", message="A user token is required.", status_code=403
+        )
+    user = await IdentityRepository(session).get_user(token.user_id)
+    if user is None or user.status != "active":
+        raise ApiError(code="COMMON_UNAUTHORIZED", message="User is not active.", status_code=401)
+    return user
+
+
+async def require_user_admin_readonly(
+    user: Annotated[User, Depends(get_current_user_token_readonly)],
+) -> User:
+    """
+    新管理入口仅接受当前活动的独立用户管理员身份。
+
+    :param user (User): 只读验证的用户令牌身份
+    :return User: 当前用户管理员
+    """
+    if user.role != "admin":
+        raise ApiError(
+            code="COMMON_FORBIDDEN", message="Administrator role is required.", status_code=403
+        )
+    return user

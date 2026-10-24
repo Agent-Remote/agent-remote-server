@@ -68,6 +68,26 @@ class PortForwardRepository:
             select(PortForward).where(PortForward.id == forward_id).with_for_update()
         )
 
+    async def get_by_caller_for_update(
+        self, *, user_id: UUID, caller_request_id: UUID
+    ) -> PortForward | None:
+        """
+        按所有者和原始调用键读取并锁定端口转发。
+
+        :param user_id (UUID): 所有者用户 ID
+        :param caller_request_id (UUID): 调用方原始请求键
+        :return PortForward | None: 已锁定的原始转发
+        """
+
+        return await self._session.scalar(
+            select(PortForward)
+            .where(
+                PortForward.user_id == user_id,
+                PortForward.caller_request_id == caller_request_id,
+            )
+            .with_for_update()
+        )
+
     async def list_for_user(self, user_id: UUID) -> Sequence[PortForward]:
         """
         列出用户端口转发
