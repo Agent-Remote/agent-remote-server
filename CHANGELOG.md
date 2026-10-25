@@ -2,6 +2,12 @@
 
 All notable changes to this repository are recorded here.
 
+## v0.2.34 - 2026-10-25
+
+- fix: refresh certifi security pin (705a915)
+- feat: complete durable session lifecycle contracts (c9ce1ee)
+- fix(models): add timezone=True to device registration timestamp fields (727a012)
+
 ## v0.2.33 - 2026-10-07
 
 - fix(nodes): validate native temporary storage policy (5703bc3)
